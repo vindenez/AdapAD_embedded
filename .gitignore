@@ -1,1 +1,10 @@
 /replication_package
+
+.history
+
+.vscode
+
+*.o
+
+.DS_Store
+
