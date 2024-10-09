@@ -6,11 +6,24 @@
 
 class AnomalousThresholdGenerator {
 public:
-    // Constructor to initialize using weights and biases
-    AnomalousThresholdGenerator(const std::vector<std::vector<float>>& weight_ih,
-                                const std::vector<std::vector<float>>& weight_hh,
-                                const std::vector<float>& bias_ih,
-                                const std::vector<float>& bias_hh);
+    // Constructor to initialize using weights and biases for each gate
+    AnomalousThresholdGenerator(
+        const std::vector<std::vector<float>>& weight_ih_input,
+        const std::vector<std::vector<float>>& weight_hh_input,
+        const std::vector<float>& bias_ih_input,
+        const std::vector<float>& bias_hh_input,
+        const std::vector<std::vector<float>>& weight_ih_forget,
+        const std::vector<std::vector<float>>& weight_hh_forget,
+        const std::vector<float>& bias_ih_forget,
+        const std::vector<float>& bias_hh_forget,
+        const std::vector<std::vector<float>>& weight_ih_output,
+        const std::vector<std::vector<float>>& weight_hh_output,
+        const std::vector<float>& bias_ih_output,
+        const std::vector<float>& bias_hh_output,
+        const std::vector<std::vector<float>>& weight_ih_cell,
+        const std::vector<std::vector<float>>& weight_hh_cell,
+        const std::vector<float>& bias_ih_cell,
+        const std::vector<float>& bias_hh_cell);
 
     // Constructor to initialize using hyperparameters
     AnomalousThresholdGenerator(int lookback_len, int prediction_len, float lower_bound, float upper_bound);

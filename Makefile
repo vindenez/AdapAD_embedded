@@ -4,7 +4,7 @@ CXXFLAGS = -std=c++17 -Iinclude -Wall
 SRC = $(wildcard src/*.cpp)
 OBJ = $(SRC:.cpp=.o)
 
-TARGET = lstm_main
+TARGET = adapad
 
 all: $(TARGET)
 

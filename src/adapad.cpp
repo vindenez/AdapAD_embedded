@@ -26,41 +26,74 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
     observed_vals = data;
 }
 
-void AdapAD::train() {
-    // Train the anomaly threshold generator based on prediction errors
-    for (size_t i = 0; i < observed_vals.size(); ++i) {
-        float predicted_val = data_predictor.predict({observed_vals[i]})[0];
-        predicted_vals.push_back(predicted_val);
+bool AdapAD::is_anomalous(float observed_val) {
+    // Add the new observed value to observed_vals
+    observed_vals.push_back(observed_val);
 
-        float error = observed_vals[i] - predicted_val;
-        predictive_errors.push_back(error);
-
-        if (predictive_errors.size() >= predictor_config.lookback_len) {
-            // Update the generator with predictive errors
-            generator.update(predictor_config.epoch_update, predictor_config.lr_update, predictive_errors, error);
-        }
+    // Ensure we have enough data for the lookback length
+    if (observed_vals.size() < predictor_config.lookback_len) {
+        std::cerr << "Not enough data to perform prediction. Need at least " << predictor_config.lookback_len << " values." << std::endl;
+        return false;
     }
 
-    std::cout << "Trained AdapAD components." << std::endl;
-}
+    // Get the input sequence for the LSTM (last lookback_len values)
+    std::vector<float> input_data(observed_vals.end() - predictor_config.lookback_len, observed_vals.end());
 
-bool AdapAD::is_anomalous(float observed_val) {
+    // Ensure input size matches the LSTM predictor's expected input size
+    if (input_data.size() != data_predictor.get_input_size()) {
+        std::cerr << "Error: Input size mismatch in is_anomalous(). Expected " 
+                  << data_predictor.get_input_size() << " but got " << input_data.size() << std::endl;
+        return false;  // Assuming false if we cannot process the input
+    }
+
     // Predict a normal value
-    float predicted_val = data_predictor.predict({observed_val})[0];
+    std::vector<float> predicted_vals = data_predictor.predict(input_data);
+    if (predicted_vals.empty()) {
+        std::cerr << "Error: Predicted values are empty after forward pass." << std::endl;
+        return false;
+    }
+
+    float predicted_val = predicted_vals[0];
     float error = observed_val - predicted_val;
+
+    // Debug output
+    std::cout << "Observed Value: " << observed_val << ", Predicted Value: " << predicted_val << ", Error: " << error << std::endl;
+
+    // Update the generator based on the observed error
+    if (predictive_errors.size() >= predictor_config.lookback_len) {
+        std::cout << "Updating generator with new_input size: " << predictive_errors.size() << std::endl;
+        generator.update(predictor_config.epoch_update, predictor_config.lr_update, predictive_errors, error);
+    } else {
+        std::cout << "Not updating generator: predictive_errors size (" << predictive_errors.size() 
+                  << ") is less than lookback_len (" << predictor_config.lookback_len << ")" << std::endl;
+    }
+
+    predictive_errors.push_back(error);
+
+    // Generate a threshold
+    std::cout << "Generating threshold with prediction_errors size: " << predictive_errors.size() << std::endl;
     float threshold = generator.generate(predictive_errors, minimal_threshold);
+    if (threshold == minimal_threshold) {
+        std::cerr << "Warning: Returning minimal_threshold as generated threshold." << std::endl;
+    }
+
     threshold = std::max(threshold, minimal_threshold);
 
     // Determine if the observation is anomalous
     bool is_anomalous = (std::abs(error) > threshold);
+    std::cout << "Threshold: " << threshold << ", Anomalous: " << (is_anomalous ? "Yes" : "No") << std::endl;
 
     // Log the result
-    f_log << observed_val << "," << predicted_val << ","
-          << predicted_val - threshold << "," << predicted_val + threshold << ","
-          << is_anomalous << "," << error << "," << threshold << "\n";
+    if (f_log.is_open()) {
+        f_log << observed_val << "," << predicted_val << ","
+              << predicted_val - threshold << "," << predicted_val + threshold << ","
+              << is_anomalous << "," << error << "," << threshold << "\n";
+    }
 
     return is_anomalous;
 }
+
+
 
 void AdapAD::clean() {
     // This function can clean up values if needed to keep memory use minimal
