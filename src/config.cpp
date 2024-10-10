@@ -55,3 +55,9 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
 
     return value_range_config;
 }
+
+namespace config {
+    int update_G_epoch = 100;
+    float update_G_lr = 0.00005;
+    // ... other variables ...
+}

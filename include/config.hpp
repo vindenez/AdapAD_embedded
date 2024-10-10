@@ -39,4 +39,10 @@ extern float update_G_lr;
 extern int LSTM_size;
 extern int LSTM_size_layer;
 
+namespace config {
+    extern int update_G_epoch;
+    extern float update_G_lr;
+    // ... other variables ...
+}
+
 #endif // CONFIG_HPP

@@ -4,8 +4,7 @@
 std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec) {
     // Check if matrix or vector is empty
     if (matrix.empty() || vec.empty()) {
-        std::cerr << "Error: Empty matrix or vector in matrix_vector_mul." << std::endl;
-        return {};
+        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul.");
     }
 
     // Check for consistent matrix row size

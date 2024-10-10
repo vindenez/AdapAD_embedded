@@ -79,8 +79,33 @@ int main() {
             throw std::runtime_error("Minimal threshold must be set.");
         }
 
-        // Create AdapAD instance
-        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold);
+        // Create LSTMPredictor with correct dimensions
+        std::cout << "Initializing LSTMPredictor with:" << std::endl;
+        std::cout << "input_size: " << predictor_config.input_size << std::endl;
+        std::cout << "hidden_size: " << predictor_config.hidden_size << std::endl;
+        std::cout << "num_layers: " << predictor_config.num_layers << std::endl;
+        std::cout << "lookback_len: " << predictor_config.lookback_len << std::endl;
+
+        LSTMPredictor lstm_predictor(
+            predictor_config.input_size,
+            predictor_config.hidden_size,
+            predictor_config.num_layers,
+            predictor_config.lookback_len
+        );
+
+        // Print LSTM predictor details after initialization
+        std::cout << "LSTMPredictor initialized with:" << std::endl;
+        std::cout << "input_size: " << lstm_predictor.get_input_size() << std::endl;
+        std::cout << "hidden_size: " << lstm_predictor.get_hidden_size() << std::endl;
+        std::cout << "weight_ih dimensions: " << lstm_predictor.get_weight_ih_input().size() << " x " 
+                  << (lstm_predictor.get_weight_ih_input().empty() ? 0 : lstm_predictor.get_weight_ih_input()[0].size()) << std::endl;
+        std::cout << "weight_hh dimensions: " << lstm_predictor.get_weight_hh_input().size() << " x " 
+                  << (lstm_predictor.get_weight_hh_input().empty() ? 0 : lstm_predictor.get_weight_hh_input()[0].size()) << std::endl;
+        std::cout << "bias_ih size: " << lstm_predictor.get_bias_ih_input().size() << std::endl;
+        std::cout << "bias_hh size: " << lstm_predictor.get_bias_hh_input().size() << std::endl;
+
+        // Create AdapAD instance with the LSTMPredictor
+        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, lstm_predictor);
 
         // Load training data
         std::vector<float> training_data = load_csv_values("data/Tide_pressure.csv");
@@ -122,8 +147,8 @@ int main() {
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
     }
 
     return 0;
 }
-
