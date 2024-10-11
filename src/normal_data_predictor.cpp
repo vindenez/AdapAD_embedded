@@ -36,10 +36,6 @@ NormalDataPredictor::NormalDataPredictor(const std::unordered_map<std::string, s
     if (weights.find("fc.weight") != weights.end() && biases.find("fc.bias") != biases.end()) {
         fc_weight = weights.at("fc.weight");
         fc_bias = biases.at("fc.bias");
-
-        std::cout << "Fully Connected Layer Weight dimensions: " << fc_weight.size() << " x " 
-                  << (fc_weight.empty() ? 0 : fc_weight[0].size()) << std::endl;
-        std::cout << "Fully Connected Layer Bias size: " << fc_bias.size() << std::endl;
     } else {
         throw std::runtime_error("Missing fully connected layer weights/biases");
     }
@@ -47,14 +43,6 @@ NormalDataPredictor::NormalDataPredictor(const std::unordered_map<std::string, s
     // Set input size based on the first LSTM layer
     input_size = weights.at("lstm.weight_ih_l0")[0].size();
 
-    std::cout << "NormalDataPredictor initialized with:" << std::endl;
-    std::cout << "Input size: " << input_size << std::endl;
-    std::cout << "Number of LSTM layers: " << lstm_layers.size() << std::endl;
-    for (size_t i = 0; i < lstm_layers.size(); ++i) {
-        std::cout << "LSTM layer " << i << " hidden size: " << lstm_layers[i].get_hidden_size() << std::endl;
-    }
-    std::cout << "Fully connected layer input size: " << fc_weight[0].size() << std::endl;
-    std::cout << "Fully connected layer output size: " << fc_weight.size() << std::endl;
 }
 
 
@@ -65,17 +53,11 @@ int NormalDataPredictor::get_input_size() const {
 
 // Predict function with forward pass through LSTM layers and fully connected layer
 std::vector<float> NormalDataPredictor::predict(const std::vector<float>& input) {
-    std::cout << "NormalDataPredictor::predict called with input size: " << input.size() << std::endl;
-    std::cout << "Expected input size: " << lstm_layers[0].get_input_size() << std::endl;
-
     std::vector<float> output = input;
     std::vector<float> h(lstm_layers[0].get_hidden_size(), 0.0f);
     std::vector<float> c(lstm_layers[0].get_hidden_size(), 0.0f);
 
     for (size_t i = 0; i < lstm_layers.size(); ++i) {
-        std::cout << "LSTM layer " << i << " input size: " << output.size() << std::endl;
-        std::cout << "LSTM layer " << i << " hidden size: " << lstm_layers[i].get_hidden_size() << std::endl;
-        
         // Ensure output size matches the expected input size for the current layer
         if (output.size() != lstm_layers[i].get_input_size()) {
             std::cerr << "Error: Mismatched input size for LSTM layer " << i << ". Expected: "
@@ -87,11 +69,9 @@ std::vector<float> NormalDataPredictor::predict(const std::vector<float>& input)
         if (output.empty()) {
             throw std::runtime_error("Error: LSTM layer " + std::to_string(i) + " forward pass returned an empty vector.");
         }
-        std::cout << "LSTM layer " << i << " output size: " << output.size() << std::endl;
     }
 
     output = fully_connected(output);
-    std::cout << "Fully connected layer output size: " << output.size() << std::endl;
 
     return output;
 }

@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <cmath>
 
 std::vector<float> load_csv_values(const std::string& filename) {
     std::ifstream file(filename);
@@ -51,25 +52,75 @@ std::vector<float> load_csv_values(const std::string& filename) {
     return values;
 }
 
+struct DataPoint {
+    float value;
+    bool is_anomaly;
+};
+
+std::vector<DataPoint> load_csv_values_with_labels(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return {};
+    }
+
+    std::vector<DataPoint> data_points;
+    std::string line;
+
+    // Skip the header line
+    std::getline(file, line);
+
+    // Read each line
+    while (std::getline(file, line)) {
+        std::stringstream ss(line);
+        std::string timestamp, value_str, is_anomaly_str;
+
+        std::getline(ss, timestamp, ',');
+        std::getline(ss, value_str, ',');
+        std::getline(ss, is_anomaly_str, ',');
+
+        try {
+            float value = std::stof(value_str);
+            bool is_anomaly = (is_anomaly_str == "1");
+            data_points.push_back({value, is_anomaly});
+        } catch (const std::exception& e) {
+            std::cerr << "Error parsing value: " << e.what() << std::endl;
+        }
+    }
+
+    return data_points;
+}
+
+struct Metrics {
+    float accuracy;
+    float precision;
+    float recall;
+    float f1_score;
+};
+
+Metrics calculate_metrics(const std::vector<bool>& predictions, const std::vector<bool>& actual_labels) {
+    int true_positives = 0, false_positives = 0, true_negatives = 0, false_negatives = 0;
+
+    for (size_t i = 0; i < predictions.size(); ++i) {
+        if (predictions[i] && actual_labels[i]) true_positives++;
+        else if (predictions[i] && !actual_labels[i]) false_positives++;
+        else if (!predictions[i] && !actual_labels[i]) true_negatives++;
+        else if (!predictions[i] && actual_labels[i]) false_negatives++;
+    }
+
+    float accuracy = static_cast<float>(true_positives + true_negatives) / predictions.size();
+    float precision = true_positives / static_cast<float>(true_positives + false_positives);
+    float recall = true_positives / static_cast<float>(true_positives + false_negatives);
+    float f1_score = 2 * (precision * recall) / (precision + recall);
+
+    return {accuracy, precision, recall, f1_score};
+}
+
 int main() {
     try {
         // Load weights and biases from JSON file
         auto weights = load_all_weights("weights/lstm_weights.json");
         auto biases = load_all_biases("weights/lstm_weights.json");
-
-        // Debug: Check the number of loaded weights and biases
-        std::cout << "Number of weight entries loaded: " << weights.size() << std::endl;
-        std::cout << "Number of bias entries loaded: " << biases.size() << std::endl;
-
-        // List the keys for verification (Debugging)
-        std::cout << "Loaded weight keys: " << std::endl;
-        for (const auto& pair : weights) {
-            std::cout << pair.first << std::endl;
-        }
-        std::cout << "Loaded bias keys: " << std::endl;
-        for (const auto& pair : biases) {
-            std::cout << pair.first << std::endl;
-        }
 
         // Initialize configuration
         PredictorConfig predictor_config = init_predictor_config();
@@ -89,19 +140,6 @@ int main() {
         );
 
         
-        std::cout << "LSTMPredictor initialized successfully" << std::endl;
-
-        // Print LSTM predictor details after initialization
-        std::cout << "LSTMPredictor initialized with:" << std::endl;
-        std::cout << "input_size: " << lstm_predictor.get_input_size() << std::endl;
-        std::cout << "hidden_size: " << lstm_predictor.get_hidden_size() << std::endl;
-        std::cout << "weight_ih dimensions: " << lstm_predictor.get_weight_ih_input().size() << " x " 
-                  << (lstm_predictor.get_weight_ih_input().empty() ? 0 : lstm_predictor.get_weight_ih_input()[0].size()) << std::endl;
-        std::cout << "weight_hh dimensions: " << lstm_predictor.get_weight_hh_input().size() << " x " 
-                  << (lstm_predictor.get_weight_hh_input().empty() ? 0 : lstm_predictor.get_weight_hh_input()[0].size()) << std::endl;
-        std::cout << "bias_ih size: " << lstm_predictor.get_bias_ih_input().size() << std::endl;
-        std::cout << "bias_hh size: " << lstm_predictor.get_bias_hh_input().size() << std::endl;
-
         // Create AdapAD instance with the LSTMPredictor
         AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, lstm_predictor);
 
@@ -113,19 +151,34 @@ int main() {
 
         adap_ad.set_training_data(training_data);
 
-        // Validation Stage
-        std::vector<float> validation_data = load_csv_values("data/Tide_pressure.validation_stage.csv");
+        // Load validation data with labels
+        std::vector<DataPoint> validation_data = load_csv_values_with_labels("data/Tide_pressure.validation_stage.csv");
         if (validation_data.empty()) {
             throw std::runtime_error("Validation data could not be loaded. Check the file path and contents.");
         }
-        for (float val : validation_data) {
-            bool is_anomalous = adap_ad.is_anomalous(val);
+
+        std::vector<bool> predictions;
+        std::vector<bool> actual_labels;
+
+        for (const auto& data_point : validation_data) {
+            bool is_anomalous = adap_ad.is_anomalous(data_point.value);
+            predictions.push_back(is_anomalous);
+            actual_labels.push_back(data_point.is_anomaly);
+
             if (is_anomalous) {
-                std::cout << "Validation: Anomalous value detected: " << val << std::endl;
+                std::cout << "Validation: Anomalous value detected: " << data_point.value << std::endl;
             } else {
-                std::cout << "Validation: Normal value: " << val << std::endl;
+                std::cout << "Validation: Normal value: " << data_point.value << std::endl;
             }
         }
+
+        Metrics validation_metrics = calculate_metrics(predictions, actual_labels);
+
+        std::cout << "Validation Metrics:" << std::endl;
+        std::cout << "Accuracy: " << validation_metrics.accuracy << std::endl;
+        std::cout << "Precision: " << validation_metrics.precision << std::endl;
+        std::cout << "Recall: " << validation_metrics.recall << std::endl;
+        std::cout << "F1-score: " << validation_metrics.f1_score << std::endl;
 
         // Benchmark Stage
         std::vector<float> benchmark_data = load_csv_values("data/Tide_pressure.benchmark_stage.csv");
