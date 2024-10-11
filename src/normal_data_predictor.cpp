@@ -14,21 +14,22 @@ NormalDataPredictor::NormalDataPredictor(const std::unordered_map<std::string, s
 
         if (weights.find(weight_ih_key) == weights.end() || weights.find(weight_hh_key) == weights.end() ||
             biases.find(bias_ih_key) == biases.end() || biases.find(bias_hh_key) == biases.end()) {
-            throw std::runtime_error("Missing required LSTM layer weights/biases for layer " + std::to_string(i));
+            throw std::runtime_error("Missing weights or biases for LSTM layer " + std::to_string(i));
         }
 
-        // Debugging weights and biases for each LSTM layer
-        std::cout << "Loading LSTM Layer " << i << "..." << std::endl;
-        std::cout << "Weight_ih dimensions: " << weights.at(weight_ih_key).size() << " x " 
-                  << (weights.at(weight_ih_key).empty() ? 0 : weights.at(weight_ih_key)[0].size()) << std::endl;
-        std::cout << "Weight_hh dimensions: " << weights.at(weight_hh_key).size() << " x " 
-                  << (weights.at(weight_hh_key).empty() ? 0 : weights.at(weight_hh_key)[0].size()) << std::endl;
-        std::cout << "Bias_ih size: " << biases.at(bias_ih_key).size() << std::endl;
-        std::cout << "Bias_hh size: " << biases.at(bias_hh_key).size() << std::endl;
+        const auto& weight_ih = weights.at(weight_ih_key);
+        const auto& weight_hh = weights.at(weight_hh_key);
+        const auto& bias_ih = biases.at(bias_ih_key);
+        const auto& bias_hh = biases.at(bias_hh_key);
 
-        // Create LSTM layer
-        lstm_layers.emplace_back(weights.at(weight_ih_key), weights.at(weight_hh_key),
-                                 biases.at(bias_ih_key), biases.at(bias_hh_key));
+        if (weight_ih.empty() || weight_hh.empty()) {
+            throw std::runtime_error("Empty weight matrices for LSTM layer " + std::to_string(i));
+        }
+
+        int input_size = (i == 0) ? weight_ih[0].size() : lstm_layers[i-1].get_hidden_size();
+        int hidden_size = weight_hh[0].size();
+
+        lstm_layers.emplace_back(weight_ih, weight_hh, bias_ih, bias_hh, input_size, hidden_size);
     }
 
     // Load fully connected layer
@@ -64,13 +65,8 @@ int NormalDataPredictor::get_input_size() const {
 
 // Predict function with forward pass through LSTM layers and fully connected layer
 std::vector<float> NormalDataPredictor::predict(const std::vector<float>& input) {
-    std::cout << "Predict function called with input size: " << input.size() << std::endl;
-    std::cout << "Expected input size: " << input_size << std::endl;
-
-    if (input.size() != input_size) {
-        throw std::runtime_error("Input size mismatch in predict function. Expected: " + 
-                                 std::to_string(input_size) + ", Got: " + std::to_string(input.size()));
-    }
+    std::cout << "NormalDataPredictor::predict called with input size: " << input.size() << std::endl;
+    std::cout << "Expected input size: " << lstm_layers[0].get_input_size() << std::endl;
 
     std::vector<float> output = input;
     std::vector<float> h(lstm_layers[0].get_hidden_size(), 0.0f);
@@ -79,6 +75,14 @@ std::vector<float> NormalDataPredictor::predict(const std::vector<float>& input)
     for (size_t i = 0; i < lstm_layers.size(); ++i) {
         std::cout << "LSTM layer " << i << " input size: " << output.size() << std::endl;
         std::cout << "LSTM layer " << i << " hidden size: " << lstm_layers[i].get_hidden_size() << std::endl;
+        
+        // Ensure output size matches the expected input size for the current layer
+        if (output.size() != lstm_layers[i].get_input_size()) {
+            std::cerr << "Error: Mismatched input size for LSTM layer " << i << ". Expected: "
+                      << lstm_layers[i].get_input_size() << ", Got: " << output.size() << std::endl;
+            return {};
+        }
+
         std::tie(output, h, c) = lstm_layers[i].forward(output, h, c);
         if (output.empty()) {
             throw std::runtime_error("Error: LSTM layer " + std::to_string(i) + " forward pass returned an empty vector.");

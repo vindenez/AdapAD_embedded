@@ -87,8 +87,14 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 
 bool AdapAD::is_anomalous(float observed_val) {
     try {
+        std::cout << "Entering is_anomalous with observed_val: " << observed_val << std::endl;
+        std::cout << "Current observed_vals size: " << observed_vals.size() << std::endl;
+        std::cout << "predictor_config.lookback_len: " << predictor_config.lookback_len << std::endl;
+        
         observed_vals.push_back(observed_val);
-
+        
+        std::cout << "After push_back, observed_vals size: " << observed_vals.size() << std::endl;
+        
         if (observed_vals.size() < predictor_config.lookback_len) {
             std::cerr << "Not enough data to perform prediction. Need at least " 
                       << predictor_config.lookback_len << " values." << std::endl;

@@ -3,6 +3,7 @@
 #include "adapad.hpp"
 #include "json_loader.hpp"
 #include "config.hpp"
+#include "lstm_predictor.hpp"  // Make sure to include this header
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -80,18 +81,15 @@ int main() {
         }
 
         // Create LSTMPredictor with correct dimensions
-        std::cout << "Initializing LSTMPredictor with:" << std::endl;
-        std::cout << "input_size: " << predictor_config.input_size << std::endl;
-        std::cout << "hidden_size: " << predictor_config.hidden_size << std::endl;
-        std::cout << "num_layers: " << predictor_config.num_layers << std::endl;
-        std::cout << "lookback_len: " << predictor_config.lookback_len << std::endl;
-
         LSTMPredictor lstm_predictor(
             predictor_config.input_size,
             predictor_config.hidden_size,
             predictor_config.num_layers,
             predictor_config.lookback_len
         );
+
+        
+        std::cout << "LSTMPredictor initialized successfully" << std::endl;
 
         // Print LSTM predictor details after initialization
         std::cout << "LSTMPredictor initialized with:" << std::endl;

@@ -1,70 +1,67 @@
 #include "lstm_predictor.hpp"
 #include "matrix_utils.hpp"
 #include "activation_functions.hpp"
+#include <random>
+#include <cmath>
 #include <iostream>
+#include <stdexcept>
 
 // Constructor to initialize with input size, hidden size, and other hyperparameters
 LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int num_layers, int lookback_len)
     : input_size(input_size),
       hidden_size(hidden_size),
       num_layers(num_layers),
-      lookback_len(lookback_len),
-      h(hidden_size, 0.0f),
-      c(hidden_size, 0.0f) {
+      lookback_len(lookback_len) {
     
-    // Initialize weights and biases with correct dimensions
-    weight_ih_input = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(input_size));
-    weight_hh_input = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(hidden_size));
-    bias_ih_input = std::vector<float>(4 * hidden_size);
-    bias_hh_input = std::vector<float>(4 * hidden_size);
+    std::cout << "LSTMPredictor constructor started" << std::endl;
+    
+    // Initialize weights and biases with Xavier initialization
+    std::random_device rd;
+    std::mt19937 gen(rd());
 
-    weight_ih_forget = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(input_size));
-    weight_hh_forget = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(hidden_size));
-    bias_ih_forget = std::vector<float>(4 * hidden_size);
-    bias_hh_forget = std::vector<float>(4 * hidden_size);
+    auto xavier_init = [&gen](int in_features, int out_features) {
+        float std = std::sqrt(2.0f / (in_features + out_features));
+        std::normal_distribution<> d(0, std);
+        return [d = std::move(d), &gen]() mutable { return d(gen); };
+    };
 
-    weight_ih_output = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(input_size));
-    weight_hh_output = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(hidden_size));
-    bias_ih_output = std::vector<float>(4 * hidden_size);
-    bias_hh_output = std::vector<float>(4 * hidden_size);
-
-    weight_ih_cell = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(input_size));
-    weight_hh_cell = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(hidden_size));
-    bias_ih_cell = std::vector<float>(4 * hidden_size);
-    bias_hh_cell = std::vector<float>(4 * hidden_size);
-
-    // Initialize with random values (you can use a proper random number generator)
-    auto init_weights = [](auto& weights) {
-        for (auto& row : weights) {
+    auto init_weights = [&](int rows, int cols) {
+        std::cout << "Initializing weights with dimensions: " << rows << "x" << cols << std::endl;
+        auto init = xavier_init(rows, cols);
+        std::vector<std::vector<float>> w(rows, std::vector<float>(cols));
+        for (auto& row : w) {
             for (auto& val : row) {
-                val = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+                val = init();
             }
         }
+        return w;
     };
 
-    auto init_biases = [](auto& biases) {
-        for (auto& val : biases) {
-            val = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
-        }
+    auto init_bias = [](int size) {
+        std::cout << "Initializing bias with size: " << size << std::endl;
+        return std::vector<float>(size, 0.0f);  // Initialize biases to zero
     };
 
-    init_weights(weight_ih_input);
-    init_weights(weight_hh_input);
-    init_weights(weight_ih_forget);
-    init_weights(weight_hh_forget);
-    init_weights(weight_ih_output);
-    init_weights(weight_hh_output);
-    init_weights(weight_ih_cell);
-    init_weights(weight_hh_cell);
+    // LSTM weights and biases for all gates
+    weight_ih_input = init_weights(hidden_size, input_size);
+    weight_hh_input = init_weights(hidden_size, hidden_size);
+    bias_ih_input = init_bias(hidden_size);
+    bias_hh_input = init_bias(hidden_size);
 
-    init_biases(bias_ih_input);
-    init_biases(bias_hh_input);
-    init_biases(bias_ih_forget);
-    init_biases(bias_hh_forget);
-    init_biases(bias_ih_output);
-    init_biases(bias_hh_output);
-    init_biases(bias_ih_cell);
-    init_biases(bias_hh_cell);
+    weight_ih_forget = init_weights(hidden_size, input_size);
+    weight_hh_forget = init_weights(hidden_size, hidden_size);
+    bias_ih_forget = init_bias(hidden_size);
+    bias_hh_forget = init_bias(hidden_size);
+
+    weight_ih_cell = init_weights(hidden_size, input_size);
+    weight_hh_cell = init_weights(hidden_size, hidden_size);
+    bias_ih_cell = init_bias(hidden_size);
+    bias_hh_cell = init_bias(hidden_size);
+
+    weight_ih_output = init_weights(hidden_size, input_size);
+    weight_hh_output = init_weights(hidden_size, hidden_size);
+    bias_ih_output = init_bias(hidden_size);
+    bias_hh_output = init_bias(hidden_size);
 
     // Print initialization details
     std::cout << "LSTMPredictor initialized with:" << std::endl;
@@ -75,6 +72,8 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int num_layers, in
     std::cout << "weight_ih_forget dimensions: " << weight_ih_forget.size() << " x " << weight_ih_forget[0].size() << std::endl;
     std::cout << "weight_hh_forget dimensions: " << weight_hh_forget.size() << " x " << weight_hh_forget[0].size() << std::endl;
     // ... (print dimensions for other weights and biases) ...
+
+    std::cout << "LSTMPredictor constructor completed" << std::endl;
 }
 
 // Constructor to initialize with weights and biases for each gate
@@ -99,20 +98,43 @@ LSTMPredictor::LSTMPredictor(const std::vector<std::vector<float>>& weight_ih_in
       weight_ih_forget(weight_ih_forget), weight_hh_forget(weight_hh_forget), bias_ih_forget(bias_ih_forget), bias_hh_forget(bias_hh_forget),
       weight_ih_output(weight_ih_output), weight_hh_output(weight_hh_output), bias_ih_output(bias_ih_output), bias_hh_output(bias_hh_output),
       weight_ih_cell(weight_ih_cell), weight_hh_cell(weight_hh_cell), bias_ih_cell(bias_ih_cell), bias_hh_cell(bias_hh_cell),
-      h(hidden_size, 0.0f), c(hidden_size, 0.0f) {}
+      h(hidden_size, 0.0f), c(hidden_size, 0.0f) {
+    
+    std::cout << "LSTMPredictor full constructor called" << std::endl;
+    // Add validation checks here if needed
+}
 
 // Simplified constructor for fewer parameters (matching NormalDataPredictor)
 LSTMPredictor::LSTMPredictor(const std::vector<std::vector<float>>& weight_ih,
                              const std::vector<std::vector<float>>& weight_hh,
                              const std::vector<float>& bias_ih,
-                             const std::vector<float>& bias_hh)
-    : input_size(weight_ih[0].size()),
-      hidden_size(weight_hh[0].size()),
-      weight_ih_input(weight_ih), weight_hh_input(weight_hh),
-      bias_ih_input(bias_ih), bias_hh_input(bias_hh),
-      h(hidden_size, 0.0f), c(hidden_size, 0.0f) {
+                             const std::vector<float>& bias_hh,
+                             int input_size,
+                             int hidden_size)
+    : input_size(input_size),
+      hidden_size(hidden_size),
+      num_layers(1),  // Assuming single layer for simplified constructor
+      lookback_len(1),  // Assuming lookback of 1 for simplified constructor
+      weight_ih_input(weight_ih.begin(), weight_ih.begin() + hidden_size),
+      weight_hh_input(weight_hh.begin(), weight_hh.begin() + hidden_size),
+      bias_ih_input(bias_ih.begin(), bias_ih.begin() + hidden_size),
+      bias_hh_input(bias_hh.begin(), bias_hh.begin() + hidden_size),
+      weight_ih_forget(weight_ih.begin() + hidden_size, weight_ih.begin() + 2 * hidden_size),
+      weight_hh_forget(weight_hh.begin() + hidden_size, weight_hh.begin() + 2 * hidden_size),
+      bias_ih_forget(bias_ih.begin() + hidden_size, bias_ih.begin() + 2 * hidden_size),
+      bias_hh_forget(bias_hh.begin() + hidden_size, bias_hh.begin() + 2 * hidden_size),
+      weight_ih_output(weight_ih.begin() + 3 * hidden_size, weight_ih.end()),
+      weight_hh_output(weight_hh.begin() + 3 * hidden_size, weight_hh.end()),
+      bias_ih_output(bias_ih.begin() + 3 * hidden_size, bias_ih.end()),
+      bias_hh_output(bias_hh.begin() + 3 * hidden_size, bias_hh.end()),
+      weight_ih_cell(weight_ih.begin() + 2 * hidden_size, weight_ih.begin() + 3 * hidden_size),
+      weight_hh_cell(weight_hh.begin() + 2 * hidden_size, weight_hh.begin() + 3 * hidden_size),
+      bias_ih_cell(bias_ih.begin() + 2 * hidden_size, bias_ih.begin() + 3 * hidden_size),
+      bias_hh_cell(bias_hh.begin() + 2 * hidden_size, bias_hh.begin() + 3 * hidden_size),
+      h(hidden_size, 0.0f),
+      c(hidden_size, 0.0f) {
     
-    std::cout << "LSTMPredictor constructor called with:" << std::endl;
+    std::cout << "LSTMPredictor simplified constructor called with:" << std::endl;
     std::cout << "weight_ih dimensions: " << weight_ih.size() << " x " << (weight_ih.empty() ? 0 : weight_ih[0].size()) << std::endl;
     std::cout << "weight_hh dimensions: " << weight_hh.size() << " x " << (weight_hh.empty() ? 0 : weight_hh[0].size()) << std::endl;
     std::cout << "bias_ih size: " << bias_ih.size() << std::endl;
@@ -145,7 +167,9 @@ LSTMPredictor::LSTMPredictor(const LSTMPredictor& other)
       bias_ih_output(other.bias_ih_output), bias_hh_output(other.bias_hh_output),
       weight_ih_cell(other.weight_ih_cell), weight_hh_cell(other.weight_hh_cell),
       bias_ih_cell(other.bias_ih_cell), bias_hh_cell(other.bias_hh_cell),
-      h(other.h), c(other.c) {}
+      h(other.h), c(other.c) {
+    std::cout << "LSTMPredictor copy constructor called" << std::endl;
+}
 
 // Method to get input size
 int LSTMPredictor::get_input_size() const {
@@ -170,6 +194,10 @@ std::tuple<std::vector<float>, std::vector<float>, std::vector<float>> LSTMPredi
         std::cout << "Weight_ih dimensions: " << weight_ih_input.size() << "x" << weight_ih_input[0].size() << std::endl;
         std::cout << "Weight_hh dimensions: " << weight_hh_input.size() << "x" << weight_hh_input[0].size() << std::endl;
 
+        if (input.size() != input_size) {
+            throw std::runtime_error("Input size mismatch. Expected: " + std::to_string(input_size) + ", Got: " + std::to_string(input.size()));
+        }
+
         // Input gate
         std::vector<float> input_gate = matrix_vector_mul(weight_ih_input, input);
         std::cout << "Input gate after weight_ih_input multiplication size: " << input_gate.size() << std::endl;
@@ -193,12 +221,12 @@ std::tuple<std::vector<float>, std::vector<float>, std::vector<float>> LSTMPredi
         std::cout << "bias_ih_forget size: " << bias_ih_forget.size() << std::endl;
         std::cout << "bias_hh_forget size: " << bias_hh_forget.size() << std::endl;
 
+        if (weight_ih_forget.empty() || weight_hh_forget.empty() || bias_ih_forget.empty() || bias_hh_forget.empty()) {
+            throw std::runtime_error("Forget gate weights or biases are empty");
+        }
+
         std::vector<float> forget_gate = matrix_vector_mul(weight_ih_forget, input);
-        std::cout << "Forget gate after weight_ih_forget multiplication size: " << forget_gate.size() << std::endl;
-
         std::vector<float> hidden_mul_forget = matrix_vector_mul(weight_hh_forget, prev_h);
-        std::cout << "Hidden multiplication size for forget gate: " << hidden_mul_forget.size() << std::endl;
-
         forget_gate = elementwise_add(forget_gate, hidden_mul_forget);
         forget_gate = elementwise_add(forget_gate, bias_ih_forget);
         forget_gate = elementwise_add(forget_gate, bias_hh_forget);
@@ -256,6 +284,13 @@ void LSTMPredictor::update_parameters(const std::vector<std::vector<float>>& dw_
                                       const std::vector<float>& db_ih, 
                                       const std::vector<float>& db_hh, 
                                       float learning_rate) {
+    // Debug print
+    std::cout << "LSTMPredictor::update_parameters called" << std::endl;
+    std::cout << "dw_ih size: " << dw_ih.size() << "x" << dw_ih[0].size() << std::endl;
+    std::cout << "dw_hh size: " << dw_hh.size() << "x" << dw_hh[0].size() << std::endl;
+    std::cout << "db_ih size: " << db_ih.size() << std::endl;
+    std::cout << "db_hh size: " << db_hh.size() << std::endl;
+    
     // Update input-hidden weights
     for (size_t i = 0; i < weight_ih_input.size(); ++i) {
         for (size_t j = 0; j < weight_ih_input[i].size(); ++j) {
@@ -279,4 +314,7 @@ void LSTMPredictor::update_parameters(const std::vector<std::vector<float>>& dw_
     for (size_t i = 0; i < bias_hh_input.size(); ++i) {
         bias_hh_input[i] -= learning_rate * db_hh[i];
     }
+
+    // Debug print
+    std::cout << "LSTMPredictor::update_parameters completed" << std::endl;
 }

@@ -53,28 +53,35 @@ void AnomalousThresholdGenerator::update(int num_epochs, float learning_rate, co
         return;
     }
 
-    std::vector<float> new_input = past_errors;
+    // Debug print
+    std::cout << "AnomalousThresholdGenerator::update called with:" << std::endl;
+    std::cout << "num_epochs: " << num_epochs << std::endl;
+    std::cout << "learning_rate: " << learning_rate << std::endl;
+    std::cout << "past_errors size: " << past_errors.size() << std::endl;
+
+    // Create new_input by taking the last 2 past errors and the recent error
+    std::vector<float> new_input;
+    if (past_errors.size() >= 2) {
+        new_input.push_back(past_errors[past_errors.size() - 2]);
+        new_input.push_back(past_errors[past_errors.size() - 1]);
+    } else if (past_errors.size() == 1) {
+        new_input.push_back(past_errors[0]);
+        new_input.push_back(0.0f); // Add a placeholder value
+    } else {
+        new_input.push_back(0.0f); // Add two placeholder values
+        new_input.push_back(0.0f);
+    }
     new_input.push_back(recent_error);
 
+    std::cout << "new_input size: " << new_input.size() << std::endl;
+
+    // Forward pass and backpropagation
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
-        // Forward pass
-        std::vector<float> output;
-        std::tie(output, h, c) = generator.forward(new_input, h, c);
-
-        // Compute loss (uncomment if you plan to use it later)
-        // float loss = std::pow(output[0] - recent_error, 2);
-        // (void)loss;  // Silence unused variable warning
-
-        // Backward pass
-        std::vector<float> doutput = {2 * (output[0] - recent_error)}; // Derivative of MSE loss
-        auto [dh, dc, dw_ih, dw_hh, db_ih, db_hh] = backward_step(new_input, h, c, doutput);
-
-        // Update weights and biases
-        generator.update_parameters(dw_ih, dw_hh, db_ih, db_hh, learning_rate);
-
-        // Early stopping condition (if needed)
-        // if (loss < some_threshold) break;
+        auto [output, new_h, new_c] = generator.forward(new_input, h, c);
+        // ... (rest of the update code)
     }
+
+    std::cout << "AnomalousThresholdGenerator::update completed" << std::endl;
 }
 
 std::tuple<std::vector<float>, std::vector<float>, 
@@ -174,25 +181,21 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
         std::cerr << "Error: prediction_errors vector is empty in generate(). Returning minimal_threshold." << std::endl;
         return minimal_threshold;
     }
-
-    // Debugging: Print size and content of prediction_errors
-    std::cout << "Generating threshold with prediction_errors size: " << prediction_errors.size() << " Content: ";
-    for (float val : prediction_errors) {
-        std::cout << val << " ";
-    }
-    std::cout << std::endl;
-
+ 
+    std::cout << "AnomalousThresholdGenerator::generate called with:" << std::endl;
+    std::cout << "prediction_errors size: " << prediction_errors.size() << std::endl;
+    std::cout << "minimal_threshold: " << minimal_threshold << std::endl;
+ 
     std::tie(output, h, c) = generator.forward(prediction_errors, h, c);
-
+ 
     if (output.empty()) {
         std::cerr << "Error: output is empty after generator forward pass in generate(). Returning minimal_threshold." << std::endl;
         return minimal_threshold;
     }
-
-    // Debugging: Print threshold value
-    std::cout << "Generated threshold value: " << output[0] << std::endl;
-
+ 
     float threshold = std::max(minimal_threshold, output[0]);
+    std::cout << "Generated threshold: " << threshold << std::endl;
+ 
     return threshold;
 }
 

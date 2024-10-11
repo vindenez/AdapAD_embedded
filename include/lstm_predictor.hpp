@@ -31,7 +31,9 @@ public:
     LSTMPredictor(const std::vector<std::vector<float>>& weight_ih,
                   const std::vector<std::vector<float>>& weight_hh,
                   const std::vector<float>& bias_ih,
-                  const std::vector<float>& bias_hh);
+                  const std::vector<float>& bias_hh,
+                  int input_size,
+                  int hidden_size);
 
     // Updated forward method
     std::tuple<std::vector<float>, std::vector<float>, std::vector<float>> forward(
@@ -50,6 +52,24 @@ public:
     const std::vector<std::vector<float>>& get_weight_hh_input() const { return weight_hh_input; }
     const std::vector<float>& get_bias_ih_input() const { return bias_ih_input; }
     const std::vector<float>& get_bias_hh_input() const { return bias_hh_input; }
+
+    // Add getter methods for forget gate weights and biases
+    const std::vector<std::vector<float>>& get_weight_ih_forget() const { return weight_ih_forget; }
+    const std::vector<std::vector<float>>& get_weight_hh_forget() const { return weight_hh_forget; }
+    const std::vector<float>& get_bias_ih_forget() const { return bias_ih_forget; }
+    const std::vector<float>& get_bias_hh_forget() const { return bias_hh_forget; }
+
+    // Add getter methods for output gate weights and biases
+    const std::vector<std::vector<float>>& get_weight_ih_output() const { return weight_ih_output; }
+    const std::vector<std::vector<float>>& get_weight_hh_output() const { return weight_hh_output; }
+    const std::vector<float>& get_bias_ih_output() const { return bias_ih_output; }
+    const std::vector<float>& get_bias_hh_output() const { return bias_hh_output; }
+
+    // Add getter methods for cell gate weights and biases
+    const std::vector<std::vector<float>>& get_weight_ih_cell() const { return weight_ih_cell; }
+    const std::vector<std::vector<float>>& get_weight_hh_cell() const { return weight_hh_cell; }
+    const std::vector<float>& get_bias_ih_cell() const { return bias_ih_cell; }
+    const std::vector<float>& get_bias_hh_cell() const { return bias_hh_cell; }
 
     // Setter methods for weights and biases
     void set_weight_ih_input(const std::vector<std::vector<float>>& w) { weight_ih_input = w; }
