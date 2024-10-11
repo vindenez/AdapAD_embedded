@@ -13,7 +13,6 @@ public:
 
     std::vector<float> predict(const std::vector<float>& input);
     int get_input_size() const;
-    void update(int num_epochs, float learning_rate, const std::vector<float>& past_observations, float recent_observation);
 
     int get_hidden_size() const {
         return lstm_layers.empty() ? 0 : lstm_layers[0].get_hidden_size();

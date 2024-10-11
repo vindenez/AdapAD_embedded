@@ -9,7 +9,8 @@ std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matr
 
     if (matrix[0].size() != vec.size()) {
         throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul. Matrix columns: " + 
-                                 std::to_string(matrix[0].size()) + ", Vector size: " + std::to_string(vec.size()));
+                                 std::to_string(matrix[0].size()) + ", Vector size: " + std::to_string(vec.size()) +
+                                 ", Matrix rows: " + std::to_string(matrix.size()));
     }
 
     std::vector<float> result(matrix.size(), 0.0f);

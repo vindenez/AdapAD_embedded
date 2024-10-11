@@ -10,6 +10,7 @@
 #include <string>
 #include <iostream>
 #include <cmath>
+#include <iomanip>
 
 std::vector<float> load_csv_values(const std::string& filename) {
     std::ifstream file(filename);
@@ -133,10 +134,10 @@ int main() {
 
         // Create LSTMPredictor with correct dimensions
         LSTMPredictor lstm_predictor(
-            predictor_config.input_size,
-            predictor_config.hidden_size,
-            predictor_config.num_layers,
-            predictor_config.lookback_len
+            config::input_size,
+            config::LSTM_size,
+            config::LSTM_size_layer,
+            config::lookback_len
         );
 
         
@@ -149,26 +150,49 @@ int main() {
             throw std::runtime_error("Training data could not be loaded. Check the file path and contents.");
         }
 
-        adap_ad.set_training_data(training_data);
-
-        // Load validation data with labels
+        // Load validation data
         std::vector<DataPoint> validation_data = load_csv_values_with_labels("data/Tide_pressure.validation_stage.csv");
         if (validation_data.empty()) {
             throw std::runtime_error("Validation data could not be loaded. Check the file path and contents.");
         }
 
+        // Load benchmark data
+        std::vector<float> benchmark_data = load_csv_values("data/Tide_pressure.benchmark_stage.csv");
+        if (benchmark_data.empty()) {
+            throw std::runtime_error("Benchmark data could not be loaded. Check the file path and contents.");
+        }
+
+        adap_ad.set_training_data(training_data);
+
+        // Training stage
+        std::cout << "Starting training process..." << std::endl;
+        size_t total_training_samples = training_data.size();
+        size_t progress_interval = total_training_samples / 10; // Show progress every 10%
+
+        for (size_t i = 0; i < total_training_samples; ++i) {
+            adap_ad.is_anomalous(training_data[i]); // This updates the model
+
+            if ((i + 1) % progress_interval == 0 || i == total_training_samples - 1) {
+                float progress = (i + 1) * 100.0f / total_training_samples;
+                std::cout << "Training progress: " << std::fixed << std::setprecision(1) << progress << "% complete" << std::endl;
+            }
+        }
+        std::cout << "Training completed." << std::endl;
+
+        // Validation Stage
+        std::cout << "\nStarting validation stage..." << std::endl;
         std::vector<bool> predictions;
         std::vector<bool> actual_labels;
 
-        for (const auto& data_point : validation_data) {
+        for (size_t i = 0; i < validation_data.size(); ++i) {
+            const auto& data_point = validation_data[i];
             bool is_anomalous = adap_ad.is_anomalous(data_point.value);
             predictions.push_back(is_anomalous);
             actual_labels.push_back(data_point.is_anomaly);
 
-            if (is_anomalous) {
-                std::cout << "Validation: Anomalous value detected: " << data_point.value << std::endl;
-            } else {
-                std::cout << "Validation: Normal value: " << data_point.value << std::endl;
+            if ((i + 1) % (validation_data.size() / 10) == 0 || i == validation_data.size() - 1) {
+                float progress = (i + 1) * 100.0f / validation_data.size();
+                std::cout << "Validation progress: " << std::fixed << std::setprecision(1) << progress << "% complete" << std::endl;
             }
         }
 
@@ -181,18 +205,17 @@ int main() {
         std::cout << "F1-score: " << validation_metrics.f1_score << std::endl;
 
         // Benchmark Stage
-        std::vector<float> benchmark_data = load_csv_values("data/Tide_pressure.benchmark_stage.csv");
-        if (benchmark_data.empty()) {
-            throw std::runtime_error("Benchmark data could not be loaded. Check the file path and contents.");
-        }
-        for (float val : benchmark_data) {
+        std::cout << "\nStarting benchmark stage..." << std::endl;
+        for (size_t i = 0; i < benchmark_data.size(); ++i) {
+            float val = benchmark_data[i];
             bool is_anomalous = adap_ad.is_anomalous(val);
-            if (is_anomalous) {
-                std::cout << "Benchmark: Anomalous value detected: " << val << std::endl;
-            } else {
-                std::cout << "Benchmark: Normal value: " << val << std::endl;
+
+            if ((i + 1) % (benchmark_data.size() / 10) == 0 || i == benchmark_data.size() - 1) {
+                float progress = (i + 1) * 100.0f / benchmark_data.size();
+                std::cout << "Benchmark progress: " << std::fixed << std::setprecision(1) << progress << "% complete" << std::endl;
             }
         }
+        std::cout << "Benchmark completed." << std::endl;
 
         adap_ad.clean();
 

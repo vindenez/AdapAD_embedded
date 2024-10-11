@@ -26,7 +26,7 @@ public:
         const std::vector<float>& bias_ih_cell,
         const std::vector<float>& bias_hh_cell);
 
-    void update(int num_epochs, float learning_rate, const std::vector<float>& past_errors, float recent_error);
+    void update(int num_epochs, float learning_rate, const std::vector<float>& past_errors);
     float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
     float generate_threshold(const std::vector<float>& new_input);
     std::vector<float> generate_thresholds(const std::vector<std::vector<float>>& input_sequence);

@@ -96,40 +96,21 @@ LSTMPredictor::LSTMPredictor(const std::vector<std::vector<float>>& weight_ih,
                              int hidden_size)
     : input_size(input_size),
       hidden_size(hidden_size),
-      num_layers(1),  // Assuming single layer for simplified constructor
-      lookback_len(1),  // Assuming lookback of 1 for simplified constructor
-      weight_ih_input(weight_ih.begin(), weight_ih.begin() + hidden_size),
-      weight_hh_input(weight_hh.begin(), weight_hh.begin() + hidden_size),
-      bias_ih_input(bias_ih.begin(), bias_ih.begin() + hidden_size),
-      bias_hh_input(bias_hh.begin(), bias_hh.begin() + hidden_size),
-      weight_ih_forget(weight_ih.begin() + hidden_size, weight_ih.begin() + 2 * hidden_size),
-      weight_hh_forget(weight_hh.begin() + hidden_size, weight_hh.begin() + 2 * hidden_size),
-      bias_ih_forget(bias_ih.begin() + hidden_size, bias_ih.begin() + 2 * hidden_size),
-      bias_hh_forget(bias_hh.begin() + hidden_size, bias_hh.begin() + 2 * hidden_size),
-      weight_ih_output(weight_ih.begin() + 3 * hidden_size, weight_ih.end()),
-      weight_hh_output(weight_hh.begin() + 3 * hidden_size, weight_hh.end()),
-      bias_ih_output(bias_ih.begin() + 3 * hidden_size, bias_ih.end()),
-      bias_hh_output(bias_hh.begin() + 3 * hidden_size, bias_hh.end()),
-      weight_ih_cell(weight_ih.begin() + 2 * hidden_size, weight_ih.begin() + 3 * hidden_size),
-      weight_hh_cell(weight_hh.begin() + 2 * hidden_size, weight_hh.begin() + 3 * hidden_size),
-      bias_ih_cell(bias_ih.begin() + 2 * hidden_size, bias_ih.begin() + 3 * hidden_size),
-      bias_hh_cell(bias_hh.begin() + 2 * hidden_size, bias_hh.begin() + 3 * hidden_size),
-      h(hidden_size, 0.0f),
-      c(hidden_size, 0.0f) {
-
-    if (weight_ih.empty() || (weight_ih.size() > 0 && weight_ih[0].empty()) ||
-        weight_hh.empty() || (weight_hh.size() > 0 && weight_hh[0].empty()) ||
-        bias_ih.empty() || bias_hh.empty()) {
-        throw std::runtime_error("LSTM initialization error: Empty weights or biases");
+      num_layers(1),
+      lookback_len(1) {
+    
+    if (weight_ih.empty() || weight_hh.empty() || bias_ih.empty() || bias_hh.empty()) {
+        throw std::runtime_error("Empty weight or bias vectors in LSTMPredictor constructor");
     }
 
-    if (weight_ih.size() != weight_hh.size() || weight_ih.size() != bias_ih.size() || weight_ih.size() != bias_hh.size()) {
-        throw std::runtime_error("LSTM initialization error: Inconsistent dimensions");
-    }
+    weight_ih_input = weight_ih;
+    weight_hh_input = weight_hh;
+    bias_ih_input = bias_ih;
+    bias_hh_input = bias_hh;
 
-    std::cout << "LSTMPredictor initialized with:" << std::endl;
-    std::cout << "input_size: " << input_size << std::endl;
-    std::cout << "hidden_size: " << hidden_size << std::endl;
+    // Initialize h and c
+    h = std::vector<float>(hidden_size, 0.0f);
+    c = std::vector<float>(hidden_size, 0.0f);
 }
 
 // Copy constructor implementation
@@ -167,63 +148,41 @@ std::tuple<std::vector<float>, std::vector<float>, std::vector<float>> LSTMPredi
             throw std::runtime_error("Input size mismatch. Expected: " + std::to_string(input_size) + ", Got: " + std::to_string(input.size()));
         }
 
-        // Input gate
-        std::vector<float> input_gate = matrix_vector_mul(weight_ih_input, input);
+        if (weight_ih_input.empty() || weight_hh_input.empty()) {
+            throw std::runtime_error("Empty weight matrices in LSTM forward pass");
+        }
 
+        // Combine all gates into one operation
+        std::vector<float> combined_gate = matrix_vector_mul(weight_ih_input, input);
         std::vector<float> hidden_mul = matrix_vector_mul(weight_hh_input, prev_h);
+        combined_gate = elementwise_add(combined_gate, hidden_mul);
+        combined_gate = elementwise_add(combined_gate, bias_ih_input);
+        combined_gate = elementwise_add(combined_gate, bias_hh_input);
 
-        input_gate = elementwise_add(input_gate, hidden_mul);
+        // Split the combined gate into individual gates
+        std::vector<float> input_gate(hidden_size);
+        std::vector<float> forget_gate(hidden_size);
+        std::vector<float> cell_gate(hidden_size);
+        std::vector<float> output_gate(hidden_size);
 
-        input_gate = elementwise_add(input_gate, bias_ih_input);
-        input_gate = elementwise_add(input_gate, bias_hh_input);
-        for (float& val : input_gate) {
-            val = sigmoid(val);
+        for (int i = 0; i < hidden_size; ++i) {
+            input_gate[i] = sigmoid(combined_gate[i]);
+            forget_gate[i] = sigmoid(combined_gate[i + hidden_size]);
+            cell_gate[i] = tanh_func(combined_gate[i + 2 * hidden_size]);
+            output_gate[i] = sigmoid(combined_gate[i + 3 * hidden_size]);
         }
 
-        // Forget gate
-        if (weight_ih_forget.empty() || weight_hh_forget.empty() || bias_ih_forget.empty() || bias_hh_forget.empty()) {
-            throw std::runtime_error("Forget gate weights or biases are empty");
+        // Update cell state
+        std::vector<float> new_c(hidden_size);
+        for (int i = 0; i < hidden_size; ++i) {
+            new_c[i] = forget_gate[i] * prev_c[i] + input_gate[i] * cell_gate[i];
         }
 
-        std::vector<float> forget_gate = matrix_vector_mul(weight_ih_forget, input);
-        std::vector<float> hidden_mul_forget = matrix_vector_mul(weight_hh_forget, prev_h);
-        forget_gate = elementwise_add(forget_gate, hidden_mul_forget);
-        forget_gate = elementwise_add(forget_gate, bias_ih_forget);
-        forget_gate = elementwise_add(forget_gate, bias_hh_forget);
-        for (float& val : forget_gate) {
-            val = sigmoid(val);
+        // Calculate new hidden state
+        std::vector<float> new_h(hidden_size);
+        for (int i = 0; i < hidden_size; ++i) {
+            new_h[i] = output_gate[i] * tanh_func(new_c[i]);
         }
-
-        // Output gate
-        std::vector<float> output_gate = matrix_vector_mul(weight_ih_output, input);
-        hidden_mul = matrix_vector_mul(weight_hh_output, prev_h);
-        output_gate = elementwise_add(output_gate, hidden_mul);
-        output_gate = elementwise_add(output_gate, bias_ih_output);
-        output_gate = elementwise_add(output_gate, bias_hh_output);
-        for (float& val : output_gate) {
-            val = sigmoid(val);
-        }
-
-        // Cell state update
-        std::vector<float> g = matrix_vector_mul(weight_ih_cell, input);
-        hidden_mul = matrix_vector_mul(weight_hh_cell, prev_h);
-        g = elementwise_add(g, hidden_mul);
-        g = elementwise_add(g, bias_ih_cell);
-        g = elementwise_add(g, bias_hh_cell);
-        for (float& val : g) {
-            val = tanh_func(val);
-        }
-
-        // Update cell state c
-        std::vector<float> new_c = elementwise_mul(forget_gate, prev_c);
-        new_c = elementwise_add(new_c, elementwise_mul(input_gate, g));
-
-        // Calculate new hidden state h
-        std::vector<float> tanh_c(new_c.size());
-        for (size_t j = 0; j < new_c.size(); ++j) {
-            tanh_c[j] = tanh_func(new_c[j]);
-        }
-        std::vector<float> new_h = elementwise_mul(output_gate, tanh_c);
 
         return {new_h, new_h, new_c};
     } catch (const std::exception& e) {

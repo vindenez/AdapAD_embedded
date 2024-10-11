@@ -24,7 +24,7 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
         thresholds.push_back(minimal_threshold);
 
         // Log file setup
-        f_log.open("anomalous_detection_log.csv");
+        f_log.open(config::log_file_path);
         if (!f_log.is_open()) {
             throw std::runtime_error("Could not open log file.");
         }
@@ -47,33 +47,14 @@ NormalDataPredictor AdapAD::create_normal_data_predictor(const LSTMPredictor& ls
             throw std::runtime_error("Failed to load weights and biases from JSON file");
         }
 
-        // Verify that all required weights and biases are present
-        std::vector<std::string> required_keys = {
-            "lstm.weight_ih_l0", "lstm.weight_hh_l0", "lstm.bias_ih_l0", "lstm.bias_hh_l0",
-            "lstm.weight_ih_l1", "lstm.weight_hh_l1", "lstm.bias_ih_l1", "lstm.bias_hh_l1",
-            "lstm.weight_ih_l2", "lstm.weight_hh_l2", "lstm.bias_ih_l2", "lstm.bias_hh_l2",
-            "fc.weight", "fc.bias"
-        };
-
-        for (const auto& key : required_keys) {
-            if (weights.find(key) == weights.end() && biases.find(key) == biases.end()) {
-                throw std::runtime_error("Missing required weight/bias: " + key);
-            }
-        }
-
-        // Print dimensions for debugging
-        for (const auto& [key, value] : weights) {
-            std::cout << key << " dimensions: " << value.size() << " x " 
-                      << (value.empty() ? 0 : value[0].size()) << std::endl;
-        }
-        for (const auto& [key, value] : biases) {
-            std::cout << key << " size: " << value.size() << std::endl;
-        }
-
+        // Use the hidden size from the config
+        int hidden_size = config::LSTM_size;
+        int input_size = config::input_size;
+        
         // Create and return the NormalDataPredictor with loaded weights and biases
         auto predictor = NormalDataPredictor(weights, biases);
-        std::cout << "NormalDataPredictor created with input size: " << predictor.get_input_size() 
-                  << " and hidden size: " << predictor.get_hidden_size() << std::endl;
+        std::cout << "NormalDataPredictor created with input size: " << input_size 
+                  << " and hidden size: " << hidden_size << std::endl;
         return predictor;
     } catch (const std::exception& e) {
         std::cerr << "Error creating NormalDataPredictor: " << e.what() << std::endl;
@@ -87,49 +68,72 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 
 bool AdapAD::is_anomalous(float observed_val) {
     try {
+        std::cout << "Observed value: " << observed_val << std::endl;
         observed_vals.push_back(observed_val);
         
         if (observed_vals.size() < predictor_config.lookback_len) {
+            std::cout << "Not enough data yet. Returning false." << std::endl;
             return false;
         }
 
         // Prepare input for prediction
         std::vector<float> input(observed_vals.end() - predictor_config.lookback_len, observed_vals.end());
+        std::cout << "Input for prediction: ";
+        for (float val : input) {
+            std::cout << val << " ";
+        }
+        std::cout << std::endl;
 
-        float predicted_val = data_predictor.predict(input)[0];
+        std::vector<float> predicted = data_predictor.predict(input);
+        if (predicted.empty()) {
+            std::cerr << "Error: Empty prediction from data_predictor" << std::endl;
+            return false;
+        }
+        float predicted_val = predicted[0];
         predicted_vals.push_back(predicted_val);
+        std::cout << "Predicted value: " << predicted_val << std::endl;
 
         // Calculate error
         float error = std::abs(observed_val - predicted_val);
         predictive_errors.push_back(error);
+        std::cout << "Prediction error: " << error << std::endl;
 
-        // Generate threshold
-        std::vector<float> past_errors(predictive_errors.end() - predictor_config.lookback_len, predictive_errors.end());
-        float threshold = generator.generate(past_errors, minimal_threshold);
-        thresholds.push_back(threshold);
+        // Generate threshold only if we have enough errors
+        if (predictive_errors.size() >= predictor_config.lookback_len) {
+            std::vector<float> past_errors(predictive_errors.end() - predictor_config.lookback_len, predictive_errors.end());
+            std::cout << "Past errors for threshold generation: ";
+            for (float err : past_errors) {
+                std::cout << err << " ";
+            }
+            std::cout << std::endl;
+            
+            float threshold = generator.generate(past_errors, minimal_threshold);
+            thresholds.push_back(threshold);
+            std::cout << "Generated threshold: " << threshold << std::endl;
 
-        // Determine if anomalous
-        bool is_anomalous = (error > threshold);
+            // Determine if anomalous
+            bool is_anomalous = (error > threshold);
+            std::cout << "Is anomalous: " << (is_anomalous ? "true" : "false") << std::endl;
 
-        // Update predictor
-        data_predictor.update(predictor_config.epoch_update, predictor_config.lr_update, input, observed_val);
+            // Update generator if necessary
+            if (is_anomalous || threshold > minimal_threshold) {
+                std::cout << "Updating generator..." << std::endl;
+                generator.update(config::update_G_epoch, config::update_G_lr, past_errors);
+            }
 
-        // Update generator if necessary
-        if (is_anomalous || threshold > minimal_threshold) {
-            generator.update(config::update_G_epoch, config::update_G_lr, past_errors, error);
+            // Log the result
+            if (f_log.is_open()) {
+                f_log << observed_val << "," << predicted_val << ","
+                      << predicted_val - threshold << "," << predicted_val + threshold << ","
+                      << is_anomalous << "," << error << "," << threshold << "\n";
+            }
+
+            return is_anomalous;
         }
 
-        // Log the result
-        if (f_log.is_open()) {
-            f_log << observed_val << "," << predicted_val << ","
-                  << predicted_val - threshold << "," << predicted_val + threshold << ","
-                  << is_anomalous << "," << error << "," << threshold << "\n";
-        }
+        std::cout << "Not enough errors yet. Returning false." << std::endl;
+        return false;
 
-        // Clean up old data if necessary
-        clean();
-
-        return is_anomalous;
     } catch (const std::exception& e) {
         std::cerr << "Error in is_anomalous: " << e.what() << std::endl;
         return false;
