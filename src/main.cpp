@@ -73,7 +73,7 @@ int main() {
         // Initialize configuration
         PredictorConfig predictor_config = init_predictor_config();
         float minimal_threshold;
-        ValueRangeConfig value_range_config = init_value_range_config(data_source, minimal_threshold);
+        ValueRangeConfig value_range_config = init_value_range_config(config::data_source, minimal_threshold);
 
         if (minimal_threshold == 0) {
             throw std::runtime_error("Minimal threshold must be set.");

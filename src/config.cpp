@@ -1,31 +1,63 @@
 #include "config.hpp"
 #include <iostream>
 
-// Global Configuration Variables
-std::string data_source_path = "../data/Tide_pressure.validation_stage.csv";
-std::string data_source = "Tide_pressure";
+namespace config {
+    // General configuration
+    std::string data_source_path = "../data/Tide_pressure.validation_stage.csv";
+    std::string data_source = "Tide_pressure";
 
-int epoch_train = 3000;
-float lr_train = 0.00005;
-int epoch_update = 100;
-float lr_update = 0.00005;
-int update_G_epoch = 100;
-float update_G_lr = 0.00005;
-int LSTM_size = 100;
-int LSTM_size_layer = 3;
+    // Training parameters
+    int epoch_train = 3000;
+    float lr_train = 0.00005f;
+    int epoch_update = 100;
+    float lr_update = 0.00005f;
+    int update_G_epoch = 100;
+    float update_G_lr = 0.00005f;
+
+    // Model architecture
+    int LSTM_size = 100;
+    int LSTM_size_layer = 3;
+    int lookback_len = 3;
+    int prediction_len = 1;
+    int train_size = 5 * lookback_len + prediction_len;
+    int num_classes = 1;
+    int input_size = lookback_len;
+
+    // Anomaly detection
+    float minimal_threshold = 0.0038f;  // Default for Tide_pressure
+
+    // Data preprocessing
+    float lower_bound = 713.0f;  // Default for Tide_pressure
+    float upper_bound = 763.0f;  // Default for Tide_pressure
+
+    // Logging and debugging
+    bool verbose_output = true;
+    std::string log_file_path = "anomalous_detection_log.csv";
+
+    // Performance tuning
+    int batch_size = 32;
+    float dropout_rate = 0.2f;
+    
+    // Early stopping
+    int patience = 10;
+    float min_delta = 0.001f;
+
+    // Random seed for reproducibility
+    unsigned int random_seed = 42;
+}
 
 // Initialize predictor configuration
 PredictorConfig init_predictor_config() {
     PredictorConfig predictor_config;
-    predictor_config.lookback_len = 3;
-    predictor_config.prediction_len = 1;
-    predictor_config.train_size = 5 * predictor_config.lookback_len + predictor_config.prediction_len;
-    predictor_config.num_layers = LSTM_size_layer;
-    predictor_config.hidden_size = LSTM_size;
-    predictor_config.num_classes = 1;  // Assuming a single output for prediction
-    predictor_config.input_size = predictor_config.lookback_len;  // Assuming input size matches lookback length
-    predictor_config.epoch_update = 100;
-    predictor_config.lr_update = 0.00005f;
+    predictor_config.lookback_len = config::lookback_len;
+    predictor_config.prediction_len = config::prediction_len;
+    predictor_config.train_size = config::train_size;
+    predictor_config.num_layers = config::LSTM_size_layer;
+    predictor_config.hidden_size = config::LSTM_size;
+    predictor_config.num_classes = config::num_classes;
+    predictor_config.input_size = config::input_size;
+    predictor_config.epoch_update = config::epoch_update;
+    predictor_config.lr_update = config::lr_update;
 
     return predictor_config;
 }
@@ -35,12 +67,12 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
     ValueRangeConfig value_range_config;
 
     if (data_source == "Tide_pressure") {
-        value_range_config.lower_bound = 713;
-        value_range_config.upper_bound = 763;
-        minimal_threshold = 0.0038;
+        value_range_config.lower_bound = config::lower_bound;
+        value_range_config.upper_bound = config::upper_bound;
+        minimal_threshold = config::minimal_threshold;
 
-        update_G_epoch = 5;
-        update_G_lr = 0.00005;
+        config::update_G_epoch = 5;
+        config::update_G_lr = 0.00005f;
     } else if (data_source == "Wave_height") {
         value_range_config.lower_bound = 0;
         value_range_config.upper_bound = 15.2;
@@ -54,10 +86,4 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
     }
 
     return value_range_config;
-}
-
-namespace config {
-    int update_G_epoch = 100;
-    float update_G_lr = 0.00005;
-    // ... other variables ...
 }

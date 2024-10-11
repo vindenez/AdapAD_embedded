@@ -2,38 +2,22 @@
 #include <iostream>
 
 std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec) {
-    // Check if matrix or vector is empty
     if (matrix.empty() || vec.empty()) {
-        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul.");
+        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul. Matrix size: " + 
+                                 std::to_string(matrix.size()) + ", Vector size: " + std::to_string(vec.size()));
     }
 
-    // Check for consistent matrix row size
-    size_t num_columns = matrix[0].size();
-    for (const auto& row : matrix) {
-        if (row.size() != num_columns) {
-            std::cerr << "Error: Inconsistent row size in matrix." << std::endl;
-            return {};
-        }
+    if (matrix[0].size() != vec.size()) {
+        throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul. Matrix columns: " + 
+                                 std::to_string(matrix[0].size()) + ", Vector size: " + std::to_string(vec.size()));
     }
 
-    // Print matrix and vector dimensions for debugging
-    std::cout << "Matrix size: " << matrix.size() << " x " << num_columns << ", Vector size: " << vec.size() << std::endl;
-
-    // Check if dimensions match for multiplication
-    if (num_columns != vec.size()) {
-        std::cerr << "Error: Dimension mismatch in matrix-vector multiplication. Matrix columns: " 
-                  << num_columns << ", Vector size: " << vec.size() << std::endl;
-        return {};
-    }
-
-    // Perform matrix-vector multiplication
     std::vector<float> result(matrix.size(), 0.0f);
     for (size_t i = 0; i < matrix.size(); ++i) {
-        for (size_t j = 0; j < num_columns; ++j) {
+        for (size_t j = 0; j < vec.size(); ++j) {
             result[i] += matrix[i][j] * vec[j];
         }
     }
-
     return result;
 }
 

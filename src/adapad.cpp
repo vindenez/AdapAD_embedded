@@ -38,33 +38,43 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
 // Helper function to create NormalDataPredictor from LSTMPredictor
 NormalDataPredictor AdapAD::create_normal_data_predictor(const LSTMPredictor& lstm_predictor) {
     try {
-        std::unordered_map<std::string, std::vector<std::vector<float>>> weights;
-        std::unordered_map<std::string, std::vector<float>> biases;
+        // Load weights and biases from JSON file
+        std::string weights_file = "weights/lstm_weights.json";
+        auto weights = load_all_weights(weights_file);
+        auto biases = load_all_biases(weights_file);
 
-        // Assuming LSTMPredictor has getter methods for weights and biases
-        weights["lstm.weight_ih_l0"] = lstm_predictor.get_weight_ih_input();
-        weights["lstm.weight_hh_l0"] = lstm_predictor.get_weight_hh_input();
-        biases["lstm.bias_ih_l0"] = lstm_predictor.get_bias_ih_input();
-        biases["lstm.bias_hh_l0"] = lstm_predictor.get_bias_hh_input();
-
-        // Add FC layer weights and biases
-        weights["fc.weight"] = std::vector<std::vector<float>>(1, std::vector<float>(lstm_predictor.get_hidden_size(), 0.1f));
-        biases["fc.bias"] = std::vector<float>(1, 0.0f);
-
-        if (weights["lstm.weight_ih_l0"].empty() || weights["lstm.weight_hh_l0"].empty() ||
-            biases["lstm.bias_ih_l0"].empty() || biases["lstm.bias_hh_l0"].empty()) {
-            throw std::runtime_error("Empty LSTM weights or biases");
+        if (weights.empty() || biases.empty()) {
+            throw std::runtime_error("Failed to load weights and biases from JSON file");
         }
 
-        std::cout << "Creating NormalDataPredictor with:" << std::endl;
-        std::cout << "weight_ih_l0 dimensions: " << weights["lstm.weight_ih_l0"].size() << " x " << (weights["lstm.weight_ih_l0"].empty() ? 0 : weights["lstm.weight_ih_l0"][0].size()) << std::endl;
-        std::cout << "weight_hh_l0 dimensions: " << weights["lstm.weight_hh_l0"].size() << " x " << (weights["lstm.weight_hh_l0"].empty() ? 0 : weights["lstm.weight_hh_l0"][0].size()) << std::endl;
-        std::cout << "bias_ih_l0 size: " << biases["lstm.bias_ih_l0"].size() << std::endl;
-        std::cout << "bias_hh_l0 size: " << biases["lstm.bias_hh_l0"].size() << std::endl;
-        std::cout << "fc.weight dimensions: " << weights["fc.weight"].size() << " x " << (weights["fc.weight"].empty() ? 0 : weights["fc.weight"][0].size()) << std::endl;
-        std::cout << "fc.bias size: " << biases["fc.bias"].size() << std::endl;
+        // Verify that all required weights and biases are present
+        std::vector<std::string> required_keys = {
+            "lstm.weight_ih_l0", "lstm.weight_hh_l0", "lstm.bias_ih_l0", "lstm.bias_hh_l0",
+            "lstm.weight_ih_l1", "lstm.weight_hh_l1", "lstm.bias_ih_l1", "lstm.bias_hh_l1",
+            "lstm.weight_ih_l2", "lstm.weight_hh_l2", "lstm.bias_ih_l2", "lstm.bias_hh_l2",
+            "fc.weight", "fc.bias"
+        };
 
-        return NormalDataPredictor(weights, biases);
+        for (const auto& key : required_keys) {
+            if (weights.find(key) == weights.end() && biases.find(key) == biases.end()) {
+                throw std::runtime_error("Missing required weight/bias: " + key);
+            }
+        }
+
+        // Print dimensions for debugging
+        for (const auto& [key, value] : weights) {
+            std::cout << key << " dimensions: " << value.size() << " x " 
+                      << (value.empty() ? 0 : value[0].size()) << std::endl;
+        }
+        for (const auto& [key, value] : biases) {
+            std::cout << key << " size: " << value.size() << std::endl;
+        }
+
+        // Create and return the NormalDataPredictor with loaded weights and biases
+        auto predictor = NormalDataPredictor(weights, biases);
+        std::cout << "NormalDataPredictor created with input size: " << predictor.get_input_size() 
+                  << " and hidden size: " << predictor.get_hidden_size() << std::endl;
+        return predictor;
     } catch (const std::exception& e) {
         std::cerr << "Error creating NormalDataPredictor: " << e.what() << std::endl;
         throw;
@@ -88,7 +98,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         // Prepare input for prediction
         std::vector<float> input(observed_vals.end() - predictor_config.lookback_len, observed_vals.end());
 
-        // Predict
+        std::cout << "Calling predict with input size: " << input.size() << std::endl;
         float predicted_val = data_predictor.predict(input)[0];
         predicted_vals.push_back(predicted_val);
 

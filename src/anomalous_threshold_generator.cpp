@@ -184,7 +184,6 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
 
     std::tie(output, h, c) = generator.forward(prediction_errors, h, c);
 
-    // Debugging: Check if the forward pass returned an empty output
     if (output.empty()) {
         std::cerr << "Error: output is empty after generator forward pass in generate(). Returning minimal_threshold." << std::endl;
         return minimal_threshold;
