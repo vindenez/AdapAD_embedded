@@ -6,6 +6,8 @@
 
 class LSTMPredictor {
 public:
+
+
     // Constructor to initialize with input size, hidden size, and other hyperparameters
     LSTMPredictor(int input_size, int hidden_size, int num_layers, int lookback_len);
     
@@ -46,6 +48,10 @@ public:
 
     // Copy constructor
     LSTMPredictor(const LSTMPredictor& other);
+
+    std::tuple<std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>>
+    forward_step(float input, const std::vector<float>& prev_h, const std::vector<float>& prev_c);
+
     
     // Getter methods for weights and biases
     const std::vector<std::vector<float>>& get_weight_ih_input() const { return weight_ih_input; }

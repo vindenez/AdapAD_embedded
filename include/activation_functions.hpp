@@ -3,5 +3,6 @@
 
 float sigmoid(float x);
 float tanh_func(float x);
+float d_tanh_func(float x);
 
 #endif // ACTIVATION_FUNCTIONS_HPP

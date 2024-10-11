@@ -222,3 +222,32 @@ void LSTMPredictor::update_parameters(const std::vector<std::vector<float>>& dw_
     }
 
 }
+
+std::tuple<std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>>
+LSTMPredictor::forward_step(float input, const std::vector<float>& prev_h, const std::vector<float>& prev_c) {
+    std::vector<float> input_vec = {input};
+    
+    // Pad the input vector to match the expected input size
+    while (input_vec.size() < input_size) {
+        input_vec.push_back(0.0f);
+    }
+    
+    auto [new_h, _, new_c] = forward(input_vec, prev_h, prev_c);
+    
+    // Calculate gate activations
+    std::vector<float> combined_gate = matrix_vector_mul(weight_ih_input, input_vec);
+    std::vector<float> hidden_mul = matrix_vector_mul(weight_hh_input, prev_h);
+    combined_gate = elementwise_add(combined_gate, hidden_mul);
+    combined_gate = elementwise_add(combined_gate, bias_ih_input);
+    combined_gate = elementwise_add(combined_gate, bias_hh_input);
+
+    std::vector<float> i_t(hidden_size), f_t(hidden_size), o_t(hidden_size), g_t(hidden_size);
+    for (int i = 0; i < hidden_size; ++i) {
+        i_t[i] = sigmoid(combined_gate[i]);
+        f_t[i] = sigmoid(combined_gate[i + hidden_size]);
+        o_t[i] = sigmoid(combined_gate[i + 2 * hidden_size]);
+        g_t[i] = tanh_func(combined_gate[i + 3 * hidden_size]);
+    }
+
+    return {i_t, f_t, o_t, g_t, new_c, new_h};
+}

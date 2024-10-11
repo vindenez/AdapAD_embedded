@@ -8,3 +8,8 @@ float sigmoid(float x) {
 float tanh_func(float x) {
     return std::tanh(x);
 }
+
+float d_tanh_func(float x) {
+    float tanh_x = std::tanh(x);
+    return 1.0f - tanh_x * tanh_x;
+}
