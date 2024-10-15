@@ -98,6 +98,13 @@ public:
     void set_bias_ih_cell(const std::vector<float>& b) { bias_ih_cell = b; }
     void set_bias_hh_cell(const std::vector<float>& b) { bias_hh_cell = b; }
 
+    void train();
+    void eval();
+    void zero_grad();
+    std::vector<float> forward(const std::vector<float>& input);
+    const std::vector<float>& get_h() const;
+    const std::vector<float>& get_c() const;
+
 private:
     int input_size;
     int hidden_size;
@@ -132,6 +139,10 @@ private:
     // Hidden and cell states
     std::vector<float> h; // hidden state
     std::vector<float> c; // cell state
+
+    bool is_training;
+    std::vector<std::vector<float>> dw_ih_input, dw_hh_input;
+    std::vector<float> db_ih_input, db_hh_input;
 };
 
 #endif // LSTM_PREDICTOR_HPP

@@ -3,7 +3,7 @@
 
 namespace config {
     // General configuration
-    std::string data_source_path = "../data/Tide_pressure.validation_stage.csv";
+    std::string data_source_path = "data/Tide_pressure.validation_stage.csv";
     std::string data_source = "Tide_pressure";
 
     // Training parameters
@@ -32,7 +32,7 @@ namespace config {
 
     // Logging and debugging
     bool verbose_output = true;
-    std::string log_file_path = "anomalous_detection_log.csv";
+    std::string log_file_path = "adapad_log.csv";
 
     // Performance tuning
     int batch_size = 32;

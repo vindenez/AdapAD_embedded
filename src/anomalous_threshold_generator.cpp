@@ -7,6 +7,8 @@
 #include <numeric>
 #include <stdexcept>
 #include "config.hpp"
+#include <random>
+#include <limits>
 
 
 // Constructor to initialize using weights and biases for each gate
@@ -322,4 +324,88 @@ void AnomalousThresholdGenerator::update_parameters_adam(
     generator.set_weight_hh_input(weight_hh);
     generator.set_bias_ih_input(bias_ih);
     generator.set_bias_hh_input(bias_hh);
+}
+
+void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn) {
+    // Prepare data using sliding windows
+    auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
+
+    // Initialize Adam optimizer parameters
+    init_adam_parameters();
+
+    std::vector<float> loss_history;
+
+    for (int epoch = 0; epoch < num_epochs; ++epoch) {
+        generator.train(); 
+        float epoch_loss = 0.0f;
+
+        for (size_t i = 0; i < x.size(); i += config::batch_size) {
+            // Zero the gradients
+            generator.zero_grad();
+
+            float batch_loss = 0.0f;
+            std::vector<float> batch_doutput;
+
+            // Process a batch
+            for (size_t j = i; j < std::min(i + static_cast<size_t>(config::batch_size), x.size()); ++j) {
+                // Forward pass
+                auto output = generator.forward(x[j]);
+
+                // Compute loss
+                float sample_loss = 0.0f;
+                for (size_t k = 0; k < output.size(); ++k) {
+                    float error = output[k] - y[j][k];
+                    sample_loss += error * error;
+                }
+                sample_loss /= output.size();
+                batch_loss += sample_loss;
+
+                // Prepare gradients for backward pass
+                std::vector<float> sample_doutput(output.size(), 2.0f / output.size());
+                for (size_t k = 0; k < output.size(); ++k) {
+                    sample_doutput[k] *= (output[k] - y[j][k]);
+                }
+                batch_doutput.insert(batch_doutput.end(), sample_doutput.begin(), sample_doutput.end());
+            }
+
+            batch_loss /= std::min(static_cast<size_t>(config::batch_size), x.size() - i);
+            epoch_loss += batch_loss;
+
+            // Backward pass
+            auto [dh, dc, dw_ih, dw_hh, db_ih, db_hh] = backward_step(x[i], h, c, batch_doutput);
+
+            // Update parameters using Adam
+            update_parameters_adam(dw_ih, dw_hh, db_ih, db_hh, learning_rate);
+        }
+
+        epoch_loss /= (x.size() / config::batch_size);
+        loss_history.push_back(epoch_loss);
+
+        std::cout << "Epoch " << epoch + 1 << "/" << num_epochs << ", Loss: " << epoch_loss << std::endl;
+
+        // Early stopping
+        if (loss_history.size() > config::patience) {
+            bool should_stop = true;
+            for (int i = 1; i <= config::patience; ++i) {
+                if (loss_history[loss_history.size() - i] < loss_history[loss_history.size() - i - 1] - config::min_delta) {
+                    should_stop = false;
+                    break;
+                }
+            }
+            if (should_stop) {
+                std::cout << "Early stopping triggered. No improvement for " << config::patience << " epochs." << std::endl;
+                break;
+            }
+        }
+    }
+}
+
+std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
+AnomalousThresholdGenerator::sliding_windows(const std::vector<float>& data, int window_size, int prediction_len) {
+    std::vector<std::vector<float>> x, y;
+    for (size_t i = window_size; i < data.size(); ++i) {
+        x.push_back(std::vector<float>(data.begin() + i - window_size, data.begin() + i));
+        y.push_back(std::vector<float>(data.begin() + i, std::min(data.begin() + i + prediction_len, data.end())));
+    }
+    return {x, y};
 }

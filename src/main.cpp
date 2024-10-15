@@ -12,53 +12,13 @@
 #include <cmath>
 #include <iomanip>
 
-std::vector<float> load_csv_values(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open file " << filename << std::endl;
-        return {};
-    }
-
-    std::vector<float> values;
-    std::string line;
-
-    // Skip the header line
-    if (!std::getline(file, line)) {
-        std::cerr << "Error: Failed to read header from file " << filename << std::endl;
-        return {};
-    }
-
-    // Read each line
-    while (std::getline(file, line)) {
-        std::stringstream ss(line);
-        std::string timestamp, value_str, is_anomaly;
-
-        // Parse line - assuming the structure timestamp,value,is_anomaly
-        std::getline(ss, timestamp, ',');
-        std::getline(ss, value_str, ',');
-        std::getline(ss, is_anomaly, ',');
-
-        try {
-            float value = std::stof(value_str);
-            values.push_back(value);
-        } catch (const std::exception& e) {
-            std::cerr << "Error parsing value: " << e.what() << std::endl;
-        }
-    }
-
-    if (values.empty()) {
-        std::cerr << "Error: No valid data loaded from file " << filename << std::endl;
-    }
-
-    return values;
-}
-
 struct DataPoint {
+    std::string timestamp;
     float value;
     bool is_anomaly;
 };
 
-std::vector<DataPoint> load_csv_values_with_labels(const std::string& filename) {
+std::vector<DataPoint> load_csv_values(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
         std::cerr << "Error: Could not open file " << filename << std::endl;
@@ -83,10 +43,16 @@ std::vector<DataPoint> load_csv_values_with_labels(const std::string& filename) 
         try {
             float value = std::stof(value_str);
             bool is_anomaly = (is_anomaly_str == "1");
-            data_points.push_back({value, is_anomaly});
+            data_points.push_back({timestamp, value, is_anomaly});
         } catch (const std::exception& e) {
-            std::cerr << "Error parsing value: " << e.what() << std::endl;
+            std::cerr << "Error parsing line: " << line << "\nError: " << e.what() << std::endl;
         }
+    }
+
+    if (data_points.empty()) {
+        std::cerr << "Error: No valid data loaded from file " << filename << std::endl;
+    } else {
+        std::cout << "Loaded " << data_points.size() << " data points from " << filename << std::endl;
     }
 
     return data_points;
@@ -119,120 +85,51 @@ Metrics calculate_metrics(const std::vector<bool>& predictions, const std::vecto
 
 int main() {
     try {
-        // Load weights and biases from JSON file
         auto weights = load_all_weights("weights/lstm_weights.json");
         auto biases = load_all_biases("weights/lstm_weights.json");
-
-        // Initialize configuration
+        // Load configuration
         PredictorConfig predictor_config = init_predictor_config();
         float minimal_threshold;
         ValueRangeConfig value_range_config = init_value_range_config(config::data_source, minimal_threshold);
 
         if (minimal_threshold == 0) {
-            throw std::runtime_error("Minimal threshold must be set.");
+            throw std::runtime_error("It is mandatory to set a minimal threshold");
         }
 
-        // Create LSTMPredictor with correct dimensions
+        // Load data
+        std::vector<DataPoint> data_production = load_csv_values(config::data_source_path);
+        size_t len_data_subject = data_production.size();
+
+        // Create NormalDataPredictor first
         NormalDataPredictor data_predictor(weights, biases);
 
-        predictor_config.input_size = data_predictor.get_input_size();
-        predictor_config.lookback_len = data_predictor.get_input_size();
-        
-        // Create AdapAD instance with the LSTMPredictor
-        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, data_predictor);
+        // Then create AdapAD instance
+        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, data_predictor, {});
+        std::cout << "GATHERING DATA FOR TRAINING... " << predictor_config.train_size << std::endl;
 
-        // Load training data
-        std::vector<float> training_data = load_csv_values("data/Tide_pressure.csv");
-        if (training_data.empty()) {
-            throw std::runtime_error("Training data could not be loaded. Check the file path and contents.");
-        }
+        std::vector<float> observed_data;
 
-        // Load validation data
-        std::vector<DataPoint> validation_data = load_csv_values_with_labels("data/Tide_pressure.validation_stage.csv");
-        if (validation_data.empty()) {
-            throw std::runtime_error("Validation data could not be loaded. Check the file path and contents.");
-        }
+        for (size_t data_idx = 0; data_idx < len_data_subject; ++data_idx) {
+            const auto& data_point = data_production[data_idx];
+            float measured_value = data_point.value;
+            bool actual_anomaly = data_point.is_anomaly;
 
-        // Load benchmark data
-        std::vector<float> benchmark_data = load_csv_values("data/Tide_pressure.benchmark_stage.csv");
-        if (benchmark_data.empty()) {
-            throw std::runtime_error("Benchmark data could not be loaded. Check the file path and contents.");
-        }
+            observed_data.push_back(measured_value);
+            size_t observed_data_sz = observed_data.size();
 
-        // Normalize and set training data
-        std::vector<float> normalized_training_data;
-        for (const auto& val : training_data) {
-            normalized_training_data.push_back(adap_ad.normalize_data(val));
-        }
-        adap_ad.set_training_data(normalized_training_data);
-
-        // Training stage
-        std::cout << "Starting training process..." << std::endl;
-        size_t total_training_samples = training_data.size();
-        size_t progress_interval = total_training_samples / 10; // Show progress every 10%
-
-        for (size_t i = 0; i < total_training_samples; ++i) {
-            bool is_anomalous = adap_ad.is_anomalous(training_data[i]);
-            if (i % 1000 == 0) {
-                std::cout << "Training - Sample: " << i << ", Is Anomalous: " << is_anomalous << std::endl;
-            }
-            adap_ad.is_anomalous(training_data[i]); // This updates the model (no need to normalize here as is_anomalous will do it)
-
-            if ((i + 1) % progress_interval == 0 || i == total_training_samples - 1) {
-                float progress = (i + 1) * 100.0f / total_training_samples;
-                std::cout << "Training progress: " << std::fixed << std::setprecision(1) << progress << "% complete" << std::endl;
-            }
-        }
-        std::cout << "Training completed." << std::endl;
-
-        // Validation Stage
-        std::cout << "\nStarting validation stage..." << std::endl;
-        std::vector<bool> predictions;
-        std::vector<bool> actual_labels;
-
-        for (size_t i = 0; i < validation_data.size(); ++i) {
-            const auto& data_point = validation_data[i];
-            bool is_anomalous = adap_ad.is_anomalous(data_point.value);
-            if (i % 100 == 0) {
-                std::cout << "Validation - Sample: " << i << ", Value: " << data_point.value 
-                          << ", Is Anomalous: " << is_anomalous << ", Actual: " << data_point.is_anomaly << std::endl;
-            }
-            predictions.push_back(is_anomalous);
-            actual_labels.push_back(data_point.is_anomaly);
-
-            if ((i + 1) % (validation_data.size() / 10) == 0 || i == validation_data.size() - 1) {
-                float progress = (i + 1) * 100.0f / validation_data.size();
-                std::cout << "Validation progress: " << std::fixed << std::setprecision(1) << progress << "% complete" << std::endl;
+            // Perform warmup training or make a decision
+            if (observed_data_sz == predictor_config.train_size) {
+                adap_ad.set_training_data(observed_data);
+                std::cout << "------------STARTING TO MAKE DECISION------------" << std::endl;
+            } else if (observed_data_sz > predictor_config.train_size) {
+                bool is_anomalous_ret = adap_ad.is_anomalous(measured_value, actual_anomaly);
+                adap_ad.clean();
+            } else {
+                std::cout << observed_data.size() << "/" << predictor_config.train_size << " to warmup training" << std::endl;
             }
         }
 
-        Metrics validation_metrics = calculate_metrics(predictions, actual_labels);
-
-        std::cout << "Validation Metrics:" << std::endl;
-        std::cout << "Accuracy: " << validation_metrics.accuracy << std::endl;
-        std::cout << "Precision: " << validation_metrics.precision << std::endl;
-        std::cout << "Recall: " << validation_metrics.recall << std::endl;
-        std::cout << "F1-score: " << validation_metrics.f1_score << std::endl;
-
-        // Benchmark Stage
-        std::cout << "\nStarting benchmark stage..." << std::endl;
-        for (size_t i = 0; i < benchmark_data.size(); ++i) {
-            float val = benchmark_data[i];
-            bool is_anomalous = adap_ad.is_anomalous(val);
-            if (i % 100 == 0) {
-                std::cout << "Benchmark - Sample: " << i << ", Value: " << val 
-                          << ", Is Anomalous: " << is_anomalous << std::endl;
-            }
-            adap_ad.is_anomalous(val); // is_anomalous will normalize internally
-
-            if ((i + 1) % (benchmark_data.size() / 10) == 0 || i == benchmark_data.size() - 1) {
-                float progress = (i + 1) * 100.0f / benchmark_data.size();
-                std::cout << "Benchmark progress: " << std::fixed << std::setprecision(1) << progress << "% complete" << std::endl;
-            }
-        }
-        std::cout << "Benchmark completed." << std::endl;
-
-        adap_ad.clean();
+        std::cout << "Done! Check result at " << adap_ad.get_log_filename() << std::endl;
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

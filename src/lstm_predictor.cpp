@@ -121,6 +121,7 @@ LSTMPredictor::LSTMPredictor(
     // Initialize hidden and cell states
     h = std::vector<float>(hidden_size, 0.0f);
     c = std::vector<float>(hidden_size, 0.0f);
+    is_training = false;
 }
 
 // Copy constructor implementation
@@ -147,6 +148,8 @@ LSTMPredictor::LSTMPredictor(const LSTMPredictor& other)
       bias_hh_cell(other.bias_hh_cell),
       h(other.h),
       c(other.c) {
+
+    is_training = false;
 }
 
 // Getters
@@ -268,4 +271,47 @@ LSTMPredictor::forward_step(float input, const std::vector<float>& prev_h, const
     }
 
     return {i_t, f_t, o_t, g_t, c_t, h_t};
+}
+
+void LSTMPredictor::train() {
+    is_training = true;
+}
+
+void LSTMPredictor::eval() {
+    is_training = false;
+}
+
+void LSTMPredictor::zero_grad() {
+    dw_ih_input = std::vector<std::vector<float>>(weight_ih_input.size(), std::vector<float>(weight_ih_input[0].size(), 0.0f));
+    dw_hh_input = std::vector<std::vector<float>>(weight_hh_input.size(), std::vector<float>(weight_hh_input[0].size(), 0.0f));
+    db_ih_input = std::vector<float>(bias_ih_input.size(), 0.0f);
+    db_hh_input = std::vector<float>(bias_hh_input.size(), 0.0f);
+}
+
+std::vector<float> LSTMPredictor::forward(const std::vector<float>& input) {
+    std::vector<float> output;
+    std::vector<float> h_t = h;
+    std::vector<float> c_t = c;
+
+    for (float x : input) {
+        auto [i_t, f_t, o_t, g_t, new_c, new_h] = forward_step(x, h_t, c_t);
+        h_t = new_h;
+        c_t = new_c;
+        output.push_back(new_h[0]);
+    }
+
+    if (is_training) {
+        h = h_t;
+        c = c_t;
+    }
+
+    return output;
+}
+
+const std::vector<float>& LSTMPredictor::get_h() const {
+    return h;
+}
+
+const std::vector<float>& LSTMPredictor::get_c() const {
+    return c;
 }

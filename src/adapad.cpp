@@ -8,7 +8,8 @@
 AdapAD::AdapAD(const PredictorConfig& predictor_config,
                const ValueRangeConfig& value_range_config,
                float minimal_threshold,
-               NormalDataPredictor& data_predictor)
+               NormalDataPredictor& data_predictor,
+               const std::vector<float>& training_data)
     : data_predictor(data_predictor),
       generator(predictor_config.lookback_len,
                 predictor_config.prediction_len,
@@ -30,7 +31,14 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
         if (!f_log.is_open()) {
             throw std::runtime_error("Could not open log file.");
         }
-        f_log << "Observed,Predicted,LowerBound,UpperBound,Anomalous,Error,Threshold\n";
+        f_log << "Observed,Predicted,LowerBound,UpperBound,PredictedAnomaly,ActualAnomaly,Error,Threshold\n";
+
+        // Train the generator
+        std::vector<float> normalized_training_data;
+        for (const auto& val : training_data) {
+            normalized_training_data.push_back(normalize_data(val));
+        }
+        generator.train(config::epoch_train, config::lr_train, normalized_training_data);
     } catch (const std::exception& e) {
         std::cerr << "Error in AdapAD constructor: " << e.what() << std::endl;
         throw;
@@ -38,10 +46,32 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
 }
 
 void AdapAD::set_training_data(const std::vector<float>& data) {
-    observed_vals = data;
+    // Clear existing observed values
+    observed_vals.clear();
+
+    // Normalize and store the new training data
+    for (const auto& val : data) {
+        observed_vals.push_back(normalize_data(val));
+    }
+
+    // Resize or clear other relevant vectors
+    predicted_vals.clear();
+    predictive_errors.clear();
+    thresholds.clear();
+
+    // Reset the threshold to the minimal threshold
+    thresholds.push_back(minimal_threshold);
+
+    // Train the generator if necessary
+    if (observed_vals.size() >= predictor_config.lookback_len) {
+        std::vector<float> training_data(observed_vals.end() - predictor_config.lookback_len, observed_vals.end());
+        generator.train(config::epoch_train, config::lr_train, training_data);
+    }
+
+    std::cout << "Training data set with " << observed_vals.size() << " samples." << std::endl;
 }
 
-bool AdapAD::is_anomalous(float observed_val) {
+bool AdapAD::is_anomalous(float observed_val, bool actual_anomaly) {
     try {
         float normalized_val = normalize_data(observed_val);
         observed_vals.push_back(normalized_val);
@@ -88,7 +118,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         }
         
         // Log results
-        log_results(is_anomalous, normalized_val, predicted_val, threshold);
+        log_results(is_anomalous, normalized_val, predicted_val, threshold, actual_anomaly);
         
         return is_anomalous;
     } catch (const std::exception& e) {
@@ -140,7 +170,7 @@ std::vector<float> AdapAD::prepare_data_for_prediction(float normalized_val) {
     return x_temp;
 }
 
-void AdapAD::log_results(bool is_anomalous, float normalized_val, float predicted_val, float threshold) {
+void AdapAD::log_results(bool is_anomalous, float normalized_val, float predicted_val, float threshold, bool actual_anomaly) {
     if (f_log.is_open()) {
         float denormalized_val = reverse_normalized_data(normalized_val);
         float denormalized_predicted = reverse_normalized_data(predicted_val);
@@ -149,7 +179,12 @@ void AdapAD::log_results(bool is_anomalous, float normalized_val, float predicte
               << denormalized_predicted - threshold << ","
               << denormalized_predicted + threshold << ","
               << (is_anomalous ? "true" : "false") << ","
+              << (actual_anomaly ? "1" : "0") << ","
               << std::abs(normalized_val - predicted_val) << ","
               << threshold << std::endl;
     }
+}
+
+std::string AdapAD::get_log_filename() const {
+    return config::log_file_path;
 }

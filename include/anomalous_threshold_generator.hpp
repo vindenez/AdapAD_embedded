@@ -30,6 +30,7 @@ public:
     void update(float learning_rate, const std::vector<float>& past_errors);
     float generate_threshold(const std::vector<float>& new_input);
     std::vector<float> generate_thresholds(const std::vector<std::vector<float>>& input_sequence);
+    void train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn);
 
 private:
     int lookback_len;
@@ -71,6 +72,9 @@ private:
 
     void clip_gradients(std::vector<std::vector<float>>& gradients, float clip_value);
     void clip_gradients(std::vector<float>& gradients, float clip_value);
+
+    std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
+    sliding_windows(const std::vector<float>& data, int window_size, int prediction_len);
 };
 
 #endif // ANOMALOUS_THRESHOLD_GENERATOR_HPP
