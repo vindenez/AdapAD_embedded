@@ -3,7 +3,7 @@
 #include "adapad.hpp"
 #include "json_loader.hpp"
 #include "config.hpp"
-#include "lstm_predictor.hpp"  // Make sure to include this header
+#include "lstm_predictor.hpp"
 #include <fstream>
 #include <sstream>
 #include <vector>

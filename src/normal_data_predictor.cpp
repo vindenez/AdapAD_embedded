@@ -164,3 +164,4 @@ std::vector<float> NormalDataPredictor::fully_connected(const std::vector<float>
 
     return result;
 }
+

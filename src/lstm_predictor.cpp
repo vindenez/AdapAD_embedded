@@ -15,18 +15,20 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int num_layers, in
       num_layers(num_layers),
       lookback_len(lookback_len) {
 
-    // Initialize weights and biases with Xavier initialization
+    // Initialize weights and biases with uniform distribution  (PyTorch docs nn.LSTM)
+    //u(-sqrt(k), sqrt(k)) where k = 1/hidden_size
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    auto xavier_init = [&](int fan_in, int fan_out) {
-        float std_dev = std::sqrt(2.0f / (fan_in + fan_out));
-        std::normal_distribution<float> dist(0.0f, std_dev);
+    auto uniform_init = [&](int size) {
+        float k = 1.0f / size;
+        float range = std::sqrt(k);
+        std::uniform_real_distribution<float> dist(-range, range);
         return dist;
     };
 
     auto init_weights = [&](int fan_out, int fan_in) {
-        std::normal_distribution<float> dist = xavier_init(fan_in, fan_out);
+        std::uniform_real_distribution<float> dist = uniform_init(hidden_size);
         std::vector<std::vector<float>> w(fan_out, std::vector<float>(fan_in));
         for (auto& row : w) {
             for (auto& val : row) {
@@ -36,11 +38,16 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int num_layers, in
         return w;
     };
 
-    auto init_bias = [](int size) {
-        return std::vector<float>(size, 0.0f);  // Initialize biases to zero
+    auto init_bias = [&](int size) {
+        std::uniform_real_distribution<float> dist = uniform_init(hidden_size);
+        std::vector<float> b(size);
+        for (auto& val : b) {
+            val = dist(gen);
+        }
+        return b;
     };
 
-    // LSTM weights and biases for all gates
+    // Initialize LSTM weights and biases for all gates
     weight_ih_input = init_weights(hidden_size, input_size);
     weight_hh_input = init_weights(hidden_size, hidden_size);
     bias_ih_input = init_bias(hidden_size);

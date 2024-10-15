@@ -65,6 +65,11 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lookback_len, int p
 
 
 void AnomalousThresholdGenerator::init_adam_parameters() {
+    beta1 = 0.9f;
+    beta2 = 0.999f;
+    epsilon = 1e-8f;
+    t = 0;
+
     auto weight_ih = generator.get_weight_ih_input();
     auto weight_hh = generator.get_weight_hh_input();
     auto bias_ih = generator.get_bias_ih_input();
@@ -83,6 +88,8 @@ void AnomalousThresholdGenerator::init_adam_parameters() {
 
 // Update function for feed-forward adaptation of the generator
 void AnomalousThresholdGenerator::update(float learning_rate, const std::vector<float>& past_errors) {
+    const float epsilon = 1e-8;  // Small value to prevent division by zero
+    
     // Forward pass
     auto [output, new_h, new_c] = generator.forward(past_errors, h, c);
 
@@ -91,16 +98,10 @@ void AnomalousThresholdGenerator::update(float learning_rate, const std::vector<
     double total_loss = 0.0;
     for (size_t i = 0; i < output.size(); ++i) {
         double error = output[i] - past_errors.back();
-        doutput[i] = 2.0f * static_cast<float>(error) / output.size();  // MSE loss gradient
+        doutput[i] = 2.0f * static_cast<float>(error) / (output.size() + epsilon);  // MSE loss gradient
         total_loss += error * error;
     }
-    total_loss /= output.size();
-
-    // Clip gradients
-    const float clip_value = 5.0f;
-    for (auto& grad : doutput) {
-        grad = std::clamp(grad, -clip_value, clip_value);
-    }
+    total_loss /= (output.size() + epsilon);
 
     std::cout << "Update - Loss: " << total_loss << std::endl;
 
@@ -200,36 +201,6 @@ AnomalousThresholdGenerator::backward_step(const std::vector<float>& input,
     return {dh, dc, dw_ih, dw_hh, db_ih, db_hh};
 }
 
-void AnomalousThresholdGenerator::update_parameters(const std::vector<std::vector<float>>& dw_ih,
-                                                    const std::vector<std::vector<float>>& dw_hh,
-                                                    const std::vector<float>& db_ih,
-                                                    const std::vector<float>& db_hh,
-                                                    float learning_rate) {
-    auto weight_ih = generator.get_weight_ih_input();
-    auto weight_hh = generator.get_weight_hh_input();
-    auto bias_ih = generator.get_bias_ih_input();
-    auto bias_hh = generator.get_bias_hh_input();
-
-    // Update weights
-    for (size_t i = 0; i < weight_ih.size(); ++i) {
-        for (size_t j = 0; j < weight_ih[i].size(); ++j) {
-            weight_ih[i][j] -= learning_rate * dw_ih[i][j];
-            weight_hh[i][j] -= learning_rate * dw_hh[i][j];
-        }
-    }
-
-    // Update biases
-    for (size_t i = 0; i < bias_ih.size(); ++i) {
-        bias_ih[i] -= learning_rate * db_ih[i];
-        bias_hh[i] -= learning_rate * db_hh[i];
-    }
-
-    // Set updated weights and biases
-    generator.set_weight_ih_input(weight_ih);
-    generator.set_weight_hh_input(weight_hh);
-    generator.set_bias_ih_input(bias_ih);
-    generator.set_bias_hh_input(bias_hh);
-}
 
 float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
     if (prediction_errors.empty() || prediction_errors.size() != lookback_len) {
@@ -248,8 +219,7 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
         return minimal_threshold;
     }
 
-    // Use sigmoid to ensure the threshold is between 0 and 1
-    float threshold = 1.0f / (1.0f + std::exp(-output[0]));
+    float threshold = output[0];
     threshold = std::max(minimal_threshold, threshold);
     std::cout << "Generated threshold: " << threshold << std::endl;
 
@@ -265,10 +235,12 @@ float AnomalousThresholdGenerator::generate_threshold(const std::vector<float>& 
     std::tie(output, h, c) = generator.forward(new_input, h, c);
 
     // Calculate the mean of the output
-    float mean = std::accumulate(output.begin(), output.end(), 0.0f) / output.size();
+    float mean_output = std::accumulate(output.begin(), output.end(), 0.0f) / output.size();
 
-    // Clamp the mean between lower_bound and upper_bound
-    return std::clamp(mean, lower_bound, upper_bound);
+    // Apply sigmoid to get the final threshold
+    float threshold = 1.0f / (1.0f + std::exp(-mean_output));
+
+    return threshold;
 }
 
 std::vector<float> AnomalousThresholdGenerator::generate_thresholds(const std::vector<std::vector<float>>& input_sequence) {
@@ -282,17 +254,13 @@ std::vector<float> AnomalousThresholdGenerator::generate_thresholds(const std::v
     return thresholds;
 }
 
-void AnomalousThresholdGenerator::update_parameters_adam(const std::vector<std::vector<float>>& dw_ih,
-                                                         const std::vector<std::vector<float>>& dw_hh,
-                                                         const std::vector<float>& db_ih,
-                                                         const std::vector<float>& db_hh,
-                                                         float learning_rate) {
-    const float clip_value = 5.0f; // You can adjust this value
-
-    auto clip_gradient = [clip_value](float grad) {
-        return std::max<float>(std::min<float>(grad, clip_value), -clip_value);
-    };
-
+void AnomalousThresholdGenerator::update_parameters_adam(
+    const std::vector<std::vector<float>>& dw_ih,
+    const std::vector<std::vector<float>>& dw_hh,
+    const std::vector<float>& db_ih,
+    const std::vector<float>& db_hh,
+    float learning_rate) {
+    
     t++;
     float alpha_t = learning_rate * std::sqrt(1 - std::pow(beta2, t)) / (1 - std::pow(beta1, t));
 
@@ -320,13 +288,9 @@ void AnomalousThresholdGenerator::update_parameters_adam(const std::vector<std::
             float v_hat_w_ih = v_w_ih[i][j] / (1 - std::pow(beta2, t));
             float v_hat_w_hh = v_w_hh[i][j] / (1 - std::pow(beta2, t));
 
-            // Clip gradients
-            float clipped_grad_ih = clip_gradient(dw_ih[i][j]);
-            float clipped_grad_hh = clip_gradient(dw_hh[i][j]);
-
-            // Update parameters with clipped gradients
-            weight_ih[i][j] -= alpha_t * m_hat_w_ih / (std::sqrt(v_hat_w_ih) + epsilon) * clipped_grad_ih;
-            weight_hh[i][j] -= alpha_t * m_hat_w_hh / (std::sqrt(v_hat_w_hh) + epsilon) * clipped_grad_hh;
+            // Update parameters
+            weight_ih[i][j] -= alpha_t * m_hat_w_ih / (std::sqrt(v_hat_w_ih) + epsilon);
+            weight_hh[i][j] -= alpha_t * m_hat_w_hh / (std::sqrt(v_hat_w_hh) + epsilon);
         }
     }
 
@@ -348,13 +312,9 @@ void AnomalousThresholdGenerator::update_parameters_adam(const std::vector<std::
         float v_hat_b_ih = v_b_ih[i] / (1 - std::pow(beta2, t));
         float v_hat_b_hh = v_b_hh[i] / (1 - std::pow(beta2, t));
 
-        // Clip gradients
-        float clipped_grad_ih = clip_gradient(db_ih[i]);
-        float clipped_grad_hh = clip_gradient(db_hh[i]);
-
-        // Update parameters with clipped gradients
-        bias_ih[i] -= alpha_t * m_hat_b_ih / (std::sqrt(v_hat_b_ih) + epsilon) * clipped_grad_ih;
-        bias_hh[i] -= alpha_t * m_hat_b_hh / (std::sqrt(v_hat_b_hh) + epsilon) * clipped_grad_hh;
+        // Update parameters
+        bias_ih[i] -= alpha_t * m_hat_b_ih / (std::sqrt(v_hat_b_ih) + epsilon);
+        bias_hh[i] -= alpha_t * m_hat_b_hh / (std::sqrt(v_hat_b_hh) + epsilon);
     }
 
     // Set updated weights and biases

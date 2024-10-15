@@ -28,8 +28,6 @@ public:
 
     float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
     void update(float learning_rate, const std::vector<float>& past_errors);
-    
-    // Add these two methods
     float generate_threshold(const std::vector<float>& new_input);
     std::vector<float> generate_thresholds(const std::vector<std::vector<float>>& input_sequence);
 
@@ -51,9 +49,9 @@ private:
     int t; // time step for Adam
 
     // Adam hyperparameters
-    const float beta1 = 0.9f;
-    const float beta2 = 0.999f;
-    const float epsilon = 1e-8f;
+    float beta1;
+    float beta2;
+    float epsilon;
 
     std::tuple<std::vector<float>, std::vector<float>, 
                std::vector<std::vector<float>>, std::vector<std::vector<float>>,
@@ -63,12 +61,6 @@ private:
                   const std::vector<float>& c_prev,
                   const std::vector<float>& doutput);
 
-    void update_parameters(const std::vector<std::vector<float>>& dw_ih,
-                           const std::vector<std::vector<float>>& dw_hh,
-                           const std::vector<float>& db_ih,
-                           const std::vector<float>& db_hh,
-                           float learning_rate);
-
     void update_parameters_adam(const std::vector<std::vector<float>>& dw_ih,
                                 const std::vector<std::vector<float>>& dw_hh,
                                 const std::vector<float>& db_ih,
@@ -76,6 +68,9 @@ private:
                                 float learning_rate);
 
     void init_adam_parameters();
+
+    void clip_gradients(std::vector<std::vector<float>>& gradients, float clip_value);
+    void clip_gradients(std::vector<float>& gradients, float clip_value);
 };
 
 #endif // ANOMALOUS_THRESHOLD_GENERATOR_HPP
