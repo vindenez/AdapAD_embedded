@@ -1,6 +1,7 @@
 #include "normal_data_predictor.hpp"
 #include <iostream>
 #include <stdexcept>
+#include "config.hpp"
 
 // Function to split concatenated weights into individual gate weights
 std::tuple<std::vector<std::vector<float>>, std::vector<std::vector<float>>,
@@ -48,7 +49,7 @@ NormalDataPredictor::NormalDataPredictor(
     const std::unordered_map<std::string, std::vector<float>>& biases) {
 
     // Load all LSTM layers
-    for (int i = 0; i < 3; ++i) {  // Assuming 3 layers
+    for (int i = 0; i < config::LSTM_size_layer; ++i) {
         // Define keys for each layer
         std::string weight_ih_key = "lstm.weight_ih_l" + std::to_string(i);
         std::string weight_hh_key = "lstm.weight_hh_l" + std::to_string(i);
@@ -97,10 +98,7 @@ NormalDataPredictor::NormalDataPredictor(
         throw std::runtime_error("Missing fully connected layer weights/biases");
     }
 
-    // Set input size based on the first LSTM layer
-    input_size = weights.at("lstm.weight_ih_l0")[0].size();  // Divide by 4 because weights are concatenated for 4 gates
-
-    // Print information for debugging
+    input_size = weights.at("lstm.weight_ih_l0")[0].size();
     std::cout << "NormalDataPredictor initialized with input size: " << input_size << std::endl;
 }
 
@@ -164,4 +162,3 @@ std::vector<float> NormalDataPredictor::fully_connected(const std::vector<float>
 
     return result;
 }
-

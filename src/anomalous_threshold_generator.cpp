@@ -214,7 +214,7 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
     std::vector<float> input(lookback_len, 0.0f);
     std::copy(prediction_errors.end() - lookback_len, prediction_errors.end(), input.begin());
 
-    std::tie(output, h, c) = generator.forward(input, h, c);
+    auto [output, new_h, new_c] = generator.forward(input, h, c);
 
     if (output.empty()) {
         std::cerr << "Error: output is empty after generator forward pass in generate(). Returning minimal_threshold." << std::endl;
@@ -223,7 +223,11 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
 
     float threshold = output[0];
     threshold = std::max(minimal_threshold, threshold);
-    std::cout << "Generated threshold: " << threshold << std::endl;
+    std::cout << "Generated threshold: " << threshold << " (minimal: " << minimal_threshold << ")" << std::endl;
+
+    // Update hidden and cell states
+    h = new_h;
+    c = new_c;
 
     return threshold;
 }
@@ -352,12 +356,13 @@ void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, con
                 auto output = generator.forward(x[j]);
 
                 // Compute loss
+                const float epsilon = 1e-8f;
                 float sample_loss = 0.0f;
                 for (size_t k = 0; k < output.size(); ++k) {
                     float error = output[k] - y[j][k];
                     sample_loss += error * error;
                 }
-                sample_loss /= output.size();
+                sample_loss = sample_loss / (output.size() + epsilon);
                 batch_loss += sample_loss;
 
                 // Prepare gradients for backward pass

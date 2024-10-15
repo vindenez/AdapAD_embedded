@@ -15,7 +15,7 @@
 struct DataPoint {
     std::string timestamp;
     float value;
-    bool is_anomaly;
+    bool is_anomaly;  
 };
 
 std::vector<DataPoint> load_csv_values(const std::string& filename) {
@@ -33,6 +33,11 @@ std::vector<DataPoint> load_csv_values(const std::string& filename) {
 
     // Read each line
     while (std::getline(file, line)) {
+        // Skip empty lines
+        if (line.empty()) {
+            continue;
+        }
+
         std::stringstream ss(line);
         std::string timestamp, value_str, is_anomaly_str;
 
@@ -42,7 +47,7 @@ std::vector<DataPoint> load_csv_values(const std::string& filename) {
 
         try {
             float value = std::stof(value_str);
-            bool is_anomaly = (is_anomaly_str == "1");
+            bool is_anomaly = (is_anomaly_str == "1");  // Convert string to bool
             data_points.push_back({timestamp, value, is_anomaly});
         } catch (const std::exception& e) {
             std::cerr << "Error parsing line: " << line << "\nError: " << e.what() << std::endl;
@@ -87,7 +92,6 @@ int main() {
     try {
         auto weights = load_all_weights("weights/lstm_weights.json");
         auto biases = load_all_biases("weights/lstm_weights.json");
-        // Load configuration
         PredictorConfig predictor_config = init_predictor_config();
         float minimal_threshold;
         ValueRangeConfig value_range_config = init_value_range_config(config::data_source, minimal_threshold);
@@ -96,38 +100,68 @@ int main() {
             throw std::runtime_error("It is mandatory to set a minimal threshold");
         }
 
-        // Load data
-        std::vector<DataPoint> data_production = load_csv_values(config::data_source_path);
-        size_t len_data_subject = data_production.size();
+        // Load training data
+        std::vector<DataPoint> training_data = load_csv_values("data/tide_pressure.csv");
+        if (training_data.empty()) {
+            throw std::runtime_error("Failed to load training data");
+        }
 
-        // Create NormalDataPredictor first
         NormalDataPredictor data_predictor(weights, biases);
-
-        // Then create AdapAD instance
+        AnomalousThresholdGenerator threshold_generator(predictor_config.lookback_len, predictor_config.prediction_len, value_range_config.lower_bound, value_range_config.upper_bound);
+        
         AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, data_predictor, {});
-        std::cout << "GATHERING DATA FOR TRAINING... " << predictor_config.train_size << std::endl;
+        std::cout << "TRAINING ON TIDE_PRESSURE.CSV..." << std::endl;
 
-        std::vector<float> observed_data;
-
-        for (size_t data_idx = 0; data_idx < len_data_subject; ++data_idx) {
-            const auto& data_point = data_production[data_idx];
+        // Training phase
+        for (const auto& data_point : training_data) {
             float measured_value = data_point.value;
             bool actual_anomaly = data_point.is_anomaly;
 
-            observed_data.push_back(measured_value);
-            size_t observed_data_sz = observed_data.size();
-
-            // Perform warmup training or make a decision
-            if (observed_data_sz == predictor_config.train_size) {
-                adap_ad.set_training_data(observed_data);
-                std::cout << "------------STARTING TO MAKE DECISION------------" << std::endl;
-            } else if (observed_data_sz > predictor_config.train_size) {
-                bool is_anomalous_ret = adap_ad.is_anomalous(measured_value, actual_anomaly);
-                adap_ad.clean();
-            } else {
-                std::cout << observed_data.size() << "/" << predictor_config.train_size << " to warmup training" << std::endl;
-            }
+            // Process each data point without logging
+            adap_ad.is_anomalous(measured_value, actual_anomaly, false);
+            adap_ad.clean();
         }
+
+        std::cout << "Training complete. Starting validation..." << std::endl;
+
+        // Open log file for validation phase
+        adap_ad.open_log_file();
+
+        // Load validation data
+        std::vector<DataPoint> validation_data = load_csv_values("data/tide_pressure.validation_stage.csv");
+        if (validation_data.empty()) {
+            throw std::runtime_error("Failed to load validation data");
+        }
+
+        // Validation phase
+        int true_positives = 0, false_positives = 0, true_negatives = 0, false_negatives = 0;
+
+        for (const auto& data_point : validation_data) {
+            float measured_value = data_point.value;
+            bool actual_anomaly = data_point.is_anomaly;
+
+            // Process each data point and log results
+            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly, true);
+
+            if (predicted_anomaly && actual_anomaly) true_positives++;
+            else if (predicted_anomaly && !actual_anomaly) false_positives++;
+            else if (!predicted_anomaly && !actual_anomaly) true_negatives++;
+            else if (!predicted_anomaly && actual_anomaly) false_negatives++;
+
+            adap_ad.clean();
+        }
+
+        // Calculate and print metrics
+        float accuracy = static_cast<float>(true_positives + true_negatives) / validation_data.size();
+        float precision = static_cast<float>(true_positives) / (true_positives + false_positives);
+        float recall = static_cast<float>(true_positives) / (true_positives + false_negatives);
+        float f1_score = 2 * (precision * recall) / (precision + recall);
+
+        std::cout << "Validation Results:" << std::endl;
+        std::cout << "Accuracy: " << accuracy << std::endl;
+        std::cout << "Precision: " << precision << std::endl;
+        std::cout << "Recall: " << recall << std::endl;
+        std::cout << "F1 Score: " << f1_score << std::endl;
 
         std::cout << "Done! Check result at " << adap_ad.get_log_filename() << std::endl;
 

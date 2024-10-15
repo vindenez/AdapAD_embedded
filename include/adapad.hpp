@@ -17,10 +17,14 @@ public:
            const std::vector<float>& training_data);
 
     void set_training_data(const std::vector<float>& data);
-    bool is_anomalous(float observed_val);
     void clean();
     void log_results();
-    bool is_anomalous(float observed_val, bool actual_anomaly);
+    bool is_anomalous(float observed_val, bool actual_anomaly, bool log_results);
+
+    std::vector<float> prepare_data_for_prediction(float normalized_val);
+    void log_result(bool is_anomalous, float normalized_val, float predicted_val, float threshold, bool actual_anomaly);
+
+    void warmup_generator(const std::vector<float>& normalized_data);
 
 
     // Public methods for data normalization
@@ -28,6 +32,7 @@ public:
     float reverse_normalized_data(float val) const;
     std::string get_log_filename() const;
 
+    void open_log_file();
 
 private:
     NormalDataPredictor& data_predictor;
@@ -43,8 +48,7 @@ private:
 
     // Private methods for internal processing
     bool is_inside_range(float val) const;
-    std::vector<float> prepare_data_for_prediction(float normalized_val);
-    void log_results(bool is_anomalous, float normalized_val, float predicted_val, float threshold, bool actual_anomaly);
+    
 };
 
 #endif // ADAPAD_HPP
