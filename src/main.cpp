@@ -133,16 +133,13 @@ int main() {
         }
 
         // Create LSTMPredictor with correct dimensions
-        LSTMPredictor lstm_predictor(
-            config::input_size,
-            config::LSTM_size,
-            config::LSTM_size_layer,
-            config::lookback_len
-        );
+        NormalDataPredictor data_predictor(weights, biases);
 
+        predictor_config.input_size = data_predictor.get_input_size();
+        predictor_config.lookback_len = data_predictor.get_input_size();
         
         // Create AdapAD instance with the LSTMPredictor
-        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, lstm_predictor);
+        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, data_predictor);
 
         // Load training data
         std::vector<float> training_data = load_csv_values("data/Tide_pressure.csv");
@@ -162,7 +159,12 @@ int main() {
             throw std::runtime_error("Benchmark data could not be loaded. Check the file path and contents.");
         }
 
-        adap_ad.set_training_data(training_data);
+        // Normalize and set training data
+        std::vector<float> normalized_training_data;
+        for (const auto& val : training_data) {
+            normalized_training_data.push_back(adap_ad.normalize_data(val));
+        }
+        adap_ad.set_training_data(normalized_training_data);
 
         // Training stage
         std::cout << "Starting training process..." << std::endl;
@@ -170,7 +172,11 @@ int main() {
         size_t progress_interval = total_training_samples / 10; // Show progress every 10%
 
         for (size_t i = 0; i < total_training_samples; ++i) {
-            adap_ad.is_anomalous(training_data[i]); // This updates the model
+            bool is_anomalous = adap_ad.is_anomalous(training_data[i]);
+            if (i % 1000 == 0) {
+                std::cout << "Training - Sample: " << i << ", Is Anomalous: " << is_anomalous << std::endl;
+            }
+            adap_ad.is_anomalous(training_data[i]); // This updates the model (no need to normalize here as is_anomalous will do it)
 
             if ((i + 1) % progress_interval == 0 || i == total_training_samples - 1) {
                 float progress = (i + 1) * 100.0f / total_training_samples;
@@ -187,6 +193,10 @@ int main() {
         for (size_t i = 0; i < validation_data.size(); ++i) {
             const auto& data_point = validation_data[i];
             bool is_anomalous = adap_ad.is_anomalous(data_point.value);
+            if (i % 100 == 0) {
+                std::cout << "Validation - Sample: " << i << ", Value: " << data_point.value 
+                          << ", Is Anomalous: " << is_anomalous << ", Actual: " << data_point.is_anomaly << std::endl;
+            }
             predictions.push_back(is_anomalous);
             actual_labels.push_back(data_point.is_anomaly);
 
@@ -209,6 +219,11 @@ int main() {
         for (size_t i = 0; i < benchmark_data.size(); ++i) {
             float val = benchmark_data[i];
             bool is_anomalous = adap_ad.is_anomalous(val);
+            if (i % 100 == 0) {
+                std::cout << "Benchmark - Sample: " << i << ", Value: " << val 
+                          << ", Is Anomalous: " << is_anomalous << std::endl;
+            }
+            adap_ad.is_anomalous(val); // is_anomalous will normalize internally
 
             if ((i + 1) % (benchmark_data.size() / 10) == 0 || i == benchmark_data.size() - 1) {
                 float progress = (i + 1) * 100.0f / benchmark_data.size();

@@ -3,27 +3,29 @@
 
 #include "normal_data_predictor.hpp"
 #include "anomalous_threshold_generator.hpp"
-#include "lstm_predictor.hpp"
 #include "config.hpp"
 #include <vector>
 #include <string>
 #include <fstream>
-#include <unordered_map>
 
 class AdapAD {
 public:
-    AdapAD(const PredictorConfig& predictor_config, 
-           const ValueRangeConfig& value_range_config, 
+    AdapAD(const PredictorConfig& predictor_config,
+           const ValueRangeConfig& value_range_config,
            float minimal_threshold,
-           const LSTMPredictor& lstm_predictor);
+           NormalDataPredictor& data_predictor);
 
     void set_training_data(const std::vector<float>& data);
     bool is_anomalous(float observed_val);
     void clean();
     void log_results();
 
+    // Public methods for data normalization
+    float normalize_data(float val) const;
+    float reverse_normalized_data(float val) const;
+
 private:
-    NormalDataPredictor data_predictor;
+    NormalDataPredictor& data_predictor;
     AnomalousThresholdGenerator generator;
     float minimal_threshold;
     PredictorConfig predictor_config;
@@ -34,7 +36,10 @@ private:
     std::vector<float> predictive_errors;
     std::ofstream f_log;
 
-    NormalDataPredictor create_normal_data_predictor(const LSTMPredictor& lstm_predictor);
+    // Private methods for internal processing
+    bool is_inside_range(float val) const;
+    std::vector<float> prepare_data_for_prediction(float normalized_val);
+    void log_results(bool is_anomalous, float normalized_val, float predicted_val, float threshold);
 };
 
 #endif // ADAPAD_HPP

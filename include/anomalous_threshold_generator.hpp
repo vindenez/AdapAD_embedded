@@ -26,16 +26,12 @@ public:
         const std::vector<float>& bias_ih_cell,
         const std::vector<float>& bias_hh_cell);
 
-    void update(int num_epochs, float learning_rate, const std::vector<float>& past_errors);
     float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
+    void update(float learning_rate, const std::vector<float>& past_errors);
+    
+    // Add these two methods
     float generate_threshold(const std::vector<float>& new_input);
     std::vector<float> generate_thresholds(const std::vector<std::vector<float>>& input_sequence);
-
-    void update_parameters(const std::vector<std::vector<float>>& dw_ih,
-                           const std::vector<std::vector<float>>& dw_hh,
-                           const std::vector<float>& db_ih,
-                           const std::vector<float>& db_hh,
-                           float learning_rate);
 
 private:
     int lookback_len;
@@ -47,6 +43,18 @@ private:
     std::vector<float> c;
     std::vector<float> output;
 
+    // Adam optimizer parameters
+    std::vector<std::vector<float>> m_w_ih, m_w_hh;
+    std::vector<float> m_b_ih, m_b_hh;
+    std::vector<std::vector<float>> v_w_ih, v_w_hh;
+    std::vector<float> v_b_ih, v_b_hh;
+    int t; // time step for Adam
+
+    // Adam hyperparameters
+    const float beta1 = 0.9f;
+    const float beta2 = 0.999f;
+    const float epsilon = 1e-8f;
+
     std::tuple<std::vector<float>, std::vector<float>, 
                std::vector<std::vector<float>>, std::vector<std::vector<float>>,
                std::vector<float>, std::vector<float>>
@@ -54,6 +62,20 @@ private:
                   const std::vector<float>& h_prev,
                   const std::vector<float>& c_prev,
                   const std::vector<float>& doutput);
+
+    void update_parameters(const std::vector<std::vector<float>>& dw_ih,
+                           const std::vector<std::vector<float>>& dw_hh,
+                           const std::vector<float>& db_ih,
+                           const std::vector<float>& db_hh,
+                           float learning_rate);
+
+    void update_parameters_adam(const std::vector<std::vector<float>>& dw_ih,
+                                const std::vector<std::vector<float>>& dw_hh,
+                                const std::vector<float>& db_ih,
+                                const std::vector<float>& db_hh,
+                                float learning_rate);
+
+    void init_adam_parameters();
 };
 
 #endif // ANOMALOUS_THRESHOLD_GENERATOR_HPP
