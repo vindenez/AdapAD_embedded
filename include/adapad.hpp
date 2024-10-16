@@ -21,7 +21,7 @@ public:
     void log_results();
     bool is_anomalous(float observed_val, bool actual_anomaly, bool log_results);
 
-    std::vector<float> prepare_data_for_prediction(float normalized_val);
+    std::vector<float> prepare_data_for_prediction();
     void log_result(bool is_anomalous, float normalized_val, float predicted_val, float threshold, bool actual_anomaly);
 
     void warmup_generator(const std::vector<float>& normalized_data);

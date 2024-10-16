@@ -47,8 +47,20 @@ std::vector<DataPoint> load_csv_values(const std::string& filename) {
 
         try {
             float value = std::stof(value_str);
-            bool is_anomaly = (is_anomaly_str == "1");  // Convert string to bool
+
+            // Trim whitespace from is_anomaly_str
+            is_anomaly_str.erase(0, is_anomaly_str.find_first_not_of(" \t\n\r\f\v"));
+            is_anomaly_str.erase(is_anomaly_str.find_last_not_of(" \t\n\r\f\v") + 1);
+
+            // Debug output to check the raw string
+            std::cout << "Raw is_anomaly_str: '" << is_anomaly_str << "'" << std::endl;
+
+            bool is_anomaly = (is_anomaly_str == "1");
+
             data_points.push_back({timestamp, value, is_anomaly});
+            
+            // Debug output for all rows
+            std::cout << "CSV row: " << timestamp << ", " << value << ", is_anomaly: " << (is_anomaly ? "true" : "false") << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "Error parsing line: " << line << "\nError: " << e.what() << std::endl;
         }
@@ -139,6 +151,10 @@ int main() {
         for (const auto& data_point : validation_data) {
             float measured_value = data_point.value;
             bool actual_anomaly = data_point.is_anomaly;
+
+            // Debug output for all data points
+            std::cout << "Processing: " << data_point.timestamp << ", " << measured_value 
+                      << ", is_anomaly: " << (actual_anomaly ? "true" : "false") << std::endl;
 
             // Process each data point and log results
             bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly, true);
