@@ -55,3 +55,55 @@ std::vector<float> elementwise_mul(const std::vector<float>& a, const std::vecto
 
     return result;
 }
+
+std::vector<std::vector<float>> transpose_matrix(const std::vector<std::vector<float>>& matrix) {
+    if (matrix.empty()) {
+        return {};
+    }
+
+    size_t num_rows = matrix.size();
+    size_t num_cols = matrix[0].size();
+
+    // Check that all rows have the same number of columns
+    for (const auto& row : matrix) {
+        if (row.size() != num_cols) {
+            throw std::runtime_error("All rows must have the same number of columns to transpose the matrix.");
+        }
+    }
+
+    std::vector<std::vector<float>> transposed(num_cols, std::vector<float>(num_rows));
+
+    for (size_t i = 0; i < num_rows; ++i) {
+        for (size_t j = 0; j < num_cols; ++j) {
+            transposed[j][i] = matrix[i][j];
+        }
+    }
+
+    return transposed;
+}
+
+float compute_mse_loss(const std::vector<float>& output, const std::vector<float>& target) {
+    float loss = 0.0f;
+    for (size_t i = 0; i < output.size(); ++i) {
+        float error = output[i] - target[i];
+        loss += error * error;
+    }
+    return loss / output.size();
+}
+
+std::vector<float> compute_mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target) {
+    std::vector<float> gradient(output.size());
+    for (size_t i = 0; i < output.size(); ++i) {
+        gradient[i] = 2.0f * (output[i] - target[i]) / output.size();
+    }
+    return gradient;
+}
+
+std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> sliding_windows(const std::vector<float>& data, int window_size, int prediction_len) {
+    std::vector<std::vector<float>> x, y;
+    for (size_t i = window_size; i < data.size(); ++i) {
+        x.push_back(std::vector<float>(data.begin() + i - window_size, data.begin() + i));
+        y.push_back(std::vector<float>(data.begin() + i, std::min(data.begin() + i + prediction_len, data.end())));
+    }
+    return {x, y};
+}

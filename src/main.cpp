@@ -47,20 +47,10 @@ std::vector<DataPoint> load_csv_values(const std::string& filename) {
 
         try {
             float value = std::stof(value_str);
-
-            // Trim whitespace from is_anomaly_str
-            is_anomaly_str.erase(0, is_anomaly_str.find_first_not_of(" \t\n\r\f\v"));
-            is_anomaly_str.erase(is_anomaly_str.find_last_not_of(" \t\n\r\f\v") + 1);
-
-            // Debug output to check the raw string
-            std::cout << "Raw is_anomaly_str: '" << is_anomaly_str << "'" << std::endl;
-
             bool is_anomaly = (is_anomaly_str == "1");
 
             data_points.push_back({timestamp, value, is_anomaly});
             
-            // Debug output for all rows
-            std::cout << "CSV row: " << timestamp << ", " << value << ", is_anomaly: " << (is_anomaly ? "true" : "false") << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "Error parsing line: " << line << "\nError: " << e.what() << std::endl;
         }
@@ -102,8 +92,6 @@ Metrics calculate_metrics(const std::vector<bool>& predictions, const std::vecto
 
 int main() {
     try {
-        auto weights = load_all_weights("weights/lstm_weights.json");
-        auto biases = load_all_biases("weights/lstm_weights.json");
         PredictorConfig predictor_config = init_predictor_config();
         float minimal_threshold;
         ValueRangeConfig value_range_config = init_value_range_config(config::data_source, minimal_threshold);
@@ -112,32 +100,27 @@ int main() {
             throw std::runtime_error("It is mandatory to set a minimal threshold");
         }
 
+        // Initialize AdapAD
+        AdapAD adap_ad(predictor_config, value_range_config, config::minimal_threshold);
+
         // Load training data
         std::vector<DataPoint> training_data = load_csv_values("data/tide_pressure.csv");
         if (training_data.empty()) {
             throw std::runtime_error("Failed to load training data");
         }
 
-        NormalDataPredictor data_predictor(weights, biases);
-        AnomalousThresholdGenerator threshold_generator(predictor_config.lookback_len, predictor_config.prediction_len, value_range_config.lower_bound, value_range_config.upper_bound);
-        
-        AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold, data_predictor, {});
         std::cout << "TRAINING ON TIDE_PRESSURE.CSV..." << std::endl;
 
-        // Training phase
+        // Prepare training data
+        std::vector<float> training_values;
         for (const auto& data_point : training_data) {
-            float measured_value = data_point.value;
-            bool actual_anomaly = data_point.is_anomaly;
-
-            // Process each data point without logging
-            adap_ad.is_anomalous(measured_value, actual_anomaly, false);
-            adap_ad.clean();
+            training_values.push_back(data_point.value);
         }
 
-        std::cout << "Training complete. Starting validation..." << std::endl;
+        // Set training data and train
+        adap_ad.set_training_data(training_values);
 
-        // Open log file for validation phase
-        adap_ad.open_log_file();
+        std::cout << "Training complete. Starting validation..." << std::endl;
 
         // Load validation data
         std::vector<DataPoint> validation_data = load_csv_values("data/tide_pressure.validation_stage.csv");
@@ -146,7 +129,8 @@ int main() {
         }
 
         // Validation phase
-        int true_positives = 0, false_positives = 0, true_negatives = 0, false_negatives = 0;
+        std::vector<bool> predictions;
+        std::vector<bool> actual_labels;
 
         for (const auto& data_point : validation_data) {
             float measured_value = data_point.value;
@@ -156,28 +140,24 @@ int main() {
             std::cout << "Processing: " << data_point.timestamp << ", " << measured_value 
                       << ", is_anomaly: " << (actual_anomaly ? "true" : "false") << std::endl;
 
-            // Process each data point and log results
-            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly, true);
+            // Process each data point
+            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly);
 
-            if (predicted_anomaly && actual_anomaly) true_positives++;
-            else if (predicted_anomaly && !actual_anomaly) false_positives++;
-            else if (!predicted_anomaly && !actual_anomaly) true_negatives++;
-            else if (!predicted_anomaly && actual_anomaly) false_negatives++;
+            predictions.push_back(predicted_anomaly);
+            actual_labels.push_back(actual_anomaly);
 
             adap_ad.clean();
         }
 
-        // Calculate and print metrics
-        float accuracy = static_cast<float>(true_positives + true_negatives) / validation_data.size();
-        float precision = static_cast<float>(true_positives) / (true_positives + false_positives);
-        float recall = static_cast<float>(true_positives) / (true_positives + false_negatives);
-        float f1_score = 2 * (precision * recall) / (precision + recall);
+        // Calculate metrics
+        Metrics metrics = calculate_metrics(predictions, actual_labels);
 
+        // Print metrics
         std::cout << "Validation Results:" << std::endl;
-        std::cout << "Accuracy: " << accuracy << std::endl;
-        std::cout << "Precision: " << precision << std::endl;
-        std::cout << "Recall: " << recall << std::endl;
-        std::cout << "F1 Score: " << f1_score << std::endl;
+        std::cout << "Accuracy: " << metrics.accuracy << std::endl;
+        std::cout << "Precision: " << metrics.precision << std::endl;
+        std::cout << "Recall: " << metrics.recall << std::endl;
+        std::cout << "F1 Score: " << metrics.f1_score << std::endl;
 
         std::cout << "Done! Check result at " << adap_ad.get_log_filename() << std::endl;
 

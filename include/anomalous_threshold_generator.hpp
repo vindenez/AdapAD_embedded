@@ -3,78 +3,28 @@
 
 #include "lstm_predictor.hpp"
 #include <vector>
-#include <tuple>
 
 class AnomalousThresholdGenerator {
 public:
-    AnomalousThresholdGenerator(int lookback_len, int prediction_len, float lower_bound, float upper_bound);
-    AnomalousThresholdGenerator(
-        const std::vector<std::vector<float>>& weight_ih_input,
-        const std::vector<std::vector<float>>& weight_hh_input,
-        const std::vector<float>& bias_ih_input,
-        const std::vector<float>& bias_hh_input,
-        const std::vector<std::vector<float>>& weight_ih_forget,
-        const std::vector<std::vector<float>>& weight_hh_forget,
-        const std::vector<float>& bias_ih_forget,
-        const std::vector<float>& bias_hh_forget,
-        const std::vector<std::vector<float>>& weight_ih_output,
-        const std::vector<std::vector<float>>& weight_hh_output,
-        const std::vector<float>& bias_ih_output,
-        const std::vector<float>& bias_hh_output,
-        const std::vector<std::vector<float>>& weight_ih_cell,
-        const std::vector<std::vector<float>>& weight_hh_cell,
-        const std::vector<float>& bias_ih_cell,
-        const std::vector<float>& bias_hh_cell);
+    AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
 
-    float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
-    void update(float learning_rate, const std::vector<float>& past_errors);
-    float generate_threshold(const std::vector<float>& new_input);
-    std::vector<float> generate_thresholds(const std::vector<std::vector<float>>& input_sequence);
     void train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn);
+    float update(int num_epochs, float lr_update, const std::vector<float>& past_errors, float recent_error);
+    float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
+    void train();
+    void eval();
 
 private:
     int lookback_len;
     int prediction_len;
-    float lower_bound;
-    float upper_bound;
     LSTMPredictor generator;
-    std::vector<float> h;
-    std::vector<float> c;
-    std::vector<float> output;
-
-    // Adam optimizer parameters
-    std::vector<std::vector<float>> m_w_ih, m_w_hh;
-    std::vector<float> m_b_ih, m_b_hh;
-    std::vector<std::vector<float>> v_w_ih, v_w_hh;
-    std::vector<float> v_b_ih, v_b_hh;
-    int t; // time step for Adam
-
-    // Adam hyperparameters
-    float beta1;
-    float beta2;
-    float epsilon;
-
-    std::tuple<std::vector<float>, std::vector<float>, 
-               std::vector<std::vector<float>>, std::vector<std::vector<float>>,
-               std::vector<float>, std::vector<float>>
-    backward_step(const std::vector<float>& input,
-                  const std::vector<float>& h_prev,
-                  const std::vector<float>& c_prev,
-                  const std::vector<float>& doutput);
-
-    void update_parameters_adam(const std::vector<std::vector<float>>& dw_ih,
-                                const std::vector<std::vector<float>>& dw_hh,
-                                const std::vector<float>& db_ih,
-                                const std::vector<float>& db_hh,
-                                float learning_rate);
-
-    void init_adam_parameters();
-
-    void clip_gradients(std::vector<std::vector<float>>& gradients, float clip_value);
-    void clip_gradients(std::vector<float>& gradients, float clip_value);
+    bool is_training;
 
     std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
     sliding_windows(const std::vector<float>& data, int window_size, int prediction_len);
+
+    float compute_mse_loss(const std::vector<float>& output, const std::vector<float>& target);
+    std::vector<float> compute_mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target);
 };
 
 #endif // ANOMALOUS_THRESHOLD_GENERATOR_HPP
