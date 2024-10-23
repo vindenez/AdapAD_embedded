@@ -1,7 +1,11 @@
 #include "matrix_utils.hpp"
 #include <iostream>
 
-std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec) {
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
+
+/* std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec) {
     if (matrix.empty() || vec.empty()) {
         throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul. Matrix size: " + 
                                  std::to_string(matrix.size()) + ", Vector size: " + std::to_string(vec.size()));
@@ -19,6 +23,48 @@ std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matr
             result[i] += matrix[i][j] * vec[j];
         }
     }
+    return result;
+} */
+
+// Optimized for ARMv7 (Embedded) and ARMv8 (AArch64)
+// 
+std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec) {
+    if (matrix.empty() || vec.empty()) {
+        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul.");
+    }
+
+    if (matrix[0].size() != vec.size()) {
+        throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul.");
+    }
+
+    std::vector<float> result(matrix.size(), 0.0f);
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    for (size_t i = 0; i < matrix.size(); ++i) {
+        float32x4_t sum = vdupq_n_f32(0.0f);
+        for (size_t j = 0; j < vec.size(); j += 4) {
+            float32x4_t v = vld1q_f32(&vec[j]);
+            float32x4_t m = vld1q_f32(&matrix[i][j]);
+            sum = vmlaq_f32(sum, v, m);
+        }
+        float32x2_t sum2 = vadd_f32(vget_low_f32(sum), vget_high_f32(sum));
+        result[i] = vget_lane_f32(vpadd_f32(sum2, sum2), 0);
+
+        // Handle remaining elements
+        for (size_t j = (vec.size() / 4) * 4; j < vec.size(); ++j) {
+            result[i] += matrix[i][j] * vec[j];
+        }
+    }
+#else
+    // Fallback implementation
+    for (size_t i = 0; i < matrix.size(); ++i) {
+        for (size_t j = 0; j < vec.size(); ++j) {
+            result[i] += matrix[i][j] * vec[j];
+        }
+    }
+#endif
+
     return result;
 }
 
