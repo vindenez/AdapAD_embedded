@@ -185,10 +185,8 @@ void AdapAD::log_result(bool is_anomalous, float normalized_val, float predicted
 }
 
 void AdapAD::open_log_file() {
-    // Check if the file already exists
     bool file_exists = std::filesystem::exists(f_name);
 
-    // Open the file in append mode
     f_log.open(f_name, std::ios::app);
     if (!f_log.is_open()) {
         std::cerr << "Error: Could not open log file: " << f_name << std::endl;
@@ -196,7 +194,6 @@ void AdapAD::open_log_file() {
         throw std::runtime_error("Could not open log file: " + f_name);
     }
 
-    // Write the header only if the file is newly created
     if (!file_exists) {
         f_log << "Observed,Predicted,LowerBound,UpperBound,PredictedAnomaly,ActualAnomaly,Error,Threshold\n";
     }

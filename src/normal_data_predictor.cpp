@@ -40,7 +40,7 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
         epoch_loss /= x.size();
         std::cout << "Epoch " << epoch + 1 << "/" << num_epochs << ", Loss: " << epoch_loss << std::endl;
 
-        // Stricter early stopping logic
+        // Early stopping logic
         if (epoch_loss > previous_loss) {
             std::cout << "Early stopping triggered after " << epoch + 1 << " epochs. Loss increased." << std::endl;
             break;

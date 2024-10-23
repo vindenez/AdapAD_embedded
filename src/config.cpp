@@ -24,11 +24,11 @@ namespace config {
     int input_size = lookback_len;
 
     // Anomaly detection
-    float minimal_threshold = 0.0038f;  // Default for Tide_pressure
+    float minimal_threshold = 0.0038f;  
 
     // Data preprocessing
-    float lower_bound = 713.0f;  // Default for Tide_pressure
-    float upper_bound = 763.0f;  // Default for Tide_pressure
+    float lower_bound = 713.0f;  
+    float upper_bound = 763.0f;  
 
     // Logging and debugging
     bool verbose_output = true;
@@ -62,7 +62,6 @@ PredictorConfig init_predictor_config() {
     return predictor_config;
 }
 
-// Initialize value range configuration based on data source
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold) {
     ValueRangeConfig value_range_config;
 

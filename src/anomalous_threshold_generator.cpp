@@ -91,7 +91,7 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
     }
 
     if (is_training) {
-        eval();  // Ensure we're in evaluation mode
+        eval();  
     }
 
     auto output = generator.forward(prediction_errors);
