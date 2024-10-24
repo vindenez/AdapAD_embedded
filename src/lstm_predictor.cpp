@@ -76,9 +76,6 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
     h = std::vector<float>(hidden_size, 0.0f);
     c = std::vector<float>(hidden_size, 0.0f);
 
-    // Debugging statements
-    std::cout << "Initialized weight_ih_input with size: " << weight_ih_input.size() << " x " << weight_ih_input[0].size() << std::endl;
-    // Repeat for other weights if necessary
 }
 
 // Constructor to initialize with weights and biases for each gate

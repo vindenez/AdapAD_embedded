@@ -7,7 +7,7 @@ namespace config {
     std::string data_source = "Tide_pressure";
 
     // Training parameters
-    int epoch_train = 3000;
+    int epoch_train = 3;
     float lr_train = 0.00005f;
     int epoch_update = 100;
     float lr_update = 0.00005f;

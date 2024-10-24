@@ -33,33 +33,43 @@ std::vector<DataPoint> load_csv_values(const std::string& filename) {
 
     // Read each line
     while (std::getline(file, line)) {
-        // Skip empty lines
-        if (line.empty()) {
-            continue;
-        }
+        if (line.empty()) continue;
 
         std::stringstream ss(line);
         std::string timestamp, value_str, is_anomaly_str;
 
+        // Parse CSV format
         std::getline(ss, timestamp, ',');
         std::getline(ss, value_str, ',');
         std::getline(ss, is_anomaly_str, ',');
 
         try {
             float value = std::stof(value_str);
-            bool is_anomaly = (is_anomaly_str == "1");
+            
+            // Trim whitespace from is_anomaly_str
+            is_anomaly_str.erase(0, is_anomaly_str.find_first_not_of(" \n\r\t"));
+            is_anomaly_str.erase(is_anomaly_str.find_last_not_of(" \n\r\t") + 1);
+            
+            // Convert string to bool, checking for both "1" and "1\n" etc.
+            bool is_anomaly = (is_anomaly_str == "1" || is_anomaly_str == "1\n" || is_anomaly_str == "1\r" || is_anomaly_str == "1\r\n");
+
+            // Debug print with more detail
+            std::cout << "Loaded: " << timestamp << ", value=" << value 
+                     << ", is_anomaly=" << is_anomaly 
+                     << " (raw='" << is_anomaly_str << "', length=" << is_anomaly_str.length() 
+                     << ", hex=";
+            
+            // Print hex values of the string for debugging
+            for (char c : is_anomaly_str) {
+                std::cout << std::hex << (int)c << " ";
+            }
+            std::cout << ")" << std::endl;
 
             data_points.push_back({timestamp, value, is_anomaly});
-            
         } catch (const std::exception& e) {
             std::cerr << "Error parsing line: " << line << "\nError: " << e.what() << std::endl;
+            continue;
         }
-    }
-
-    if (data_points.empty()) {
-        std::cerr << "Error: No valid data loaded from file " << filename << std::endl;
-    } else {
-        std::cout << "Loaded " << data_points.size() << " data points from " << filename << std::endl;
     }
 
     return data_points;

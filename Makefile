@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Iinclude -Wall -O3
+CXXFLAGS = -g -std=c++17 -Iinclude -Wall -O3
 
 # Architecture-specific flags
 ARCH := $(shell uname -m)

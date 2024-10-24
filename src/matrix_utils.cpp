@@ -1,7 +1,7 @@
 #include "matrix_utils.hpp"
 #include <iostream>
 
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#if defined(__ARM_NEON) || defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -69,35 +69,57 @@ std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matr
 }
 
 std::vector<float> elementwise_add(const std::vector<float>& a, const std::vector<float>& b) {
-    // Check for dimension match
     if (a.size() != b.size()) {
-        std::cerr << "Error: Dimension mismatch in elementwise addition. Vector A size: " << a.size()
-                  << ", Vector B size: " << b.size() << std::endl;
-        return {};
+        throw std::runtime_error("Dimension mismatch in elementwise addition");
     }
 
-    // Perform elementwise addition
     std::vector<float> result(a.size());
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    for (size_t i = 0; i < a.size(); i += 4) {
+        float32x4_t va = vld1q_f32(&a[i]);
+        float32x4_t vb = vld1q_f32(&b[i]);
+        float32x4_t vresult = vaddq_f32(va, vb);
+        vst1q_f32(&result[i], vresult);
+    }
+
+    // Handle remaining elements
+    for (size_t i = (a.size() / 4) * 4; i < a.size(); ++i) {
+        result[i] = a[i] + b[i];
+    }
+#else
     for (size_t i = 0; i < a.size(); ++i) {
         result[i] = a[i] + b[i];
     }
+#endif
 
     return result;
 }
 
 std::vector<float> elementwise_mul(const std::vector<float>& a, const std::vector<float>& b) {
-    // Check for dimension match
     if (a.size() != b.size()) {
-        std::cerr << "Error: Dimension mismatch in elementwise multiplication. Vector A size: " << a.size()
-                  << ", Vector B size: " << b.size() << std::endl;
-        return {};
+        throw std::runtime_error("Dimension mismatch in elementwise multiplication");
     }
 
-    // Perform elementwise multiplication
     std::vector<float> result(a.size());
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    for (size_t i = 0; i < a.size(); i += 4) {
+        float32x4_t va = vld1q_f32(&a[i]);
+        float32x4_t vb = vld1q_f32(&b[i]);
+        float32x4_t vresult = vmulq_f32(va, vb);
+        vst1q_f32(&result[i], vresult);
+    }
+
+    // Handle remaining elements
+    for (size_t i = (a.size() / 4) * 4; i < a.size(); ++i) {
+        result[i] = a[i] * b[i];
+    }
+#else
     for (size_t i = 0; i < a.size(); ++i) {
         result[i] = a[i] * b[i];
     }
+#endif
 
     return result;
 }
