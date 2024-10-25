@@ -1,6 +1,4 @@
-#ifndef CONFIG_HPP
-#define CONFIG_HPP
-
+#pragma once
 #include <string>
 
 // Configuration structure for predictor settings
@@ -70,5 +68,3 @@ namespace config {
 // Declare the configuration functions
 PredictorConfig init_predictor_config();
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold);
-
-#endif // CONFIG_HPP

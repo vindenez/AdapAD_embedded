@@ -34,7 +34,12 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
 
 void AdapAD::set_training_data(const std::vector<float>& data) {
     observed_vals.clear();
-    for (const auto& val : data) {
+    
+    // Only take train_size points
+    size_t train_size = predictor_config.train_size;
+    auto training_window = std::vector<float>(data.end() - train_size, data.end());
+    
+    for (const auto& val : training_window) {
         observed_vals.push_back(normalize_data(val));
     }
     
@@ -42,11 +47,13 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 }
 
 void AdapAD::train(const std::vector<float>& data) {
+    std::cout << "\n=== Initial Training Phase ===" << std::endl;
     // Train predictor
     auto [trainX, trainY] = data_predictor.train(config::epoch_train, config::lr_train, data);
-    std::cout << "Trained NormalDataPredictor" << std::endl;
+    std::cout << "✓ Trained NormalDataPredictor" << std::endl;
 
-    // Learn error patterns (similar to Python's __learn_error_pattern)
+    // Learn error patterns
+    predicted_vals.clear();
     for (const auto& x : trainX) {
         auto train_predicted_val = data_predictor.predict(x);
         predicted_vals.push_back(train_predicted_val[0]);
@@ -59,14 +66,15 @@ void AdapAD::train(const std::vector<float>& data) {
 
     auto predictive_errors = calc_error(observed_vals_, predicted_vals);
     
-    // Train generator on error patterns
+    // Generator warmup training
+    std::cout << "\n=== Generator Warmup Training ===" << std::endl;
     generator.train(config::epoch_train, config::lr_train, predictive_errors);
-
-    // Remove logging of training results
-    auto predicted_vals_tail = std::vector<float>(predicted_vals.end() - observed_vals_.size(), predicted_vals.end());
-    float normalized_minimal_threshold = minimal_threshold / (value_range_config.upper_bound - value_range_config.lower_bound);
     
-    std::cout << "Trained AnomalousThresholdGenerator" << std::endl;
+    // Initialize thresholds with minimal_threshold
+    float normalized_minimal_threshold = minimal_threshold / (value_range_config.upper_bound - value_range_config.lower_bound);
+    thresholds = std::vector<float>(predictive_errors.size(), normalized_minimal_threshold);
+    
+    std::cout << "✓ Trained AnomalousThresholdGenerator\n" << std::endl;
 }
 
 bool AdapAD::is_anomalous(float observed_val, bool actual_anomaly) {
@@ -105,11 +113,15 @@ bool AdapAD::is_anomalous(float observed_val, bool actual_anomaly) {
                     anomalies.push_back(supposed_anomalous_pos);
                 }
 
-                // Update models
-                data_predictor.update(config::epoch_update, config::lr_update, past_observations, {observed_val});
-
-                if (is_anomalous_ret || threshold > minimal_threshold) {
-                    update_generator(past_predictive_errors, prediction_error);
+                // Online learning updates
+                if (!is_anomalous_ret) {
+                    // Convert single float to vector for update
+                    std::vector<float> recent_observation{observed_val};  // Create vector with single value
+                    data_predictor.update(config::epoch_update, config::lr_update, past_observations, recent_observation);
+                    
+                    if (threshold > minimal_threshold) {
+                        update_generator(past_predictive_errors, prediction_error);
+                    }
                 }
             }
         }
@@ -187,30 +199,19 @@ bool AdapAD::is_default_normal() const {
 void AdapAD::update_generator(const std::vector<float>& past_observations, float observed_val) {
     generator.train();
     float avg_loss = generator.update(config::update_G_epoch, config::update_G_lr, past_observations, observed_val);
-    std::cout << "Generator update average loss: " << avg_loss << std::endl;
 }
 
 void AdapAD::log_result(bool is_anomalous, float normalized_val, float predicted_val, float normalized_threshold, bool actual_anomaly) {
     if (f_log.is_open()) {
         float denormalized_val = reverse_normalized_data(normalized_val);
         float denormalized_predicted = reverse_normalized_data(predicted_val);
-        
-        // Convert normalized threshold back to original scale
         float denormalized_threshold = normalized_threshold * (value_range_config.upper_bound - value_range_config.lower_bound);
-        
-        // Ensure we never log a threshold below minimal_threshold
         denormalized_threshold = std::max(denormalized_threshold, minimal_threshold);
         
-        // Calculate bounds using denormalized values
         float lower_bound = denormalized_predicted - denormalized_threshold;
         float upper_bound = denormalized_predicted + denormalized_threshold;
-        
-        // Keep error in normalized scale as it's used for comparison
         float error = std::abs(normalized_val - predicted_val);
         
-        std::cout << "Logging result: Observed=" << denormalized_val 
-                  << ", Predicted=" << denormalized_predicted 
-                  << ", ActualAnomaly=" << (actual_anomaly ? "true" : "false") << std::endl;
 
         f_log << std::fixed << std::setprecision(6)
               << denormalized_val << ","
@@ -238,15 +239,12 @@ void AdapAD::open_log_file() {
 }
 
 std::vector<float> AdapAD::calc_error(const std::vector<float>& ground_truth, const std::vector<float>& predict) {
-    if (ground_truth.size() != predict.size()) {
-        throw std::invalid_argument("Ground truth and prediction vectors must have the same size");
-    }
-
     std::vector<float> errors;
     errors.reserve(ground_truth.size());
 
     for (size_t i = 0; i < ground_truth.size(); ++i) {
-        errors.push_back(pow(ground_truth[i] - predict[i], 2));
+        // Change from pow(ground_truth[i] - predict[i], 2) to abs()
+        errors.push_back(std::abs(ground_truth[i] - predict[i]));
     }
 
     return errors;

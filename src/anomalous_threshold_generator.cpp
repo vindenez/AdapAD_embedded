@@ -16,91 +16,74 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lstm_layer, int lst
 
 void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn) {
     auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
-
-    this->train();
+    
+    generator.train();
     generator.init_adam_optimizer(learning_rate);
-
-    // Normalize training data
-    for (auto& window : x) {
-        float mean = std::accumulate(window.begin(), window.end(), 0.0f) / window.size();
-        float variance = 0.0f;
-        for (const auto& val : window) {
-            variance += (val - mean) * (val - mean);
-        }
-        variance /= window.size();
-        float std = std::sqrt(variance);
-
-        // Normalize the window
-        for (auto& val : window) {
-            val = (val - mean) / (std + 1e-10f);
-        }
-    }
-
-    for (int epoch = 0; epoch < num_epochs; ++epoch) {
-        float epoch_loss = 0.0f;
-
-        for (size_t i = 0; i < x.size(); ++i) {
-            generator.zero_grad();
-
-            auto outputs = generator.forward(x[i]);
-            
-            float loss = compute_mse_loss(outputs, y[i]);
-            epoch_loss += loss;
-            
-            generator.backward(y[i], "MSE");
-            generator.update_parameters_adam(learning_rate);
-        }
-
-        epoch_loss /= x.size();
-        std::cout << "Epoch " << epoch + 1 << "/" << num_epochs << ", Loss: " << epoch_loss << std::endl;
-    }
-}
-
-float AnomalousThresholdGenerator::update(int num_epochs, float lr_update, const std::vector<float>& past_errors, float recent_error) {
-    this->train();
-    generator.init_adam_optimizer(lr_update);
-
-    // Normalize past errors
-    float mean = std::accumulate(past_errors.begin(), past_errors.end(), 0.0f) / past_errors.size();
-    float variance = 0.0f;
-    for (const auto& error : past_errors) {
-        variance += (error - mean) * (error - mean);
-    }
-    variance /= past_errors.size();
-    float std = std::sqrt(variance);
-
-    std::vector<float> normalized_errors;
-    normalized_errors.reserve(past_errors.size());
-    for (const auto& error : past_errors) {
-        normalized_errors.push_back((error - mean) / (std + 1e-10f));
-    }
-
-    float normalized_recent_error = (recent_error - mean) / (std + 1e-10f);
-
-    float total_loss = 0.0f;
     std::vector<float> loss_history;
+
+    std::cout << "\nGenerator training for " << num_epochs << " epochs..." << std::endl;
     
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
-        auto predicted_val = generator.forward(normalized_errors);
+        float epoch_loss = 0.0f;
         
-        float loss = compute_mse_loss(predicted_val, {normalized_recent_error});
-        total_loss += loss;
-        loss_history.push_back(loss);
+        for (size_t i = 0; i < x.size(); ++i) {
+            generator.zero_grad();
+            auto outputs = generator.forward(x[i]);
+            float loss = compute_mse_loss(outputs, y[i]);
+            generator.backward(y[i], "MSE");
+            generator.update_parameters_adam(learning_rate);
+            epoch_loss += loss;
+        }
         
-        generator.zero_grad();
-        generator.backward({normalized_recent_error}, "MSE");
-        generator.update_parameters_adam(lr_update);
+        epoch_loss /= x.size();
+        loss_history.push_back(epoch_loss);
 
-        if (loss_history.size() >= 3) {
-            if (loss_history[loss_history.size() - 1] >= loss_history[loss_history.size() - 2] &&
-                loss_history[loss_history.size() - 2] >= loss_history[loss_history.size() - 3]) {
-                std::cout << "Early stopping at epoch " << epoch + 1 << std::endl;
+        // Log progress every 100 epochs
+        if (epoch % 100 == 0) {
+            std::cout << "Generator Training Epoch " << epoch << "/" << num_epochs 
+                     << " Loss: " << std::scientific << epoch_loss << std::endl;
+        }
+
+        // Early stopping with patience
+        if (loss_history.size() > 50) {
+            bool has_improved = false;
+            float min_loss = loss_history[loss_history.size() - 50];
+            for (size_t i = loss_history.size() - 49; i < loss_history.size(); ++i) {
+                if (loss_history[i] < min_loss * 0.9999f) {
+                    has_improved = true;
+                    break;
+                }
+            }
+            if (!has_improved) {
+                std::cout << "Generator early stopping at epoch " << epoch << " with loss " << epoch_loss << std::endl;
                 break;
             }
         }
     }
+}
 
-    return total_loss / loss_history.size();
+float AnomalousThresholdGenerator::update(int epoch_update, float lr_update, const std::vector<float>& past_errors, float recent_error) {
+    generator.train();
+    generator.init_adam_optimizer(lr_update);
+    std::vector<float> loss_history;
+    
+    for (int epoch = 0; epoch < epoch_update; ++epoch) {
+        auto predicted_val = generator.forward(past_errors);
+        
+        float loss = compute_mse_loss(predicted_val, {recent_error});
+        
+        generator.zero_grad();
+        generator.backward({recent_error}, "MSE");
+        generator.update_parameters_adam(lr_update);
+
+        // Early stopping like Python version
+        if (loss_history.size() > 1 && loss > loss_history.back()) {
+            break;
+        }
+        loss_history.push_back(loss);
+    }
+    
+    return loss_history.empty() ? 0.0f : loss_history.back();
 }
 
 void AnomalousThresholdGenerator::train() {
@@ -114,7 +97,6 @@ void AnomalousThresholdGenerator::eval() {
 }
 
 float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
-    std::cout << "prediction_errors size: " << prediction_errors.size() << std::endl;
     if (prediction_errors.size() != lookback_len) {
         std::cerr << "Error: Invalid prediction_errors size in generate(). Expected: " << lookback_len 
                   << ", Got: " << prediction_errors.size() << std::endl;
@@ -142,7 +124,6 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
     }
 
     auto output = generator.forward(normalized_errors);
-    std::cout << "generator output size: " << output.size() << std::endl;
 
     if (output.empty()) {
         std::cerr << "Error: output is empty after generator forward pass in generate(). Returning minimal_threshold." << std::endl;
@@ -153,8 +134,6 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
     float threshold = output[0] * std_error + mean_error;
     threshold = std::max(minimal_threshold, threshold);
     
-    std::cout << "Generated threshold: " << threshold << " (minimal: " << minimal_threshold << ")" << std::endl;
-
     return threshold;
 }
 

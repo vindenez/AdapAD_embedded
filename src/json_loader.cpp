@@ -43,7 +43,6 @@ std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weight
                     // Print out the size of the weight matrix
                     size_t rows = weight_matrix.size();
                     size_t cols = rows > 0 ? weight_matrix[0].size() : 0;
-                    std::cout << "Loaded weight '" << key << "' with size: " << rows << " x " << cols << std::endl;
                 } catch (const json::exception& e) {
                     std::cerr << "Error parsing weight matrix for key '" << key << "': " << e.what() << std::endl;
                 }

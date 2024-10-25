@@ -7,28 +7,28 @@ namespace config {
     std::string data_source = "Tide_pressure";
 
     // Training parameters
-    int epoch_train = 3;
-    float lr_train = 0.00005f;
-    int epoch_update = 100;
-    float lr_update = 0.00005f;
-    int update_G_epoch = 100;
-    float update_G_lr = 0.00005f;
+    int epoch_train = 3000;              // Changed to match Python
+    float lr_train = 0.001f;             // Changed to match Python
+    int epoch_update = 64;               // Changed to match Python
+    float lr_update = 0.001f;            // Changed to match Python
+    int update_G_epoch = 64;             // Changed to match Python
+    float update_G_lr = 0.001f;          // Changed to match Python
 
     // Model architecture
-    int LSTM_size = 100;
-    int LSTM_size_layer = 3;
+    int LSTM_size = 32;                  // Match Python's LSTM size
+    int LSTM_size_layer = 2;             // Match Python's layer count
     int lookback_len = 3;
     int prediction_len = 1;
-    int train_size = 5 * lookback_len + prediction_len;
+    int train_size = 16;                 // Keep as is for Tide_pressure
     int num_classes = 1;
     int input_size = lookback_len;
 
     // Anomaly detection
-    float minimal_threshold = 0.0038f;  // Default for Tide_pressure
+    float minimal_threshold = 0.0038f;    // Default for Tide_pressure
 
     // Data preprocessing
-    float lower_bound = 713.0f;  // Default for Tide_pressure
-    float upper_bound = 763.0f;  // Default for Tide_pressure
+    float lower_bound = 713.0f;          // Default for Tide_pressure
+    float upper_bound = 763.0f;          // Default for Tide_pressure
 
     // Logging and debugging
     bool verbose_output = true;
@@ -39,8 +39,8 @@ namespace config {
     float dropout_rate = 0.2f;
     
     // Early stopping
-    int patience = 10;
-    float min_delta = 0.001f;
+    int patience = 50;                    // Increased from 10
+    float min_delta = 0.0001f;           // More lenient threshold
 
     // Random seed for reproducibility
     unsigned int random_seed = 42;

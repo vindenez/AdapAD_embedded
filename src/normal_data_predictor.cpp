@@ -14,34 +14,49 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int look
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> NormalDataPredictor::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn) {
     auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
-
+    
     predictor.train();
     predictor.init_adam_optimizer(learning_rate);
+    std::vector<float> loss_history;
 
-    float previous_loss = std::numeric_limits<float>::max();
-
+    std::cout << "\nTraining for " << num_epochs << " epochs..." << std::endl;
+    
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
         float epoch_loss = 0.0f;
-
+        
         for (size_t i = 0; i < x.size(); ++i) {
             predictor.zero_grad();
-
             auto outputs = predictor.forward(x[i]);
-            
             float loss = compute_mse_loss(outputs, y[i]);
-            epoch_loss += loss;
-
-            auto loss_grad = compute_mse_loss_gradient(outputs, y[i]);
-            
             predictor.backward(y[i], "MSE");
             predictor.update_parameters_adam(learning_rate);
+            epoch_loss += loss;
+        }
+        
+        epoch_loss /= x.size();
+        loss_history.push_back(epoch_loss);
+
+        // Log progress every 100 epochs
+        if (epoch % 100 == 0) {
+            std::cout << "Training Epoch " << epoch << "/" << num_epochs 
+                     << " Loss: " << std::scientific << epoch_loss << std::endl;
         }
 
-        epoch_loss /= x.size();
-        std::cout << "Epoch " << epoch + 1 << "/" << num_epochs << ", Loss: " << epoch_loss << std::endl;
-
-
-        previous_loss = epoch_loss;
+        // Early stopping with patience
+        if (loss_history.size() > 50) {  // Increased from 10 to 50 epochs
+            bool has_improved = false;
+            float min_loss = loss_history[loss_history.size() - 50];
+            for (size_t i = loss_history.size() - 49; i < loss_history.size(); ++i) {
+                if (loss_history[i] < min_loss * 0.9999f) {  // More lenient improvement threshold
+                    has_improved = true;
+                    break;
+                }
+            }
+            if (!has_improved) {
+                std::cout << "Early stopping at epoch " << epoch << " with loss " << epoch_loss << std::endl;
+                break;
+            }
+        }
     }
 
     return {x, y};
@@ -74,7 +89,6 @@ void NormalDataPredictor::update(int epoch_update, float lr_update, const std::v
             break;
         }
 
-        std::cout << "Epoch " << epoch + 1 << "/" << epoch_update << ", Loss: " << loss << std::endl;
     }
 }
 
