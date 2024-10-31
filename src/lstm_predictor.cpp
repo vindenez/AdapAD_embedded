@@ -10,26 +10,20 @@
 
 // Constructor to initialize with input size, hidden size, and other hyperparameters
 LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, int num_layers, int lookback_len)
-    : input_size(input_size),
+    : input_size(1),  // Force single feature input
       hidden_size(hidden_size),
-      output_size(output_size),
+      output_size(1), // Force single prediction output
       num_layers(num_layers),
       lookback_len(lookback_len) {
 
-    // Initialize weights and biases with uniform distribution  (PyTorch docs nn.LSTM)
-    //u(-sqrt(k), sqrt(k)) where k = 1/hidden_size
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    auto uniform_init = [&](int size) {
-        float k = 1.0f / size;
-        float range = std::sqrt(k);
-        std::uniform_real_distribution<float> dist(-range, range);
-        return dist;
-    };
-
-    auto init_weights = [&](int fan_out, int fan_in) {
-        std::uniform_real_distribution<float> dist = uniform_init(hidden_size);
+    // Initialize weights with proper dimensions and smaller initial values
+    auto init_gate_weights = [&](int fan_out, int fan_in) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        // Use Xavier/Glorot initialization with smaller scale
+        float scale = 0.1f * std::sqrt(2.0f / (fan_in + fan_out));
+        std::uniform_real_distribution<float> dist(-scale, scale);
+        
         std::vector<std::vector<float>> w(fan_out, std::vector<float>(fan_in));
         for (auto& row : w) {
             for (auto& val : row) {
@@ -39,43 +33,41 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
         return w;
     };
 
-    auto init_bias = [&](int size) {
-        std::uniform_real_distribution<float> dist = uniform_init(hidden_size);
-        std::vector<float> b(size);
-        for (auto& val : b) {
-            val = dist(gen);
-        }
-        return b;
-    };
+    // Initialize gate weights with correct dimensions
+    weight_ih_input = init_gate_weights(hidden_size, 1);
+    weight_hh_input = init_gate_weights(hidden_size, hidden_size);
+    
+    weight_ih_forget = init_gate_weights(hidden_size, 1);
+    weight_hh_forget = init_gate_weights(hidden_size, hidden_size);
+    
+    weight_ih_cell = init_gate_weights(hidden_size, 1);
+    weight_hh_cell = init_gate_weights(hidden_size, hidden_size);
+    
+    weight_ih_output = init_gate_weights(hidden_size, 1);
+    weight_hh_output = init_gate_weights(hidden_size, hidden_size);
 
-    // Initialize LSTM weights and biases for all gates
-    weight_ih_input = init_weights(hidden_size, input_size);
-    weight_hh_input = init_weights(hidden_size, hidden_size);
-    bias_ih_input = init_bias(hidden_size);
-    bias_hh_input = init_bias(hidden_size);
+    // Initialize fully connected layer with smaller weights
+    fc_weights = init_gate_weights(1, hidden_size);
+    fc_bias = std::vector<float>(1, 0.0f);
 
-    weight_ih_forget = init_weights(hidden_size, input_size);
-    weight_hh_forget = init_weights(hidden_size, hidden_size);
-    bias_ih_forget = init_bias(hidden_size);
-    bias_hh_forget = init_bias(hidden_size);
+    // Initialize biases with small positive values for forget gate
+    bias_ih_input = std::vector<float>(hidden_size, 0.0f);
+    bias_hh_input = std::vector<float>(hidden_size, 0.0f);
+    
+    bias_ih_forget = std::vector<float>(hidden_size, 1.0f);  // Initialize forget gate bias to 1
+    bias_hh_forget = std::vector<float>(hidden_size, 1.0f);  // This helps with gradient flow
+    
+    bias_ih_cell = std::vector<float>(hidden_size, 0.0f);
+    bias_hh_cell = std::vector<float>(hidden_size, 0.0f);
+    
+    bias_ih_output = std::vector<float>(hidden_size, 0.0f);
+    bias_hh_output = std::vector<float>(hidden_size, 0.0f);
 
-    weight_ih_cell = init_weights(hidden_size, input_size);
-    weight_hh_cell = init_weights(hidden_size, hidden_size);
-    bias_ih_cell = init_bias(hidden_size);
-    bias_hh_cell = init_bias(hidden_size);
-
-    weight_ih_output = init_weights(hidden_size, input_size);
-    weight_hh_output = init_weights(hidden_size, hidden_size);
-    bias_ih_output = init_bias(hidden_size);
-    bias_hh_output = init_bias(hidden_size);
-
-    fc_weights = init_weights(output_size, hidden_size);
-    fc_bias = init_bias(output_size);
-
-    // Initialize hidden and cell states
+    // Initialize states
     h = std::vector<float>(hidden_size, 0.0f);
     c = std::vector<float>(hidden_size, 0.0f);
-
+    h_init = h;
+    c_init = c;
 }
 
 // Constructor to initialize with weights and biases for each gate
@@ -225,52 +217,62 @@ std::tuple<std::vector<float>, std::vector<float>, std::vector<float>> LSTMPredi
 
 std::tuple<std::vector<float>, std::vector<float>, std::vector<float>,
            std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>>
-LSTMPredictor::forward_step(const std::vector<float>& input_vec, const std::vector<float>& prev_h, const std::vector<float>& prev_c) {
-    // Input gate
-    auto i_t = sigmoid_vector(elementwise_add(
-        elementwise_add(
-            matrix_vector_mul(weight_ih_input, input_vec),
-            matrix_vector_mul(weight_hh_input, prev_h)),
-        bias_ih_input));
+LSTMPredictor::forward_step(const std::vector<float>& x_t, const std::vector<float>& prev_h, const std::vector<float>& prev_c) {
+    try {
+        // Ensure input is single feature
+        if (x_t.size() != 1) {
+            throw std::runtime_error("Input size mismatch. Expected 1, got " + std::to_string(x_t.size()));
+        }
 
-    // Forget gate
-    auto f_t = sigmoid_vector(elementwise_add(
-        elementwise_add(
-            matrix_vector_mul(weight_ih_forget, input_vec),
-            matrix_vector_mul(weight_hh_forget, prev_h)),
-        bias_ih_forget));
+        // Input gate
+        auto i_t = sigmoid_vector(elementwise_add(
+            elementwise_add(
+                matrix_vector_mul(weight_ih_input, x_t),
+                matrix_vector_mul(weight_hh_input, prev_h)),
+            bias_ih_input));
 
-    // Cell gate (candidate cell state)
-    auto g_t = tanh_vector(elementwise_add(
-        elementwise_add(
-            matrix_vector_mul(weight_ih_cell, input_vec),
-            matrix_vector_mul(weight_hh_cell, prev_h)),
-        bias_ih_cell));
+        // Forget gate
+        auto f_t = sigmoid_vector(elementwise_add(
+            elementwise_add(
+                matrix_vector_mul(weight_ih_forget, x_t),
+                matrix_vector_mul(weight_hh_forget, prev_h)),
+            bias_ih_forget));
 
-    // Output gate
-    auto o_t = sigmoid_vector(elementwise_add(
-        elementwise_add(
-            matrix_vector_mul(weight_ih_output, input_vec),
-            matrix_vector_mul(weight_hh_output, prev_h)),
-        bias_ih_output));
+        // Cell gate
+        auto g_t = tanh_vector(elementwise_add(
+            elementwise_add(
+                matrix_vector_mul(weight_ih_cell, x_t),
+                matrix_vector_mul(weight_hh_cell, prev_h)),
+            bias_ih_cell));
 
-    // Update cell state
-    std::vector<float> c_t(hidden_size);
-    for (int i = 0; i < hidden_size; ++i) {
-        c_t[i] = f_t[i] * prev_c[i] + i_t[i] * g_t[i];
+        // Output gate
+        auto o_t = sigmoid_vector(elementwise_add(
+            elementwise_add(
+                matrix_vector_mul(weight_ih_output, x_t),
+                matrix_vector_mul(weight_hh_output, prev_h)),
+            bias_ih_output));
+
+        // Update cell state
+        std::vector<float> c_t(hidden_size);
+        for (int i = 0; i < hidden_size; ++i) {
+            c_t[i] = f_t[i] * prev_c[i] + i_t[i] * g_t[i];
+        }
+
+        // Calculate new hidden state
+        std::vector<float> h_t(hidden_size);
+        for (int i = 0; i < hidden_size; ++i) {
+            h_t[i] = o_t[i] * tanh_func(c_t[i]);
+        }
+
+        // Apply fully connected layer to new hidden state
+        std::vector<float> output = matrix_vector_mul(fc_weights, h_t);
+        output = elementwise_add(output, fc_bias);
+
+        return {i_t, f_t, o_t, g_t, c_t, h_t, output};
+    } catch (const std::exception& e) {
+        std::cerr << "Error in LSTM forward_step: " << e.what() << std::endl;
+        throw;
     }
-
-    // Calculate new hidden state
-    std::vector<float> h_t(hidden_size);
-    for (int i = 0; i < hidden_size; ++i) {
-        h_t[i] = o_t[i] * tanh_func(c_t[i]);
-    }
-
-    // Apply fully connected layer to new hidden state
-    std::vector<float> output = matrix_vector_mul(fc_weights, h_t);
-    output = elementwise_add(output, fc_bias);
-
-    return {i_t, f_t, o_t, g_t, c_t, h_t, output};
 }
 
 
@@ -313,7 +315,7 @@ void LSTMPredictor::zero_grad() {
 }
 
 
-std::vector<float> LSTMPredictor::forward(const std::vector<float>& input_sequence) {
+std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>>& input_sequence) {
     // Clear stored activations
     x_t_list.clear();
     i_t_list.clear();
@@ -325,6 +327,13 @@ std::vector<float> LSTMPredictor::forward(const std::vector<float>& input_sequen
     outputs_list.clear();
 
     // Initialize hidden and cell states
+    if (h.empty()) {
+        h = std::vector<float>(hidden_size, 0.0f);
+    }
+    if (c.empty()) {
+        c = std::vector<float>(hidden_size, 0.0f);
+    }
+    
     std::vector<float> h_t = h;
     std::vector<float> c_t = c;
 
@@ -334,21 +343,15 @@ std::vector<float> LSTMPredictor::forward(const std::vector<float>& input_sequen
 
     std::vector<float> outputs;
 
-    for (float input_value : input_sequence) {
-        // Create input vector from input_value
-        std::vector<float> x_t = {input_value};
-
-        // Pad x_t to match input_size if necessary
-        if (input_size > 1) {
-            x_t.resize(input_size, 0.0f);
-        }
-
+    // Process each timestep in the sequence
+    const auto& batch = input_sequence[0];  // First batch
+    for (const auto& x_t : batch) {
         x_t_list.push_back(x_t);
 
         // Process one time step
         auto [i_t, f_t, o_t, g_t, new_c, new_h, output] = forward_step(x_t, h_t, c_t);
 
-        // Update hidden and cell states
+        // Update states
         h_t = new_h;
         c_t = new_c;
 

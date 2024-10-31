@@ -49,8 +49,8 @@ public:
         const std::vector<float>& prev_c
     );
 
-    std::vector<float> forward(const std::vector<float>& input_sequence);
-
+    std::vector<float> forward(const std::vector<std::vector<std::vector<float>>>& input_sequence);
+    
     // Training methods
     void backward(const std::vector<float>& targets, const std::string& loss_function = "MSE");
     void zero_grad();
