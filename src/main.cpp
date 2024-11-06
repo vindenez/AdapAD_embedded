@@ -98,10 +98,8 @@ int main() {
             throw std::runtime_error("It is mandatory to set a minimal threshold");
         }
 
-        // Initialize AdapAD
         AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold);
 
-        // Load validation data only (we'll use part of it for training)
         std::vector<DataPoint> data = load_csv_values("data/tide_pressure.validation_stage.csv");
         if (data.empty()) {
             throw std::runtime_error("Failed to load data");

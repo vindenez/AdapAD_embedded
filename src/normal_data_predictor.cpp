@@ -27,7 +27,6 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
         for (size_t i = 0; i < x.size(); ++i) {
             predictor.zero_grad();
             
-            // Calculate statistics for normalization
             float mean_x = std::accumulate(x[i].begin(), x[i].end(), 0.0f) / x[i].size();
             float variance = 0.0f;
             for (const auto& val : x[i]) {
@@ -36,7 +35,6 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
             variance /= x[i].size();
             float std_x = std::sqrt(variance);
 
-            // Normalize and reshape input
             std::vector<std::vector<std::vector<float>>> reshaped_x = {
                 std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
             };

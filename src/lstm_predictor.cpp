@@ -10,9 +10,9 @@
 
 // Constructor to initialize with input size, hidden size, and other hyperparameters
 LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, int num_layers, int lookback_len)
-    : input_size(1),  // Force single feature input
+    : input_size(1),  
       hidden_size(hidden_size),
-      output_size(1), // Force single prediction output
+      output_size(1), 
       num_layers(num_layers),
       lookback_len(lookback_len) {
 
@@ -20,7 +20,6 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
     auto init_gate_weights = [&](int fan_out, int fan_in) {
         std::random_device rd;
         std::mt19937 gen(rd());
-        // Use Xavier/Glorot initialization with smaller scale
         float scale = 0.1f * std::sqrt(2.0f / (fan_in + fan_out));
         std::uniform_real_distribution<float> dist(-scale, scale);
         
@@ -33,7 +32,7 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
         return w;
     };
 
-    // Initialize gate weights with correct dimensions
+    // Initialize gate weights
     weight_ih_input = init_gate_weights(hidden_size, 1);
     weight_hh_input = init_gate_weights(hidden_size, hidden_size);
     
@@ -145,7 +144,6 @@ LSTMPredictor::LSTMPredictor(const LSTMPredictor& other)
     is_training = false;
 }
 
-// Getters
 int LSTMPredictor::get_input_size() const {
     return input_size;
 }
