@@ -19,33 +19,46 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
     predictor.train();
     predictor.init_adam_optimizer(learning_rate);
 
-    std::cout << "\nTraining for " << num_epochs << " epochs..." << std::endl;
+    // Calculate global statistics for normalization
+    float mean_global = 0.0f;
+    float std_global = 0.0f;
+    int total_values = 0;
     
+    // Calculate mean
+    for (const auto& seq : x) {
+        for (const auto& val : seq) {
+            mean_global += val;
+            total_values++;
+        }
+    }
+    mean_global /= total_values;
+    
+    // Calculate std
+    for (const auto& seq : x) {
+        for (const auto& val : seq) {
+            std_global += (val - mean_global) * (val - mean_global);
+        }
+    }
+    std_global = std::sqrt(std_global / total_values);
+
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
         float epoch_loss = 0.0f;
         
         for (size_t i = 0; i < x.size(); ++i) {
             predictor.zero_grad();
             
-            float mean_x = std::accumulate(x[i].begin(), x[i].end(), 0.0f) / x[i].size();
-            float variance = 0.0f;
-            for (const auto& val : x[i]) {
-                variance += (val - mean_x) * (val - mean_x);
-            }
-            variance /= x[i].size();
-            float std_x = std::sqrt(variance);
-
+            // Use global statistics for normalization
             std::vector<std::vector<std::vector<float>>> reshaped_x = {
                 std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
             };
             for (int j = 0; j < lookback_len; j++) {
-                reshaped_x[0][j][0] = (x[i][j] - mean_x) / (std_x + 1e-10f);
+                reshaped_x[0][j][0] = (x[i][j] - mean_global) / (std_global + 1e-10f);
             }
             
-            // Normalize target
+            // Normalize target using same statistics
             std::vector<float> normalized_y;
             for (const auto& val : y[i]) {
-                normalized_y.push_back((val - mean_x) / (std_x + 1e-10f));
+                normalized_y.push_back((val - mean_global) / (std_global + 1e-10f));
             }
             
             auto outputs = predictor.forward(reshaped_x);
@@ -56,7 +69,7 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
         }
         
         epoch_loss /= x.size();
-
+        
         if (epoch % 100 == 0) {
             std::cout << "Training Epoch " << epoch << "/" << num_epochs 
                      << " Loss: " << std::scientific << epoch_loss << std::endl;

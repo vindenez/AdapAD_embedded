@@ -59,6 +59,7 @@ public:
     void update_parameters_adam(float learning_rate);
     void train();
     void eval();
+    float compute_mse_loss(const std::vector<float>& output, const std::vector<float>& target);
 
     // Getters
     int get_input_size() const;

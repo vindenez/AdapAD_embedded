@@ -23,6 +23,7 @@ struct ValueRangeConfig {
 namespace config {
     // General configuration
     extern std::string data_source_path;
+    extern std::string data_val_path;
     extern std::string data_source;
 
     // Training parameters

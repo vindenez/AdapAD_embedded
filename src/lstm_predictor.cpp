@@ -1,5 +1,3 @@
-// lstm_predictor.cpp
-
 #include "lstm_predictor.hpp"
 #include "matrix_utils.hpp"
 #include "activation_functions.hpp"
@@ -7,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <config.hpp>
 
 // Constructor to initialize with input size, hidden size, and other hyperparameters
 LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, int num_layers, int lookback_len)
@@ -20,8 +19,10 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
     auto init_gate_weights = [&](int fan_out, int fan_in) {
         std::random_device rd;
         std::mt19937 gen(rd());
-        float scale = 0.1f * std::sqrt(2.0f / (fan_in + fan_out));
-        std::uniform_real_distribution<float> dist(-scale, scale);
+        
+        // PyTorch uses this specific initialization for LSTM
+        float k = 1.0f / std::sqrt(hidden_size);
+        std::uniform_real_distribution<float> dist(-k, k);
         
         std::vector<std::vector<float>> w(fan_out, std::vector<float>(fan_in));
         for (auto& row : w) {
@@ -314,6 +315,35 @@ void LSTMPredictor::zero_grad() {
 
 
 std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>>& input_sequence) {
+    // Normalize input data
+    float mean_input = 0.0f;
+    float std_input = 0.0f;
+    
+    // Calculate mean and std
+    int total_values = 0;
+    for (const auto& batch : input_sequence[0]) {
+        for (const auto& val : batch) {
+            mean_input += val;
+            total_values++;
+        }
+    }
+    mean_input /= total_values;
+    
+    for (const auto& batch : input_sequence[0]) {
+        for (const auto& val : batch) {
+            std_input += (val - mean_input) * (val - mean_input);
+        }
+    }
+    std_input = std::sqrt(std_input / total_values);
+    
+    // Normalize inputs
+    std::vector<std::vector<std::vector<float>>> normalized_sequence = input_sequence;
+    for (auto& batch : normalized_sequence[0]) {
+        for (auto& val : batch) {
+            val = (val - mean_input) / (std_input + 1e-10f);
+        }
+    }
+
     // Clear stored activations
     x_t_list.clear();
     i_t_list.clear();
@@ -604,8 +634,11 @@ void LSTMPredictor::init_adam_optimizer(float learning_rate) {
 }
 
 void LSTMPredictor::update_parameters_adam(float learning_rate) {
+    // Add learning rate decay
+    float current_lr = learning_rate * (1.0f / (1.0f + 0.0001f * t));
+    
     t++;
-    float alpha_t = learning_rate * std::sqrt(1 - std::pow(beta2, t)) / (1 - std::pow(beta1, t));
+    float alpha_t = current_lr * std::sqrt(1 - std::pow(beta2, t)) / (1 - std::pow(beta1, t));
 
     // Function to update parameters
     auto update_parameters = [&](std::vector<std::vector<float>>& weights,
@@ -684,4 +717,17 @@ const std::vector<float>& LSTMPredictor::get_h() const {
 
 const std::vector<float>& LSTMPredictor::get_c() const {
     return c;
+}
+
+float LSTMPredictor::compute_mse_loss(const std::vector<float>& output, const std::vector<float>& target) {
+    if (output.size() != target.size()) {
+        throw std::runtime_error("Output and target size mismatch in MSE loss calculation");
+    }
+    
+    float loss = 0.0f;
+    for (size_t i = 0; i < output.size(); ++i) {
+        float error = output[i] - target[i];
+        loss += error * error;
+    }
+    return loss / output.size();  // Remove the division by 2 to match PyTorch
 }

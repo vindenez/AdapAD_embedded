@@ -100,43 +100,46 @@ int main() {
 
         AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold);
 
-        std::vector<DataPoint> data = load_csv_values("data/tide_pressure.validation_stage.csv");
-        if (data.empty()) {
-            throw std::runtime_error("Failed to load data");
+        // Load training data first
+        std::vector<DataPoint> training_data = load_csv_values(config::data_source_path);
+        if (training_data.empty()) {
+            throw std::runtime_error("Failed to load training data");
         }
 
-        std::cout << "GATHERING DATA FOR TRAINING..." << predictor_config.train_size << std::endl;
+        // Extract training values
+        std::vector<float> training_values;
+        for (const auto& point : training_data) {
+            training_values.push_back(point.value);
+        }
+
+        // Train on the training data
+        std::cout << "TRAINING ON TRAINING DATA..." << std::endl;
+        adap_ad.set_training_data(training_values);
+        std::cout << "TRAINING COMPLETE" << std::endl;
+
+        // Now load and process validation data
+        std::vector<DataPoint> validation_data = load_csv_values(config::data_val_path);
+        if (validation_data.empty()) {
+            throw std::runtime_error("Failed to load validation data");
+        }
+
+        std::cout << "STARTING VALIDATION..." << std::endl;
         
         std::vector<bool> predictions;
         std::vector<bool> actual_labels;
-        std::vector<float> observed_data;
 
-        // Process each point sequentially
-        for (const auto& data_point : data) {
+        // Process each validation point
+        for (const auto& data_point : validation_data) {
             float measured_value = data_point.value;
             bool actual_anomaly = data_point.is_anomaly;
-            observed_data.push_back(measured_value);
-            size_t observed_data_sz = observed_data.size();
-
-            // Perform warmup training or make a decision
-            if (observed_data_sz == predictor_config.train_size) {
-                std::cout << "Initial training with " << observed_data_sz << " points" << std::endl;
-                adap_ad.set_training_data(observed_data);
-                std::cout << "------------STARTING TO MAKE DECISION------------" << std::endl;
-            }
-            else if (observed_data_sz > predictor_config.train_size) {
-                bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly);
-                predictions.push_back(predicted_anomaly);
-                actual_labels.push_back(actual_anomaly);
-                adap_ad.clean();
-            }
-            else {
-                std::cout << observed_data_sz << "/" << predictor_config.train_size 
-                         << " to warmup training" << std::endl;
-            }
+            
+            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly);
+            predictions.push_back(predicted_anomaly);
+            actual_labels.push_back(actual_anomaly);
+            adap_ad.clean();
         }
 
-        // Calculate metrics only on the validation portion
+        // Calculate metrics on validation data
         if (!predictions.empty()) {
             Metrics metrics = calculate_metrics(predictions, actual_labels);
             std::cout << "Validation Results:" << std::endl;
