@@ -175,3 +175,112 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> slid
     }
     return {x, y};
 }
+
+std::vector<float> matrix_vector_mul_transpose(const std::vector<std::vector<float>>& matrix, 
+                                             const std::vector<float>& vec) {
+    if (matrix.empty() || vec.empty()) {
+        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul_transpose");
+    }
+
+    if (matrix.size() != vec.size()) {
+        throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul_transpose");
+    }
+
+    std::vector<float> result(matrix[0].size(), 0.0f);
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    for (size_t j = 0; j < matrix[0].size(); ++j) {
+        float32x4_t sum = vdupq_n_f32(0.0f);
+        for (size_t i = 0; i < matrix.size(); i += 4) {
+            float32x4_t v = vld1q_f32(&vec[i]);
+            float32x4_t m = vld1q_f32(&matrix[i][j]);
+            sum = vmlaq_f32(sum, v, m);
+        }
+        float32x2_t sum2 = vadd_f32(vget_low_f32(sum), vget_high_f32(sum));
+        result[j] = vget_lane_f32(vpadd_f32(sum2, sum2), 0);
+
+        // Handle remaining elements
+        for (size_t i = (matrix.size() / 4) * 4; i < matrix.size(); ++i) {
+            result[j] += matrix[i][j] * vec[i];
+        }
+    }
+#else
+    // Standard implementation
+    for (size_t j = 0; j < matrix[0].size(); ++j) {
+        for (size_t i = 0; i < matrix.size(); ++i) {
+            result[j] += matrix[i][j] * vec[i];
+        }
+    }
+#endif
+
+    return result;
+}
+
+std::vector<std::vector<float>> outer_product(const std::vector<float>& a, 
+                                            const std::vector<float>& b) {
+    if (a.empty() || b.empty()) {
+        throw std::runtime_error("Error: Empty vectors in outer_product");
+    }
+
+    std::vector<std::vector<float>> result(a.size(), std::vector<float>(b.size(), 0.0f));
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    for (size_t i = 0; i < a.size(); ++i) {
+        float32x4_t va = vdupq_n_f32(a[i]);
+        for (size_t j = 0; j < b.size(); j += 4) {
+            float32x4_t vb = vld1q_f32(&b[j]);
+            float32x4_t vresult = vmulq_f32(va, vb);
+            vst1q_f32(&result[i][j], vresult);
+        }
+        // Handle remaining elements
+        for (size_t j = (b.size() / 4) * 4; j < b.size(); ++j) {
+            result[i][j] = a[i] * b[j];
+        }
+    }
+#else
+    // Standard implementation
+    for (size_t i = 0; i < a.size(); ++i) {
+        for (size_t j = 0; j < b.size(); ++j) {
+            result[i][j] = a[i] * b[j];
+        }
+    }
+#endif
+
+    return result;
+}
+
+std::vector<std::vector<float>> matrix_add(const std::vector<std::vector<float>>& a, 
+                                         const std::vector<std::vector<float>>& b) {
+    if (a.empty() || b.empty() || a.size() != b.size() || a[0].size() != b[0].size()) {
+        throw std::runtime_error("Dimension mismatch in matrix addition");
+    }
+
+    std::vector<std::vector<float>> result(a.size(), std::vector<float>(a[0].size()));
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    for (size_t i = 0; i < a.size(); ++i) {
+        for (size_t j = 0; j < a[0].size(); j += 4) {
+            float32x4_t va = vld1q_f32(&a[i][j]);
+            float32x4_t vb = vld1q_f32(&b[i][j]);
+            float32x4_t vresult = vaddq_f32(va, vb);
+            vst1q_f32(&result[i][j], vresult);
+        }
+        // Handle remaining elements
+        for (size_t j = (a[0].size() / 4) * 4; j < a[0].size(); ++j) {
+            result[i][j] = a[i][j] + b[i][j];
+        }
+    }
+#else
+    // Standard implementation
+    for (size_t i = 0; i < a.size(); ++i) {
+        for (size_t j = 0; j < a[0].size(); ++j) {
+            result[i][j] = a[i][j] + b[i][j];
+        }
+    }
+#endif
+
+    return result;
+}

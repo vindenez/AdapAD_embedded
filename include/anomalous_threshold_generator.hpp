@@ -18,7 +18,7 @@ private:
     int lookback_len;
     int prediction_len;
     LSTMPredictor generator;
-    bool is_training;
+    bool is_training = true;
 
     std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
     sliding_windows(const std::vector<float>& data, int window_size, int prediction_len);

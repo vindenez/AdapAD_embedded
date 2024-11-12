@@ -10,6 +10,8 @@ struct PredictorConfig {
     int hidden_size;       // Hidden size for LSTM
     int num_classes;       // Number of output classes (usually 1 for regression tasks)
     int input_size;        // Input size for LSTM, can be set to lookback_len
+    int epoch_train;
+    float lr_train;
     int epoch_update;
     float lr_update;
 };

@@ -2,10 +2,15 @@
 #include <iostream>
 
 namespace config {
-    // General configuration
+    // Located in /data
     std::string data_source_path = "data/Tide_pressure.csv";
     std::string data_val_path = "data/Tide_pressure.validation_stage.csv";
     std::string data_source = "Tide_pressure";
+
+    // Located on SD Card on the module /mnt/data
+    // std::string data_source_path = "/mnt/sdcard/data/Tide_pressure.csv";
+    // std::string data_val_path = "/mnt/sdcard/data/Tide_pressure.validation_stage.csv";
+    // std::string data_source = "Tide_pressure";
 
     // Training parameters (SLOW)
     int epoch_train = 3000;              
@@ -58,6 +63,8 @@ PredictorConfig init_predictor_config() {
     predictor_config.hidden_size = config::LSTM_size;
     predictor_config.num_classes = config::num_classes;
     predictor_config.input_size = config::input_size;
+    predictor_config.epoch_train = config::epoch_train;
+    predictor_config.lr_train = config::lr_train;
     predictor_config.epoch_update = config::epoch_update;
     predictor_config.lr_update = config::lr_update;
 

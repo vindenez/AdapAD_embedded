@@ -7,6 +7,7 @@
 #include <numeric>
 #include <stdexcept>
 #include "config.hpp"
+#include <chrono>
 
 AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
     : lookback_len(lookback_len),
@@ -16,6 +17,41 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lstm_layer, int lst
 
 void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn) {
     auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
+    
+    // Calculate global statistics for normalization (like Python)
+    float mean_global = 0.0f;
+    float std_global = 0.0f;
+    int total_values = 0;
+    
+    // First pass: calculate mean
+    for (const auto& seq : x) {
+        for (float val : seq) {
+            mean_global += val;
+            total_values++;
+        }
+    }
+    mean_global /= total_values;
+    
+    // Second pass: calculate std
+    for (const auto& seq : x) {
+        for (float val : seq) {
+            float diff = val - mean_global;
+            std_global += diff * diff;
+        }
+    }
+    std_global = std::sqrt(std_global / total_values);
+    
+    // Normalize data
+    for (auto& seq : x) {
+        for (float& val : seq) {
+            val = (val - mean_global) / (std_global + 1e-10f);
+        }
+    }
+    for (auto& seq : y) {
+        for (float& val : seq) {
+            val = (val - mean_global) / (std_global + 1e-10f);
+        }
+    }
     
     generator.train();
     generator.init_adam_optimizer(learning_rate);
@@ -28,52 +64,46 @@ void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, con
         for (size_t i = 0; i < x.size(); ++i) {
             generator.zero_grad();
             
-            // Reshape input to [1, lookback_len, 1]
-            std::vector<std::vector<std::vector<float>>> reshaped_x = {
-                std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
-            };
-            for (int j = 0; j < lookback_len; j++) {
-                reshaped_x[0][j][0] = x[i][j];
-            }
+            std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+            reshaped_input[0].push_back(x[i]);
             
-            auto outputs = generator.forward(reshaped_x);
-            float loss = compute_mse_loss(outputs, y[i]);
-            generator.backward(y[i], "MSE");
+            auto outputs = generator.forward(reshaped_input);
+            std::vector<float> target = y[i];
+            float loss = compute_mse_loss(outputs, target);
+            
+            generator.backward(target, "MSE");
             generator.update_parameters_adam(learning_rate);
+            
             epoch_loss += loss;
         }
         
-        epoch_loss /= x.size();
-
         if (epoch % 100 == 0) {
             std::cout << "Generator Training Epoch " << epoch << "/" << num_epochs 
-                     << " Loss: " << std::scientific << epoch_loss << std::endl;
+                     << " Loss: " << std::scientific << epoch_loss/x.size() << std::endl;
         }
     }
 }
 
-float AnomalousThresholdGenerator::update(int epoch_update, float lr_update, const std::vector<float>& past_errors, float recent_error) {
+float AnomalousThresholdGenerator::update(int epoch_update, float lr_update, 
+                                        const std::vector<float>& past_errors, float recent_error) {
     generator.train();
     generator.init_adam_optimizer(lr_update);
     std::vector<float> loss_history;
     
-    // Reshape past_errors to [1, lookback_len, 1]
-    std::vector<std::vector<std::vector<float>>> reshaped_input = {
-        std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
-    };
-    for (int i = 0; i < lookback_len; i++) {
-        reshaped_input[0][i][0] = past_errors[i];
-    }
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].push_back(past_errors);
+    
+    std::vector<float> target = {recent_error};
     
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
         auto predicted_val = generator.forward(reshaped_input);
-        float loss = compute_mse_loss(predicted_val, {recent_error});
+        float loss = compute_mse_loss(predicted_val, target);
         
         generator.zero_grad();
-        generator.backward({recent_error}, "MSE");
+        generator.backward(target, "MSE");
         generator.update_parameters_adam(lr_update);
-
-        if (loss_history.size() > 0 && loss > loss_history.back()) {
+        
+        if (!loss_history.empty() && loss > loss_history.back()) {
             break;
         }
         loss_history.push_back(loss);
@@ -93,52 +123,16 @@ void AnomalousThresholdGenerator::eval() {
 }
 
 float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
-    if (prediction_errors.size() != lookback_len) {
-        std::cerr << "Error: Invalid prediction_errors size in generate(). Expected: " << lookback_len 
-                  << ", Got: " << prediction_errors.size() << std::endl;
-        return minimal_threshold;
-    }
-
-    if (is_training) {
-        eval(); 
-    }
-
-    // Calculate mean and std of prediction errors for normalization
-    float mean_error = std::accumulate(prediction_errors.begin(), prediction_errors.end(), 0.0f) / prediction_errors.size();
-    float variance = 0.0f;
-    for (const auto& error : prediction_errors) {
-        variance += (error - mean_error) * (error - mean_error);
-    }
-    variance /= prediction_errors.size();
-    float std_error = std::sqrt(variance);
-
-    // Normalize prediction errors
-    std::vector<float> normalized_errors;
-    normalized_errors.reserve(prediction_errors.size());
-    for (const auto& error : prediction_errors) {
-        normalized_errors.push_back((error - mean_error) / (std_error + 1e-10f));
-    }
-
-    // Reshape normalized_errors to [1, lookback_len, 1]
-    std::vector<std::vector<std::vector<float>>> reshaped_input = {
-        std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
-    };
-    for (int i = 0; i < lookback_len; i++) {
-        reshaped_input[0][i][0] = normalized_errors[i];
-    }
-
-    auto output = generator.forward(reshaped_input);
-
-    if (output.empty()) {
-        std::cerr << "Error: output is empty after generator forward pass in generate(). Returning minimal_threshold." << std::endl;
-        return minimal_threshold;
-    }
-
-    // Denormalize the output and ensure it's not below minimal_threshold
-    float threshold = output[0] * std_error + mean_error;
-    threshold = std::max(minimal_threshold, threshold);
+    generator.eval();
     
-    return threshold;
+    // Reshape input to match LSTM expectations
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].push_back(prediction_errors);
+    
+    auto threshold = generator.forward(reshaped_input);
+    
+    // Don't denormalize the threshold - it should stay normalized like in Python
+    return std::max(minimal_threshold, threshold[0]);
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 

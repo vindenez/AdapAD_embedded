@@ -10,7 +10,7 @@ public:
     NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
 
     std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn);
-    std::vector<float> predict(const std::vector<float>& input);
+    float predict(const std::vector<float>& observed);
     void update(int epoch_update, float lr_update, const std::vector<float>& past_observations, const std::vector<float>& recent_observation);
 
 private:

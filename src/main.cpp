@@ -133,7 +133,7 @@ int main() {
             float measured_value = data_point.value;
             bool actual_anomaly = data_point.is_anomaly;
             
-            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly);
+            bool predicted_anomaly = adap_ad.process(measured_value, actual_anomaly);
             predictions.push_back(predicted_anomaly);
             actual_labels.push_back(actual_anomaly);
             adap_ad.clean();

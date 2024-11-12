@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <numeric>
 #include "matrix_utils.hpp"
+#include <chrono>
 
 NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
     : num_layers(lstm_layer), 
@@ -19,12 +20,14 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
     predictor.train();
     predictor.init_adam_optimizer(learning_rate);
 
-    // Calculate global statistics for normalization
+    std::cout << "\nTraining on " << x.size() << " sequences for " << num_epochs << " epochs..." << std::endl;
+    
+    // Calculate global statistics for normalization (like Python)
     float mean_global = 0.0f;
     float std_global = 0.0f;
     int total_values = 0;
     
-    // Calculate mean
+    // Calculate mean and std like Python implementation
     for (const auto& seq : x) {
         for (const auto& val : seq) {
             mean_global += val;
@@ -33,13 +36,25 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
     }
     mean_global /= total_values;
     
-    // Calculate std
     for (const auto& seq : x) {
         for (const auto& val : seq) {
-            std_global += (val - mean_global) * (val - mean_global);
+            float diff = val - mean_global;
+            std_global += diff * diff;
         }
     }
     std_global = std::sqrt(std_global / total_values);
+
+    // Normalize training data
+    for (auto& seq : x) {
+        for (auto& val : seq) {
+            val = (val - mean_global) / (std_global + 1e-10f);
+        }
+    }
+    for (auto& seq : y) {
+        for (auto& val : seq) {
+            val = (val - mean_global) / (std_global + 1e-10f);
+        }
+    }
 
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
         float epoch_loss = 0.0f;
@@ -47,29 +62,19 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
         for (size_t i = 0; i < x.size(); ++i) {
             predictor.zero_grad();
             
-            // Use global statistics for normalization
-            std::vector<std::vector<std::vector<float>>> reshaped_x = {
-                std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
-            };
-            for (int j = 0; j < lookback_len; j++) {
-                reshaped_x[0][j][0] = (x[i][j] - mean_global) / (std_global + 1e-10f);
-            }
+            std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+            reshaped_input[0].push_back(x[i]);
             
-            // Normalize target using same statistics
-            std::vector<float> normalized_y;
-            for (const auto& val : y[i]) {
-                normalized_y.push_back((val - mean_global) / (std_global + 1e-10f));
-            }
+            auto outputs = predictor.forward(reshaped_input);
+            float loss = compute_mse_loss(outputs, y[i]);
             
-            auto outputs = predictor.forward(reshaped_x);
-            float loss = compute_mse_loss(outputs, normalized_y);
-            predictor.backward(normalized_y, "MSE");
+            predictor.backward(y[i], "MSE");
             predictor.update_parameters_adam(learning_rate);
+            
             epoch_loss += loss;
         }
         
         epoch_loss /= x.size();
-        
         if (epoch % 100 == 0) {
             std::cout << "Training Epoch " << epoch << "/" << num_epochs 
                      << " Loss: " << std::scientific << epoch_loss << std::endl;
@@ -79,46 +84,38 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
     return {x, y};
 }
 
-std::vector<float> NormalDataPredictor::predict(const std::vector<float>& input) {
+float NormalDataPredictor::predict(const std::vector<float>& observed) {
     predictor.eval();
     
-    // Calculate statistics for normalization
-    float mean_input = std::accumulate(input.begin(), input.end(), 0.0f) / input.size();
-    float variance = 0.0f;
-    for (const auto& val : input) {
-        variance += (val - mean_input) * (val - mean_input);
+    if (observed.size() < lookback_len) {
+        throw std::runtime_error("Not enough observations for prediction");
     }
-    variance /= input.size();
-    float std_input = std::sqrt(variance);
-
-    // Normalize input
-    std::vector<std::vector<std::vector<float>>> reshaped_input = {
-        std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
-    };
-    for (int i = 0; i < lookback_len; i++) {
-        reshaped_input[0][i][0] = (input[i] - mean_input) / (std_input + 1e-10f);
-    }
+    
+    std::vector<float> input_sequence(observed.end() - lookback_len, observed.end());
+    
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].push_back(input_sequence);
     
     auto predicted_val = predictor.forward(reshaped_input);
     
-    // Denormalize output
-    predicted_val[0] = predicted_val[0] * std_input + mean_input;
-    predicted_val[0] = std::max(0.0f, predicted_val[0]);
-    return predicted_val;
+    // Cap the prediction like in Python
+    float last_observed = input_sequence.back();
+    return std::max(last_observed - 0.2f, 
+                   std::min(last_observed + 0.2f, predicted_val[0]));
 }
 
 void NormalDataPredictor::update(int epoch_update, float lr_update, const std::vector<float>& past_observations, const std::vector<float>& recent_observation) {
     predictor.train();
     predictor.init_adam_optimizer(lr_update);
-    std::vector<float> loss_history;
+    
+    // Reshape input to match LSTM expectations
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);  // batch_size = 1
+    reshaped_input[0].push_back(past_observations);  // sequence_length = 1, features = lookback_len
 
-    // Reshape past_observations to [1, lookback_len, 1]
-    std::vector<std::vector<std::vector<float>>> reshaped_input = {
-        std::vector<std::vector<float>>(lookback_len, std::vector<float>(1))
-    };
-    for (int i = 0; i < lookback_len; i++) {
-        reshaped_input[0][i][0] = past_observations[i];
-    }
+    float best_loss = std::numeric_limits<float>::max();
+    int patience = 5;
+    int no_improve_count = 0;
+    float min_delta = 1e-4f;
 
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
         auto predicted_val = predictor.forward(reshaped_input);
@@ -128,11 +125,15 @@ void NormalDataPredictor::update(int epoch_update, float lr_update, const std::v
         predictor.backward(recent_observation, "MSE");
         predictor.update_parameters_adam(lr_update);
 
-        // Early stopping only in update - match Python logic
-        if (loss_history.size() > 0 && loss > loss_history.back()) {
-            break;
+        if (loss < (best_loss - min_delta)) {
+            best_loss = loss;
+            no_improve_count = 0;
+        } else {
+            no_improve_count++;
+            if (no_improve_count >= patience) {
+                break;
+            }
         }
-        loss_history.push_back(loss);
     }
 }
 

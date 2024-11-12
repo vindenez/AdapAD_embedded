@@ -14,15 +14,16 @@ public:
            const ValueRangeConfig& value_range_config,
            float minimal_threshold);
 
+    ~AdapAD();
+
     void set_training_data(const std::vector<float>& data);
-    bool is_anomalous(float observed_val, bool actual_anomaly);
+    bool process(float val, bool actual_anomaly);
     void clean();
 
     // Public methods for data normalization
     float normalize_data(float val) const;
     float reverse_normalized_data(float val) const;
 
-    // Add this new method
     std::string get_log_filename() const {
         return f_name;
     }
@@ -33,6 +34,7 @@ private:
     PredictorConfig predictor_config;
     ValueRangeConfig value_range_config;
     float minimal_threshold;
+    float normalized_threshold;
 
     std::vector<float> observed_vals;
     std::vector<float> predicted_vals;
@@ -52,6 +54,7 @@ private:
     void log_result(bool is_anomalous, float normalized_val, float predicted_val, float threshold, bool actual_anomaly);
     void open_log_file();
     std::vector<float> calc_error(const std::vector<float>& ground_truth, const std::vector<float>& predict);
+    void maintain_memory();
 };
 
 #endif // ADAPAD_HPP
