@@ -29,6 +29,9 @@ public:
     const std::vector<float>& get_h() const { return h; }
     const std::vector<float>& get_c() const { return c; }
 
+    std::vector<float> get_state() const;
+    void load_state(const std::vector<float>& state);
+
     // Add this with the other public methods
     void init_adam_optimizer(float learning_rate);
 

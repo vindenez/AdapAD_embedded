@@ -14,7 +14,7 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int look
       predictor(lookback_len, hidden_size, prediction_len, num_layers, lookback_len) {
 }
 
-std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> NormalDataPredictor::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn) {
+std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> NormalDataPredictor::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn, const EarlyStoppingCallback& callback) {
     auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
     
     predictor.train();
@@ -75,6 +75,7 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
         }
         
         epoch_loss /= x.size();
+        
         if (epoch % 100 == 0) {
             std::cout << "Training Epoch " << epoch << "/" << num_epochs 
                      << " Loss: " << std::scientific << epoch_loss << std::endl;
@@ -98,10 +99,7 @@ float NormalDataPredictor::predict(const std::vector<float>& observed) {
     
     auto predicted_val = predictor.forward(reshaped_input);
     
-    // Cap the prediction like in Python
-    float last_observed = input_sequence.back();
-    return std::max(last_observed - 0.2f, 
-                   std::min(last_observed + 0.2f, predicted_val[0]));
+    return predicted_val[0];
 }
 
 void NormalDataPredictor::update(int epoch_update, float lr_update, 

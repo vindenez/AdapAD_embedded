@@ -55,44 +55,19 @@ void AdapAD::train(const std::vector<float>& data) {
     // Train the normal data predictor
     auto [trainX, trainY] = data_predictor.train(predictor_config.epoch_train, 
                                               predictor_config.lr_train, 
-                                              data);
+                                              data,
+                                              nullptr);  
     
     // Store predictions for training data
     predicted_vals.clear();
     predictive_errors.clear();
     
-    float prev_error_avg = std::numeric_limits<float>::max();
-    int stable_count = 0;
-    const int stability_threshold = 3;  // Number of consecutive stable periods needed
-    const float error_change_threshold = 0.1f;  // Maximum allowed error change
-    
-    // Calculate predictions and errors in batches of 100 epochs
     for (size_t i = 0; i < trainX.size(); i++) {
         float predicted_val = data_predictor.predict(trainX[i]);
         predicted_vals.push_back(predicted_val);
         float error = std::abs(trainY[i][0] - predicted_val);
         error = std::min(error, 0.2f);  // Cap error like in Python
         predictive_errors.push_back(error);
-        
-        // Check stability every 100 samples
-        if (predictive_errors.size() % 100 == 0) {
-            float current_error_avg = std::accumulate(
-                predictive_errors.end() - 100, predictive_errors.end(), 0.0f) / 100.0f;
-            
-            // Check if error is stable
-            if (std::abs(current_error_avg - prev_error_avg) < error_change_threshold) {
-                stable_count++;
-                if (stable_count >= stability_threshold) {
-                    std::cout << "Early stopping: Error stabilized for " 
-                             << stability_threshold << " consecutive periods" << std::endl;
-                    break;
-                }
-            } else {
-                stable_count = 0;
-            }
-            
-            prev_error_avg = current_error_avg;
-        }
     }
     
     // Train the generator using prediction errors
@@ -231,27 +206,25 @@ void AdapAD::update_generator(const std::vector<float>& past_observations, float
 }
 
 void AdapAD::log_result(bool is_anomalous, float observed, float predicted, float threshold, bool actual_anomaly) {
-    if (f_log.is_open()) {
-        // Calculate bounds in normalized space first
-        float normalized_lower = predicted - threshold;
-        float normalized_upper = predicted + threshold;
-        
-        // Then denormalize everything
-        float denorm_observed = reverse_normalized_data(observed);
-        float denorm_predicted = reverse_normalized_data(predicted);
-        float denorm_lower = reverse_normalized_data(normalized_lower);
-        float denorm_upper = reverse_normalized_data(normalized_upper);
-        
-        f_log << denorm_observed << ","
-              << denorm_predicted << ","
-              << denorm_lower << ","
-              << denorm_upper << ","
-              << (is_anomalous ? "1" : "0") << ","
-              << (actual_anomaly ? "1" : "0") << ","
-              << std::abs(observed - predicted) << "," // Keep error normalized
-              << threshold << "\n";  // Keep threshold normalized
-        f_log.flush();
-    }
+    // Calculate bounds in normalized space
+    float normalized_lower = predicted - threshold;
+    float normalized_upper = predicted + threshold;
+    
+    // Then denormalize everything
+    float denorm_observed = reverse_normalized_data(observed);
+    float denorm_predicted = reverse_normalized_data(predicted);
+    float denorm_lower = reverse_normalized_data(normalized_lower);
+    float denorm_upper = reverse_normalized_data(normalized_upper);
+    
+    f_log << denorm_observed << ","
+          << denorm_predicted << ","
+          << denorm_lower << ","
+          << denorm_upper << ","
+          << (is_anomalous ? "1" : "0") << ","
+          << (actual_anomaly ? "1" : "0") << ","
+          << std::abs(observed - predicted) << "," // Keep error normalized
+          << threshold << "\n";  // Keep threshold normalized
+    f_log.flush();
 }
 
 void AdapAD::open_log_file() {

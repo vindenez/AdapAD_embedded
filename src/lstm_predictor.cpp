@@ -431,3 +431,63 @@ void LSTMPredictor::init_adam_optimizer(float learning_rate) {
     adam_states["fc_weights"] = AdamState(fc_weights);
     adam_states["fc_bias"] = AdamState(fc_bias);
 }
+
+std::vector<float> LSTMPredictor::get_state() const {
+    std::vector<float> state;
+    
+    // Helper to flatten 2D vector into 1D
+    auto flatten = [&state](const std::vector<std::vector<float>>& matrix) {
+        for (const auto& row : matrix) {
+            state.insert(state.end(), row.begin(), row.end());
+        }
+    };
+    
+    // Save layer weights and biases
+    for (int layer = 0; layer < num_layers; ++layer) {
+        flatten(w_ih[layer]);
+        flatten(w_hh[layer]);
+        state.insert(state.end(), b_ih[layer].begin(), b_ih[layer].end());
+        state.insert(state.end(), b_hh[layer].begin(), b_hh[layer].end());
+    }
+    
+    // Save fully connected layer
+    flatten(fc_weights);
+    state.insert(state.end(), fc_bias.begin(), fc_bias.end());
+    
+    return state;
+}
+
+void LSTMPredictor::load_state(const std::vector<float>& state) {
+    size_t pos = 0;
+    
+    // Helper to unflatten 1D vector into 2D
+    auto unflatten = [&pos, &state](std::vector<std::vector<float>>& matrix) {
+        for (auto& row : matrix) {
+            for (auto& val : row) {
+                val = state[pos++];
+            }
+        }
+    };
+    
+    // Load layer weights and biases
+    for (int layer = 0; layer < num_layers; ++layer) {
+        unflatten(w_ih[layer]);
+        unflatten(w_hh[layer]);
+        
+        for (auto& val : b_ih[layer]) {
+            val = state[pos++];
+        }
+        for (auto& val : b_hh[layer]) {
+            val = state[pos++];
+        }
+    }
+    
+    // Load fully connected layer
+    unflatten(fc_weights);
+    for (auto& val : fc_bias) {
+        val = state[pos++];
+    }
+    
+    // Reset optimizer states
+    init_adam_optimizer(lr);
+}
