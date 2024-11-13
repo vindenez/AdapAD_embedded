@@ -22,10 +22,8 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
                 predictor_config.lookback_len,
                 predictor_config.prediction_len)
 {
-    // Store the normalized minimal threshold
-    float normalized_minimal_threshold = minimal_threshold / (value_range_config.upper_bound - value_range_config.lower_bound);
-    thresholds.push_back(normalized_minimal_threshold);
-    std::cout << "Minimal threshold: " << minimal_threshold << " (normalized: " << normalized_minimal_threshold << ")" << std::endl;
+    thresholds.push_back(minimal_threshold);
+    std::cout << "Minimal threshold: " << minimal_threshold << std::endl;
 
     f_name = "adapad_log.csv";
     std::cout << "Log file: " << f_name << std::endl;
@@ -44,7 +42,6 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
         observed_vals.push_back(normalize_data(val));
     }
     
-    train(observed_vals);
     std::cout << "observed_vals size after set_training_data: " << observed_vals.size() << std::endl;
 }
 
@@ -77,21 +74,29 @@ void AdapAD::train(const std::vector<float>& data) {
     std::cout << "Trained AnomalousThresholdGenerator" << std::endl;
 }
 
-bool AdapAD::process(float val, bool actual_anomaly) {
+bool AdapAD::is_anomalous(float val, bool actual_anomaly) {
+    bool is_anomalous_ret = false;
+    float predicted_val = 0.0f;
+    float normalized_threshold = minimal_threshold;
+    
+    // Normalize and save observed value (like Python)
     float normalized_observed = normalize_data(val);
     observed_vals.push_back(normalized_observed);
+    size_t supposed_anomalous_pos = observed_vals.size();  // Match Python's get_length()
     
-    bool is_anomalous_ret = false;
-    
-    if (observed_vals.size() >= predictor_config.lookback_len + 1) {
-        // Get past observations for prediction (matches Python's __prepare_data_for_prediction)
+    // First perform range check (like Python)
+    if (!is_inside_range(normalized_observed)) {
+        anomalies.push_back(supposed_anomalous_pos);
+        is_anomalous_ret = true;
+    } else if (observed_vals.size() >= predictor_config.lookback_len + 1) {
+        // Get past observations for prediction
         std::vector<float> past_observations = prepare_data_for_prediction();
         
-        // Make prediction (Python uses torch.reshape(trainX[i], (1,-1)))
-        float predicted_val = data_predictor.predict(past_observations);
+        // Make prediction
+        predicted_val = data_predictor.predict(past_observations);
         predicted_vals.push_back(predicted_val);
         
-        // Calculate error (Python uses NormalDataPredictionErrorCalculator.calc_error)
+        // Calculate error
         float prediction_error = std::abs(normalized_observed - predicted_val);
         prediction_error = std::min(prediction_error, 0.2f);  // Cap error like Python
         predictive_errors.push_back(prediction_error);
@@ -109,28 +114,31 @@ bool AdapAD::process(float val, bool actual_anomaly) {
             thresholds.push_back(normalized_threshold);
             
             // Check for anomaly
-            is_anomalous_ret = prediction_error > normalized_threshold;
-            if (is_anomalous_ret && !is_default_normal()) {
-                // Update predictor and generator like Python
-                data_predictor.update(predictor_config.epoch_update,
-                                    predictor_config.lr_update,
-                                    past_observations,
-                                    normalized_observed);
-                
-                if (is_anomalous_ret || normalized_threshold > minimal_threshold) {
-                    generator.update(predictor_config.epoch_update,
-                                   predictor_config.lr_update,
-                                   past_errors,
-                                   prediction_error);
+            if (prediction_error > normalized_threshold) {
+                if (!is_default_normal()) {
+                    is_anomalous_ret = true;
+                    anomalies.push_back(supposed_anomalous_pos);
                 }
             }
             
-            log_result(is_anomalous_ret, normalized_observed, predicted_val,
-                      normalized_threshold, actual_anomaly);
+            // Update models
+            data_predictor.update(predictor_config.epoch_update,
+                                predictor_config.lr_update,
+                                past_observations,
+                                normalized_observed);
+            
+            if (is_anomalous_ret || normalized_threshold > minimal_threshold) {
+                generator.update(predictor_config.epoch_update,
+                               predictor_config.lr_update,
+                               past_errors,
+                               prediction_error);
+            }
         }
     }
     
-    maintain_memory();
+    log_result(is_anomalous_ret, normalized_observed, predicted_val,
+               normalized_threshold, actual_anomaly);
+    
     return is_anomalous_ret;
 }
 
@@ -168,21 +176,25 @@ bool AdapAD::is_inside_range(float val) const {
 std::vector<float> AdapAD::prepare_data_for_prediction() {
     // Get lookback window excluding the current value (like Python's [:-1])
     auto _x_temp = std::vector<float>(
-        observed_vals.end() - predictor_config.lookback_len - 1,
+        observed_vals.end() - (predictor_config.lookback_len + 1),
         observed_vals.end() - 1
     );
     
-    // Get recent predictions
-    auto recent_predictions = std::vector<float>(
+    // Get recent predictions (like Python's predicted_vals.get_tail())
+    auto predicted_vals_tail = std::vector<float>(
         predicted_vals.end() - predictor_config.lookback_len,
         predicted_vals.end()
     );
     
     // Replace out-of-range values with predictions (matching Python indexing)
     for (int i = 0; i < predictor_config.lookback_len; i++) {
-        int checked_pos = predictor_config.lookback_len - i - 1;
-        if (!is_inside_range(_x_temp[checked_pos])) {
-            _x_temp[checked_pos] = recent_predictions[checked_pos];
+        int checked_pos = i + 1;  // Match Python's indexing
+        
+        // Convert positive index to negative index for _x_temp
+        int pos_from_end = _x_temp.size() - checked_pos;
+        
+        if (!is_inside_range(_x_temp[pos_from_end])) {
+            _x_temp[pos_from_end] = predicted_vals_tail[predicted_vals_tail.size() - checked_pos];
         }
     }
     

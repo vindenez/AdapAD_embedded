@@ -17,7 +17,8 @@ public:
     ~AdapAD();
 
     void set_training_data(const std::vector<float>& data);
-    bool process(float val, bool actual_anomaly);
+    bool is_anomalous(float val, bool actual_anomaly);
+    void train(const std::vector<float>& data);
     void clean();
 
     // Public methods for data normalization
@@ -46,7 +47,6 @@ private:
     std::ofstream f_log;
 
     // Private methods
-    void train(const std::vector<float>& data);
     bool is_inside_range(float val) const;
     std::vector<float> prepare_data_for_prediction();
     bool is_default_normal() const;

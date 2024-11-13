@@ -112,10 +112,22 @@ int main() {
             training_values.push_back(point.value);
         }
 
-        // Train on the training data
-        std::cout << "TRAINING ON TRAINING DATA..." << std::endl;
-        adap_ad.set_training_data(training_values);
-        std::cout << "TRAINING COMPLETE" << std::endl;
+        std::cout << "GATHERING DATA FOR TRAINING..." << predictor_config.train_size << std::endl;
+
+        std::vector<float> observed_data;
+        for (const auto& value : training_values) {
+            observed_data.push_back(value);
+            size_t observed_data_sz = observed_data.size();
+
+            if (observed_data_sz == predictor_config.train_size) {
+                adap_ad.set_training_data(observed_data);
+                adap_ad.train(observed_data);  // Pass the entire observed_data vector
+                std::cout << "------------STARTING TO MAKE DECISION------------" << std::endl;
+            } else if (observed_data_sz < predictor_config.train_size) {
+                std::cout << observed_data_sz << "/" << predictor_config.train_size 
+                          << " to warmup training" << std::endl;
+            }
+        }
 
         // Now load and process validation data
         std::vector<DataPoint> validation_data = load_csv_values(config::data_val_path);
@@ -133,7 +145,7 @@ int main() {
             float measured_value = data_point.value;
             bool actual_anomaly = data_point.is_anomaly;
             
-            bool predicted_anomaly = adap_ad.process(measured_value, actual_anomaly);
+            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly);
             predictions.push_back(predicted_anomaly);
             actual_labels.push_back(actual_anomaly);
             adap_ad.clean();

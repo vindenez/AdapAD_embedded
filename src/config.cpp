@@ -4,7 +4,7 @@
 namespace config {
     // Located in /data
     std::string data_source_path = "data/Tide_pressure.csv";
-    std::string data_val_path = "data/Tide_pressure.validation_stage.csv";
+    std::string data_val_path = "data/Tide_pressure.benchmark_stage.csv";
     std::string data_source = "Tide_pressure";
 
     // Located on SD Card on the module /mnt/data

@@ -82,36 +82,44 @@ void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, con
                      << " Loss: " << std::scientific << epoch_loss/x.size() << std::endl;
         }
     }
+    generator.eval();
 }
 
 float AnomalousThresholdGenerator::update(int epoch_update, float lr_update, 
-                                       const std::vector<float>& past_errors, 
-                                       float recent_error) {
+                                        const std::vector<float>& past_errors, 
+                                        float recent_error) {
+    // First get initial prediction in eval mode
+    generator.eval();
+    std::vector<std::vector<std::vector<float>>> eval_input(1);
+    eval_input[0].push_back(past_errors);
+    auto initial_threshold = generator.forward(eval_input);
+    
+    // Then switch to training mode
     generator.train();
     generator.init_adam_optimizer(lr_update);
-    std::vector<float> loss_history;
     
-    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
-    reshaped_input[0].push_back(past_errors);
+    // Prepare input in same shape as Python
+    std::vector<std::vector<std::vector<float>>> train_input(1);
+    train_input[0].push_back(past_errors);
     
+    // Target should be single value in same shape as Python
     std::vector<float> target = {recent_error};
     
+    float final_loss = 0.0f;
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
-        auto predicted_val = generator.forward(reshaped_input);
+        generator.zero_grad();
+        
+        auto predicted_val = generator.forward(train_input);
         float loss = compute_mse_loss(predicted_val, target);
         
-        generator.zero_grad();
         generator.backward(target, "MSE");
         generator.update_parameters_adam(lr_update);
         
-        // Early stopping like in Python
-        if (!loss_history.empty() && loss > loss_history.back()) {
-            break;
-        }
-        loss_history.push_back(loss);
+        final_loss = loss;
     }
     
-    return loss_history.empty() ? 0.0f : loss_history.back();
+    generator.eval();  // Back to eval mode
+    return final_loss;
 }
 
 void AnomalousThresholdGenerator::train() {

@@ -363,6 +363,9 @@ std::vector<float> LSTMPredictor::lstm_layer_forward(const std::vector<float>& x
 
 std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>>& input) {
     if (is_training) {
+        // Reset states at the start of sequence
+        h_states = std::vector<std::vector<float>>(num_layers, std::vector<float>(hidden_size, 0.0f));
+        c_states = std::vector<std::vector<float>>(num_layers, std::vector<float>(hidden_size, 0.0f));
         // Clear stored activations
         layer_inputs = std::vector<std::vector<std::vector<float>>>(num_layers);
         layer_h_states = std::vector<std::vector<std::vector<float>>>(num_layers);
@@ -370,10 +373,6 @@ std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vec
         layer_gates = std::vector<std::vector<std::vector<float>>>(num_layers);
         outputs_list.clear();
     }
-    
-    // Reset states at the start of sequence
-    h_states = std::vector<std::vector<float>>(num_layers, std::vector<float>(hidden_size, 0.0f));
-    c_states = std::vector<std::vector<float>>(num_layers, std::vector<float>(hidden_size, 0.0f));
     
     std::vector<float> output;
     

@@ -82,6 +82,8 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
         }
     }
 
+    predictor.eval();
+
     return {x, y};
 }
 
@@ -129,6 +131,8 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         }
         loss_history.push_back(loss);
     }
+
+    predictor.eval();
 }
 
 
