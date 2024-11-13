@@ -13,7 +13,9 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> slid
 std::vector<float> matrix_vector_mul_transpose(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec);
 std::vector<std::vector<float>> outer_product(const std::vector<float>& a, const std::vector<float>& b);
 std::vector<std::vector<float>> matrix_add(const std::vector<std::vector<float>>& a, const std::vector<std::vector<float>>& b);
-
+std::vector<float> elementwise_subtract(const std::vector<float>& a, const std::vector<float>& b);
+std::vector<float> elementwise_subtract(float scalar, const std::vector<float>& vec);
+std::vector<float> elementwise_subtract(const std::vector<float>& vec, float scalar);
 
 
 #endif // MATRIX_UTILS_HPP

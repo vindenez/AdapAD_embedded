@@ -16,34 +16,28 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
       num_layers(num_layers),
       lookback_len(lookback_len) {
 
-    // Initialize weight parameters
-    float k = 1.0f / std::sqrt(hidden_size);
-    std::uniform_real_distribution<float> dist(-k, k);
+    // Use PyTorch's default initialization
+    float stdv = 1.0f / std::sqrt(hidden_size);
+    std::uniform_real_distribution<float> dist(-stdv, stdv);
     auto weight_init = [this, &dist](float) { return dist(gen); };
 
-    // Initialize weights for each layer
+    // Initialize weights and biases for each layer
     for (int layer = 0; layer < num_layers; layer++) {
-        // Initialize input-hidden weights
+        // Input-hidden weights
         if (layer == 0) {
             w_ih.push_back(init_weights(4 * hidden_size, input_size, weight_init));
         } else {
             w_ih.push_back(init_weights(4 * hidden_size, hidden_size, weight_init));
         }
-        
-        // Initialize hidden-hidden weights
+
+        // Hidden-hidden weights
         w_hh.push_back(init_weights(4 * hidden_size, hidden_size, weight_init));
-        
-        // Initialize biases
+
+        // Biases initialized to zeros
         b_ih.push_back(std::vector<float>(4 * hidden_size, 0.0f));
         b_hh.push_back(std::vector<float>(4 * hidden_size, 0.0f));
-        
-        // Initialize forget gate biases to 1.0 (PyTorch default)
-        for (int i = hidden_size; i < 2 * hidden_size; i++) {
-            b_ih.back()[i] = 1.0f;
-            b_hh.back()[i] = 1.0f;
-        }
     }
-    
+
     // Initialize fully connected layer
     fc_weights = init_weights(output_size, hidden_size, weight_init);
     fc_bias = std::vector<float>(output_size, 0.0f);
@@ -110,17 +104,11 @@ void LSTMPredictor::backward(const std::vector<float>& targets, const std::strin
     std::transform(loss_lower.begin(), loss_lower.end(), loss_lower.begin(), ::tolower);
     
     if (loss_lower == "mse") {
-        const auto& final_hidden = h_states.back();
-        if (final_hidden.empty()) {
-            throw std::runtime_error("No hidden states available for backward pass");
-        }
+        const auto& final_output = outputs_list.back();  // Use the actual output
         
-        // Compute gradients with respect to the differences
-        const auto& last_input = layer_inputs.back().back();
+        // Compute gradients directly like in PyTorch
         for (size_t i = 0; i < output_size; i++) {
-            float pred_diff = final_hidden[i] - last_input[i];
-            float target_diff = targets[i] - last_input[i];
-            grad_output[i] = 2.0f * (pred_diff - target_diff) / output_size;
+            grad_output[i] = 2.0f * (final_output[i] - targets[i]) / output_size;
         }
     } else {
         throw std::runtime_error("Unsupported loss function: " + loss_function);
@@ -142,75 +130,81 @@ void LSTMPredictor::lstm_layer_backward(int layer, const std::vector<float>& gra
     int seq_len = layer_inputs[layer].size();
     std::vector<float> dh_next = grad_output;
     std::vector<float> dc_next(hidden_size, 0.0f);
-    
+
     // Initialize layer gradients
-    dw_ih[layer] = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(layer == 0 ? input_size : hidden_size, 0.0f));
-    dw_hh[layer] = std::vector<std::vector<float>>(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
-    db_ih[layer] = std::vector<float>(4 * hidden_size, 0.0f);
-    db_hh[layer] = std::vector<float>(4 * hidden_size, 0.0f);
-    
+    // (Initialization code remains the same)
+
     // Iterate backwards through time
     for (int t = seq_len - 1; t >= 0; --t) {
         const auto& gates = layer_gates[layer][t];
-        const auto& prev_c = layer_c_states[layer][t];
-        const auto& prev_h = layer_h_states[layer][t];
-        const auto& x = layer_inputs[layer][t];
-        
-        // Split gates
+
+        // Split gates into chunks
         int chunk_size = hidden_size;
         auto i_gate = std::vector<float>(gates.begin(), gates.begin() + chunk_size);
         auto f_gate = std::vector<float>(gates.begin() + chunk_size, gates.begin() + 2 * chunk_size);
         auto g_gate = std::vector<float>(gates.begin() + 2 * chunk_size, gates.begin() + 3 * chunk_size);
         auto o_gate = std::vector<float>(gates.begin() + 3 * chunk_size, gates.end());
-        
-        // Current cell state
-        auto c = c_states[layer];
-        
+
+        const auto& c = layer_c_states[layer][t];
+        const auto& h = layer_h_states[layer][t];
+        const auto& x = layer_inputs[layer][t];
+
+        const auto& prev_c = (t > 0) ? layer_c_states[layer][t - 1] : std::vector<float>(hidden_size, 0.0f);
+        const auto& prev_h = (t > 0) ? layer_h_states[layer][t - 1] : std::vector<float>(hidden_size, 0.0f);
+
         // Gradients of hidden and cell states
         auto dh = dh_next;
         auto dc = dc_next;
-        
-        // Output gate
-        auto do_gate = elementwise_mul(dh, tanh_vector(c));
-        do_gate = elementwise_mul(do_gate, sigmoid_derivative(o_gate));
-        
-        // Cell state
-        dc = elementwise_add(dc, elementwise_mul(dh, elementwise_mul(o_gate, tanh_derivative(c))));
-        
-        // Input gate
+
+        // Output gate gradient
+        auto tanh_c = tanh_vector(c);
+        auto do_gate = elementwise_mul(dh, tanh_c);
+        auto o_gate_derivative = elementwise_mul(o_gate, elementwise_subtract(1.0f, o_gate));
+        do_gate = elementwise_mul(do_gate, o_gate_derivative);
+
+        // Cell state gradient
+        auto dc_tanh = elementwise_subtract(1.0f, elementwise_mul(tanh_c, tanh_c));
+        dc = elementwise_add(dc, elementwise_mul(dh, elementwise_mul(o_gate, dc_tanh)));
+
+        // Input gate gradient
         auto di_gate = elementwise_mul(dc, g_gate);
-        di_gate = elementwise_mul(di_gate, sigmoid_derivative(i_gate));
-        
-        // Forget gate
+        auto i_gate_derivative = elementwise_mul(i_gate, elementwise_subtract(1.0f, i_gate));
+        di_gate = elementwise_mul(di_gate, i_gate_derivative);
+
+        // Forget gate gradient
         auto df_gate = elementwise_mul(dc, prev_c);
-        df_gate = elementwise_mul(df_gate, sigmoid_derivative(f_gate));
-        
-        // Cell gate
+        auto f_gate_derivative = elementwise_mul(f_gate, elementwise_subtract(1.0f, f_gate));
+        df_gate = elementwise_mul(df_gate, f_gate_derivative);
+
+        // Cell gate gradient
         auto dg_gate = elementwise_mul(dc, i_gate);
-        dg_gate = elementwise_mul(dg_gate, tanh_derivative(g_gate));
-        
+        auto g_gate_derivative = elementwise_subtract(1.0f, elementwise_mul(g_gate, g_gate));
+        dg_gate = elementwise_mul(dg_gate, g_gate_derivative);
+
         // Concatenate gate gradients
         std::vector<float> dgates;
         dgates.insert(dgates.end(), di_gate.begin(), di_gate.end());
         dgates.insert(dgates.end(), df_gate.begin(), df_gate.end());
         dgates.insert(dgates.end(), dg_gate.begin(), dg_gate.end());
         dgates.insert(dgates.end(), do_gate.begin(), do_gate.end());
-        
+
         // Update weight gradients
         auto dw_ih_t = outer_product(dgates, x);
         auto dw_hh_t = outer_product(dgates, prev_h);
-        
+
         // Accumulate gradients
         dw_ih[layer] = matrix_add(dw_ih[layer], dw_ih_t);
         dw_hh[layer] = matrix_add(dw_hh[layer], dw_hh_t);
         db_ih[layer] = elementwise_add(db_ih[layer], dgates);
         db_hh[layer] = elementwise_add(db_hh[layer], dgates);
-        
+
         // Compute gradients for previous timestep
         dh_next = matrix_vector_mul_transpose(w_hh[layer], dgates);
         dc_next = elementwise_mul(dc, f_gate);
     }
 }
+
+
 
 void LSTMPredictor::update_parameters_adam(float learning_rate) {
     lr = learning_rate;
@@ -317,52 +311,55 @@ std::vector<float> LSTMPredictor::lstm_layer_forward(const std::vector<float>& x
     // Get previous states for this layer
     const auto& prev_h = h_states[layer];
     const auto& prev_c = c_states[layer];
-    
-    // Compute gates in one matrix multiplication
+
+    // Compute gates pre-activations
     auto gates_ih = matrix_vector_mul(w_ih[layer], x);
     auto gates_hh = matrix_vector_mul(w_hh[layer], prev_h);
-    
-    // Add biases
-    auto gates = elementwise_add(elementwise_add(gates_ih, gates_hh), 
-                               elementwise_add(b_ih[layer], b_hh[layer]));
-    
-    // Split gates into chunks
+    auto gates_pre = elementwise_add(elementwise_add(gates_ih, gates_hh),
+                                     elementwise_add(b_ih[layer], b_hh[layer]));
+
+    // Split pre-activation gates into chunks
     int chunk_size = hidden_size;
-    auto i_gate = sigmoid_vector(std::vector<float>(gates.begin(), 
-                                                  gates.begin() + chunk_size));
-    auto f_gate = sigmoid_vector(std::vector<float>(gates.begin() + chunk_size, 
-                                                  gates.begin() + 2 * chunk_size));
-    auto g_gate = tanh_vector(std::vector<float>(gates.begin() + 2 * chunk_size, 
-                                               gates.begin() + 3 * chunk_size));
-    auto o_gate = sigmoid_vector(std::vector<float>(gates.begin() + 3 * chunk_size, 
-                                                  gates.end()));
-    
+    auto i_gate_pre = std::vector<float>(gates_pre.begin(), gates_pre.begin() + chunk_size);
+    auto f_gate_pre = std::vector<float>(gates_pre.begin() + chunk_size, gates_pre.begin() + 2 * chunk_size);
+    auto g_gate_pre = std::vector<float>(gates_pre.begin() + 2 * chunk_size, gates_pre.begin() + 3 * chunk_size);
+    auto o_gate_pre = std::vector<float>(gates_pre.begin() + 3 * chunk_size, gates_pre.end());
+
+    // Apply activation functions
+    auto i_gate = sigmoid_vector(i_gate_pre);
+    auto f_gate = sigmoid_vector(f_gate_pre);
+    auto g_gate = tanh_vector(g_gate_pre);
+    auto o_gate = sigmoid_vector(o_gate_pre);
+
     // Update cell state
     std::vector<float> new_c(hidden_size);
     for (size_t i = 0; i < hidden_size; i++) {
         new_c[i] = f_gate[i] * prev_c[i] + i_gate[i] * g_gate[i];
     }
-    
+
     // Update hidden state
     std::vector<float> new_h(hidden_size);
     for (size_t i = 0; i < hidden_size; i++) {
         new_h[i] = o_gate[i] * tanh_func(new_c[i]);
     }
-    
-    // Store states and activations for backward pass
+
+    // Store states and pre-activation gates for backward pass
     if (is_training) {
         layer_inputs[layer].push_back(x);
-        layer_h_states[layer].push_back(prev_h);
-        layer_c_states[layer].push_back(prev_c);
-        layer_gates[layer].push_back(gates);
+        layer_h_states[layer].push_back(prev_h);       // Store previous hidden state
+        layer_c_states[layer].push_back(prev_c);       // Store previous cell state
+        // Store pre-activation gates
+        layer_gates[layer].push_back(gates_pre);
     }
-    
+
     // Update states
     h_states[layer] = new_h;
     c_states[layer] = new_c;
-    
+
     return new_h;
 }
+
+
 
 std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>>& input) {
     if (is_training) {
@@ -371,6 +368,7 @@ std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vec
         layer_h_states = std::vector<std::vector<std::vector<float>>>(num_layers);
         layer_c_states = std::vector<std::vector<std::vector<float>>>(num_layers);
         layer_gates = std::vector<std::vector<std::vector<float>>>(num_layers);
+        outputs_list.clear();
     }
     
     // Reset states at the start of sequence
@@ -380,8 +378,8 @@ std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vec
     std::vector<float> output;
     
     // Process each timestep
-    for (const auto& timestep : input) {
-        std::vector<float> layer_input = timestep[0];
+    for (size_t t = 0; t < input.size(); t++) {
+        std::vector<float> layer_input = input[t][0];
         
         // Process through each layer
         for (int layer = 0; layer < num_layers; layer++) {
@@ -394,9 +392,14 @@ std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vec
         // Final output through fully connected layer
         output = matrix_vector_mul(fc_weights, layer_input);
         output = elementwise_add(output, fc_bias);
+        
+        if (is_training) {
+            outputs_list.push_back(output);
+        }
     }
     
-    return output;
+    // Only return the last prediction
+    return output;  // This is already the last prediction
 }
 
 // AdamState implementations

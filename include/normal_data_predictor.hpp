@@ -11,7 +11,7 @@ public:
 
     std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn);
     float predict(const std::vector<float>& observed);
-    void update(int epoch_update, float lr_update, const std::vector<float>& past_observations, const std::vector<float>& recent_observation);
+    void update(int epoch_update, float lr_update, const std::vector<float>& past_observations, float recent_observation);
 
 private:
     int num_layers;

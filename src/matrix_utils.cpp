@@ -284,3 +284,86 @@ std::vector<std::vector<float>> matrix_add(const std::vector<std::vector<float>>
 
     return result;
 }
+
+std::vector<float> elementwise_subtract(const std::vector<float>& a, const std::vector<float>& b) {
+    if (a.size() != b.size()) {
+        throw std::runtime_error("Dimension mismatch in elementwise subtraction");
+    }
+
+    std::vector<float> result(a.size());
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    for (size_t i = 0; i < a.size(); i += 4) {
+        float32x4_t va = vld1q_f32(&a[i]);
+        float32x4_t vb = vld1q_f32(&b[i]);
+        float32x4_t vresult = vsubq_f32(va, vb);
+        vst1q_f32(&result[i], vresult);
+    }
+
+    // Handle remaining elements
+    for (size_t i = (a.size() / 4) * 4; i < a.size(); ++i) {
+        result[i] = a[i] - b[i];
+    }
+#else
+    // Standard implementation
+    for (size_t i = 0; i < a.size(); ++i) {
+        result[i] = a[i] - b[i];
+    }
+#endif
+
+    return result;
+}
+
+// Overload for scalar subtraction from vector
+std::vector<float> elementwise_subtract(float scalar, const std::vector<float>& vec) {
+    std::vector<float> result(vec.size());
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    float32x4_t vscalar = vdupq_n_f32(scalar);
+    for (size_t i = 0; i < vec.size(); i += 4) {
+        float32x4_t vvec = vld1q_f32(&vec[i]);
+        float32x4_t vresult = vsubq_f32(vscalar, vvec);
+        vst1q_f32(&result[i], vresult);
+    }
+
+    // Handle remaining elements
+    for (size_t i = (vec.size() / 4) * 4; i < vec.size(); ++i) {
+        result[i] = scalar - vec[i];
+    }
+#else
+    // Standard implementation
+    for (size_t i = 0; i < vec.size(); ++i) {
+        result[i] = scalar - vec[i];
+    }
+#endif
+
+    return result;
+}
+
+std::vector<float> elementwise_subtract(const std::vector<float>& vec, float scalar) {
+    std::vector<float> result(vec.size());
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    // NEON-optimized implementation
+    float32x4_t vscalar = vdupq_n_f32(scalar);
+    for (size_t i = 0; i < vec.size(); i += 4) {
+        float32x4_t vvec = vld1q_f32(&vec[i]);
+        float32x4_t vresult = vsubq_f32(vvec, vscalar);
+        vst1q_f32(&result[i], vresult);
+    }
+
+    // Handle remaining elements
+    for (size_t i = (vec.size() / 4) * 4; i < vec.size(); ++i) {
+        result[i] = vec[i] - scalar;
+    }
+#else
+    // Standard implementation
+    for (size_t i = 0; i < vec.size(); ++i) {
+        result[i] = vec[i] - scalar;
+    }
+#endif
+
+    return result;
+}

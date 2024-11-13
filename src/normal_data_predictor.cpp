@@ -104,36 +104,32 @@ float NormalDataPredictor::predict(const std::vector<float>& observed) {
                    std::min(last_observed + 0.2f, predicted_val[0]));
 }
 
-void NormalDataPredictor::update(int epoch_update, float lr_update, const std::vector<float>& past_observations, const std::vector<float>& recent_observation) {
+void NormalDataPredictor::update(int epoch_update, float lr_update, 
+                                const std::vector<float>& past_observations, 
+                                float recent_observation) {
     predictor.train();
     predictor.init_adam_optimizer(lr_update);
     
-    // Reshape input to match LSTM expectations
-    std::vector<std::vector<std::vector<float>>> reshaped_input(1);  // batch_size = 1
-    reshaped_input[0].push_back(past_observations);  // sequence_length = 1, features = lookback_len
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].push_back(past_observations);
 
-    float best_loss = std::numeric_limits<float>::max();
-    int patience = 5;
-    int no_improve_count = 0;
-    float min_delta = 1e-4f;
+    // Convert single float to vector for LSTM
+    std::vector<float> target_vec = {recent_observation};
+    std::vector<float> loss_history;  // Track loss history for early stopping
 
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
         auto predicted_val = predictor.forward(reshaped_input);
-        float loss = compute_mse_loss(predicted_val, recent_observation);
+        float loss = compute_mse_loss(predicted_val, target_vec);
         
         predictor.zero_grad();
-        predictor.backward(recent_observation, "MSE");
+        predictor.backward(target_vec, "MSE");
         predictor.update_parameters_adam(lr_update);
 
-        if (loss < (best_loss - min_delta)) {
-            best_loss = loss;
-            no_improve_count = 0;
-        } else {
-            no_improve_count++;
-            if (no_improve_count >= patience) {
-                break;
-            }
+        // Early stopping like in Python
+        if (!loss_history.empty() && loss > loss_history.back()) {
+            break;
         }
+        loss_history.push_back(loss);
     }
 }
 

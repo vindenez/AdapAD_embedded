@@ -85,7 +85,8 @@ void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, con
 }
 
 float AnomalousThresholdGenerator::update(int epoch_update, float lr_update, 
-                                        const std::vector<float>& past_errors, float recent_error) {
+                                       const std::vector<float>& past_errors, 
+                                       float recent_error) {
     generator.train();
     generator.init_adam_optimizer(lr_update);
     std::vector<float> loss_history;
@@ -103,6 +104,7 @@ float AnomalousThresholdGenerator::update(int epoch_update, float lr_update,
         generator.backward(target, "MSE");
         generator.update_parameters_adam(lr_update);
         
+        // Early stopping like in Python
         if (!loss_history.empty() && loss > loss_history.back()) {
             break;
         }
@@ -125,14 +127,17 @@ void AnomalousThresholdGenerator::eval() {
 float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
     generator.eval();
     
-    // Reshape input to match LSTM expectations
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].push_back(prediction_errors);
     
     auto threshold = generator.forward(reshaped_input);
     
-    // Don't denormalize the threshold - it should stay normalized like in Python
-    return std::max(minimal_threshold, threshold[0]);
+    // Apply minimal threshold directly (like Python)
+    float scaled_threshold = threshold[0];
+    scaled_threshold = std::max(scaled_threshold, minimal_threshold);
+    scaled_threshold = std::min(scaled_threshold, 0.2f);  // Cap maximum threshold
+    
+    return scaled_threshold;
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
