@@ -22,6 +22,23 @@ struct ValueRangeConfig {
     float upper_bound;     // Upper bound of sensor values
 };
 
+class ValueRangeDb {
+public:
+    ValueRangeDb() : lower_bound(0), upper_bound(0) {}
+
+    void init(float lower, float upper) {
+        lower_bound = lower;
+        upper_bound = upper;
+    }
+
+    float lower() const { return lower_bound; }
+    float upper() const { return upper_bound; }
+
+private:
+    float lower_bound;
+    float upper_bound;
+};
+
 namespace config {
     // General configuration
     extern std::string data_source_path;

@@ -8,11 +8,11 @@
 #include <config.hpp>
 #include <algorithm>
 
-// Constructor to initialize with input size, hidden size, and other hyperparameters
-LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, int num_layers, int lookback_len)
-    : input_size(lookback_len),
+// Constructor to initialize with parameters in PyTorch order
+LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, int num_layers, int lookback_len)
+    : input_size(input_size),
       hidden_size(hidden_size),
-      output_size(output_size),
+      output_size(num_classes),
       num_layers(num_layers),
       lookback_len(lookback_len) {
 
@@ -38,9 +38,11 @@ LSTMPredictor::LSTMPredictor(int input_size, int hidden_size, int output_size, i
         b_hh.push_back(std::vector<float>(4 * hidden_size, 0.0f));
     }
 
-    // Initialize fully connected layer
+    // Initialize fully connected layer to match PyTorch's behavior
+    // Use hidden_size instead of hidden_size * num_layers
     fc_weights = init_weights(output_size, hidden_size, weight_init);
-    fc_bias = std::vector<float>(output_size, 0.0f);
+    fc_bias = std::vector<float>(output_size);
+    std::fill(fc_bias.begin(), fc_bias.end(), 0.0f);
     
     // Initialize states
     h_states = std::vector<std::vector<float>>(num_layers, std::vector<float>(hidden_size, 0.0f));
@@ -359,8 +361,6 @@ std::vector<float> LSTMPredictor::lstm_layer_forward(const std::vector<float>& x
     return new_h;
 }
 
-
-
 std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>>& input) {
     if (is_training) {
         // Reset states at the start of sequence
@@ -388,7 +388,7 @@ std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vec
             }
         }
         
-        // Final output through fully connected layer
+        // Use only the last layer's hidden state for the fully connected layer
         output = matrix_vector_mul(fc_weights, layer_input);
         output = elementwise_add(output, fc_bias);
         
@@ -397,8 +397,7 @@ std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vec
         }
     }
     
-    // Only return the last prediction
-    return output;  // This is already the last prediction
+    return output;
 }
 
 // AdamState implementations

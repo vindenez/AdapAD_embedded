@@ -98,74 +98,43 @@ int main() {
             throw std::runtime_error("It is mandatory to set a minimal threshold");
         }
 
+        // Load entire dataset like Python
+        std::vector<DataPoint> data_points = load_csv_values(config::data_source_path);
+        if (data_points.empty()) {
+            throw std::runtime_error("Failed to load data");
+        }
+
         AdapAD adap_ad(predictor_config, value_range_config, minimal_threshold);
-
-        // Load training data first
-        std::vector<DataPoint> training_data = load_csv_values(config::data_source_path);
-        if (training_data.empty()) {
-            throw std::runtime_error("Failed to load training data");
-        }
-
-        // Extract training values
-        std::vector<float> training_values;
-        for (const auto& point : training_data) {
-            training_values.push_back(point.value);
-        }
-
         std::cout << "GATHERING DATA FOR TRAINING..." << predictor_config.train_size << std::endl;
 
         std::vector<float> observed_data;
-        for (const auto& value : training_values) {
-            observed_data.push_back(value);
+        
+        // Process data sequentially like Python
+        for (const auto& point : data_points) {
+            float measured_value = point.value;
+            bool actual_anomaly = point.is_anomaly;
+            
+            observed_data.push_back(measured_value);
             size_t observed_data_sz = observed_data.size();
 
             if (observed_data_sz == predictor_config.train_size) {
                 adap_ad.set_training_data(observed_data);
-                adap_ad.train(observed_data);  // Pass the entire observed_data vector
+                adap_ad.train(measured_value);  // Pass only measured_value
                 std::cout << "------------STARTING TO MAKE DECISION------------" << std::endl;
-            } else if (observed_data_sz < predictor_config.train_size) {
+            } else if (observed_data_sz > predictor_config.train_size) {
+                adap_ad.is_anomalous(measured_value, actual_anomaly);
+                adap_ad.clean();
+            } else {
                 std::cout << observed_data_sz << "/" << predictor_config.train_size 
                           << " to warmup training" << std::endl;
             }
         }
 
-        // Now load and process validation data
-        std::vector<DataPoint> validation_data = load_csv_values(config::data_val_path);
-        if (validation_data.empty()) {
-            throw std::runtime_error("Failed to load validation data");
-        }
-
-        std::cout << "STARTING VALIDATION..." << std::endl;
-        
-        std::vector<bool> predictions;
-        std::vector<bool> actual_labels;
-
-        // Process each validation point
-        for (const auto& data_point : validation_data) {
-            float measured_value = data_point.value;
-            bool actual_anomaly = data_point.is_anomaly;
-            
-            bool predicted_anomaly = adap_ad.is_anomalous(measured_value, actual_anomaly);
-            predictions.push_back(predicted_anomaly);
-            actual_labels.push_back(actual_anomaly);
-            adap_ad.clean();
-        }
-
-        // Calculate metrics on validation data
-        if (!predictions.empty()) {
-            Metrics metrics = calculate_metrics(predictions, actual_labels);
-            std::cout << "Validation Results:" << std::endl;
-            std::cout << "Accuracy: " << metrics.accuracy << std::endl;
-            std::cout << "Precision: " << metrics.precision << std::endl;
-            std::cout << "Recall: " << metrics.recall << std::endl;
-            std::cout << "F1 Score: " << metrics.f1_score << std::endl;
-        }
-
         std::cout << "Done! Check result at " << adap_ad.get_log_filename() << std::endl;
+        return 0;
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-    return 0;
 }

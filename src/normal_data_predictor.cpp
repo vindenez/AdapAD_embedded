@@ -11,51 +11,38 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int look
       hidden_size(lstm_unit), 
       lookback_len(lookback_len), 
       prediction_len(prediction_len),
-      predictor(lookback_len, hidden_size, prediction_len, num_layers, lookback_len) {
+      predictor(prediction_len,    // num_classes
+               lookback_len,      // input_size
+               lstm_unit,         // hidden_size
+               lstm_layer,        // num_layers
+               lookback_len) {    // lookback_len
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> NormalDataPredictor::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn, const EarlyStoppingCallback& callback) {
+    std::cout << "\n=== Training Data Debug ===" << std::endl;
+    std::cout << "First 5 training values (should be normalized [0,1]):" << std::endl;
+    for (size_t i = 0; i < std::min(size_t(5), data_to_learn.size()); ++i) {
+        std::cout << "  [" << i << "]: " << data_to_learn[i] << std::endl;
+    }
+    
     auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
+    
+    std::cout << "\nFirst 3 training sequences:" << std::endl;
+    for (size_t seq = 0; seq < std::min(size_t(3), x.size()); ++seq) {
+        std::cout << "\nSequence " << seq << ":" << std::endl;
+        std::cout << "Input (x):" << std::endl;
+        for (size_t i = 0; i < x[seq].size(); ++i) {
+            std::cout << "  [" << i << "]: " << x[seq][i] << std::endl;
+        }
+        std::cout << "Target (y):" << std::endl;
+        std::cout << "  [0]: " << y[seq][0] << std::endl;
+    }
     
     predictor.train();
     predictor.init_adam_optimizer(learning_rate);
 
     std::cout << "\nTraining on " << x.size() << " sequences for " << num_epochs << " epochs..." << std::endl;
     
-    // Calculate global statistics for normalization (like Python)
-    float mean_global = 0.0f;
-    float std_global = 0.0f;
-    int total_values = 0;
-    
-    // Calculate mean and std like Python implementation
-    for (const auto& seq : x) {
-        for (const auto& val : seq) {
-            mean_global += val;
-            total_values++;
-        }
-    }
-    mean_global /= total_values;
-    
-    for (const auto& seq : x) {
-        for (const auto& val : seq) {
-            float diff = val - mean_global;
-            std_global += diff * diff;
-        }
-    }
-    std_global = std::sqrt(std_global / total_values);
-
-    // Normalize training data
-    for (auto& seq : x) {
-        for (auto& val : seq) {
-            val = (val - mean_global) / (std_global + 1e-10f);
-        }
-    }
-    for (auto& seq : y) {
-        for (auto& val : seq) {
-            val = (val - mean_global) / (std_global + 1e-10f);
-        }
-    }
-
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
         float epoch_loss = 0.0f;
         
@@ -66,6 +53,13 @@ std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> Norm
             reshaped_input[0].push_back(x[i]);
             
             auto outputs = predictor.forward(reshaped_input);
+            
+            if (epoch % 100 == 0 && i < 3) {
+                std::cout << "Sample prediction at epoch " << epoch << " sequence " << i << ":" << std::endl;
+                std::cout << "  Target: " << y[i][0] << std::endl;
+                std::cout << "  Predicted: " << outputs[0] << std::endl;
+            }
+            
             float loss = compute_mse_loss(outputs, y[i]);
             
             predictor.backward(y[i], "MSE");
@@ -96,12 +90,24 @@ float NormalDataPredictor::predict(const std::vector<float>& observed) {
     
     std::vector<float> input_sequence(observed.end() - lookback_len, observed.end());
     
+    std::cout << "\n=== Prediction Debug ===" << std::endl;
+    std::cout << "Input sequence (should be normalized [0,1]):" << std::endl;
+    for (size_t i = 0; i < input_sequence.size(); ++i) {
+        std::cout << "  [" << i << "]: " << input_sequence[i] << std::endl;
+    }
+    
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].push_back(input_sequence);
     
     auto predicted_val = predictor.forward(reshaped_input);
     
-    return predicted_val[0];
+    // Match Python: only clamp lower bound at 0
+    float clamped_prediction = std::max(0.0f, predicted_val[0]);
+    
+    std::cout << "LSTM output (raw): " << predicted_val[0] << std::endl;
+    std::cout << "LSTM output (only lower bound clamped): " << clamped_prediction << std::endl;
+    
+    return clamped_prediction;
 }
 
 void NormalDataPredictor::update(int epoch_update, float lr_update, 

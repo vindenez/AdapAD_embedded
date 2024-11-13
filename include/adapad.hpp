@@ -18,7 +18,7 @@ public:
 
     void set_training_data(const std::vector<float>& data);
     bool is_anomalous(float val, bool actual_anomaly);
-    void train(const std::vector<float>& data);
+    void train(float measured_value);
     void clean();
 
     // Public methods for data normalization
@@ -33,9 +33,8 @@ private:
     NormalDataPredictor data_predictor;
     AnomalousThresholdGenerator generator;
     PredictorConfig predictor_config;
-    ValueRangeConfig value_range_config;
+    ValueRangeDb sensor_range;
     float minimal_threshold;
-    float normalized_threshold;
 
     std::vector<float> observed_vals;
     std::vector<float> predicted_vals;
@@ -55,6 +54,8 @@ private:
     void open_log_file();
     std::vector<float> calc_error(const std::vector<float>& ground_truth, const std::vector<float>& predict);
     void maintain_memory();
+    float normalize_threshold(float threshold) const;
+
 };
 
 #endif // ADAPAD_HPP
