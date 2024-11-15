@@ -23,8 +23,15 @@ void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, con
     auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
     
     generator.train();
-    generator.init_adam_optimizer(learning_rate);
+    generator.init_adam_optimizer();
 
+    // Gradient check on first batch before training
+    std::cout << "\n=== Gradient Check for Threshold Generator ===" << std::endl;
+    std::vector<std::vector<std::vector<float>>> first_input(1);
+    first_input[0] = std::vector<std::vector<float>>(1, x[0]);
+    bool gradients_ok = generator.check_gradients(first_input, y[0]);
+    std::cout << "Gradient check " << (gradients_ok ? "PASSED" : "FAILED") << "\n" << std::endl;
+    
     std::cout << "\nGenerator training for " << num_epochs << " epochs..." << std::endl;
     
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
@@ -41,7 +48,7 @@ void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, con
             float loss = compute_mse_loss(outputs, target);
             
             generator.backward(target, "MSE");
-            generator.update_parameters_adam(learning_rate);
+            generator.update_parameters_adam();
             
             epoch_loss += loss;
         }
@@ -65,7 +72,7 @@ float AnomalousThresholdGenerator::update(int epoch_update, float lr_update,
     
     // Then switch to training mode
     generator.train();
-    generator.init_adam_optimizer(lr_update);
+    generator.init_adam_optimizer();
     
     // Prepare input in same shape as Python
     std::vector<std::vector<std::vector<float>>> train_input(1);
@@ -84,7 +91,7 @@ float AnomalousThresholdGenerator::update(int epoch_update, float lr_update,
         float loss = compute_mse_loss(predicted_val, target);
         
         generator.backward(target, "MSE");
-        generator.update_parameters_adam(lr_update);
+        generator.update_parameters_adam();
         
         final_loss = loss;
         
@@ -109,13 +116,10 @@ void AnomalousThresholdGenerator::eval() {
     generator.eval();
 }
 
-float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, 
-                                          float minimal_threshold) {
-    generator.eval();
-    
+float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
+    // No normalization, just reshaping and forwarding
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0] = std::vector<std::vector<float>>(1, prediction_errors);
-    
     auto threshold = generator.forward(reshaped_input);
     float scaled_threshold = threshold[0];
     
