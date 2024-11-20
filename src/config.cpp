@@ -38,6 +38,13 @@ namespace config {
     float lower_bound = 713.0f;          
     float upper_bound = 763.0f;          
 
+    float minimal_threshold = 0.0038f;  
+
+    // Data preprocessing
+    float lower_bound = 713.0f;  
+    float upper_bound = 763.0f;  
+
+
     // Logging and debugging
     bool verbose_output = true;
     std::string log_file_path = "adapad_log.csv";
@@ -65,7 +72,6 @@ PredictorConfig init_predictor_config() {
     return predictor_config;
 }
 
-// Initialize value range configuration based on data source
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold) {
     ValueRangeConfig value_range_config;
 

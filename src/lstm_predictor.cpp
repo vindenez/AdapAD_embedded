@@ -11,7 +11,95 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
                             bool batch_first)
     : num_classes(num_classes),
       num_layers(num_layers),
+
       input_size(input_size),
+
+      lookback_len(lookback_len) {
+
+    // Initialize weights and biases with uniform distribution  (PyTorch docs nn.LSTM)
+    //u(-sqrt(k), sqrt(k)) where k = 1/hidden_size
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    auto uniform_init = [&](int size) {
+        float k = 1.0f / size;
+        float range = std::sqrt(k);
+        std::uniform_real_distribution<float> dist(-range, range);
+        return dist;
+    };
+
+    auto init_weights = [&](int fan_out, int fan_in) {
+        std::uniform_real_distribution<float> dist = uniform_init(hidden_size);
+        std::vector<std::vector<float>> w(fan_out, std::vector<float>(fan_in));
+        for (auto& row : w) {
+            for (auto& val : row) {
+                val = dist(gen);
+            }
+        }
+        return w;
+    };
+
+    auto init_bias = [&](int size) {
+        std::uniform_real_distribution<float> dist = uniform_init(hidden_size);
+        std::vector<float> b(size);
+        for (auto& val : b) {
+            val = dist(gen);
+        }
+        return b;
+    };
+
+    // Initialize LSTM weights and biases for all gates
+    weight_ih_input = init_weights(hidden_size, input_size);
+    weight_hh_input = init_weights(hidden_size, hidden_size);
+    bias_ih_input = init_bias(hidden_size);
+    bias_hh_input = init_bias(hidden_size);
+
+    weight_ih_forget = init_weights(hidden_size, input_size);
+    weight_hh_forget = init_weights(hidden_size, hidden_size);
+    bias_ih_forget = init_bias(hidden_size);
+    bias_hh_forget = init_bias(hidden_size);
+
+    weight_ih_cell = init_weights(hidden_size, input_size);
+    weight_hh_cell = init_weights(hidden_size, hidden_size);
+    bias_ih_cell = init_bias(hidden_size);
+    bias_hh_cell = init_bias(hidden_size);
+
+    weight_ih_output = init_weights(hidden_size, input_size);
+    weight_hh_output = init_weights(hidden_size, hidden_size);
+    bias_ih_output = init_bias(hidden_size);
+    bias_hh_output = init_bias(hidden_size);
+
+    fc_weights = init_weights(output_size, hidden_size);
+    fc_bias = init_bias(output_size);
+
+    // Initialize hidden and cell states
+    h = std::vector<float>(hidden_size, 0.0f);
+    c = std::vector<float>(hidden_size, 0.0f);
+
+}
+
+// Constructor to initialize with weights and biases for each gate
+LSTMPredictor::LSTMPredictor(
+    const std::vector<std::vector<float>>& weight_ih_input,
+    const std::vector<std::vector<float>>& weight_hh_input,
+    const std::vector<float>& bias_ih_input,
+    const std::vector<float>& bias_hh_input,
+    const std::vector<std::vector<float>>& weight_ih_forget,
+    const std::vector<std::vector<float>>& weight_hh_forget,
+    const std::vector<float>& bias_ih_forget,
+    const std::vector<float>& bias_hh_forget,
+    const std::vector<std::vector<float>>& weight_ih_output,
+    const std::vector<std::vector<float>>& weight_hh_output,
+    const std::vector<float>& bias_ih_output,
+    const std::vector<float>& bias_hh_output,
+    const std::vector<std::vector<float>>& weight_ih_cell,
+    const std::vector<std::vector<float>>& weight_hh_cell,
+    const std::vector<float>& bias_ih_cell,
+    const std::vector<float>& bias_hh_cell,
+    int input_size,
+    int hidden_size)
+    : input_size(input_size),
+
       hidden_size(hidden_size),
       seq_length(lookback_len),
       batch_first(batch_first) {

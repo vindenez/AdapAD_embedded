@@ -67,6 +67,15 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
             float avg_loss = epoch_loss / windows.first.size();
             std::cout << "Epoch " << (e + 1) << "/" << epoch 
                      << ", Average Loss: " << avg_loss << std::endl;
+
+        epoch_loss /= x.size();
+        std::cout << "Epoch " << epoch + 1 << "/" << num_epochs << ", Loss: " << epoch_loss << std::endl;
+
+        // Early stopping logic
+        if (epoch_loss > previous_loss) {
+            std::cout << "Early stopping triggered after " << epoch + 1 << " epochs. Loss increased." << std::endl;
+            break;
+
         }
     }
     
