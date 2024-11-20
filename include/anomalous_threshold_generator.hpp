@@ -3,28 +3,49 @@
 
 #include "lstm_predictor.hpp"
 #include <vector>
+#include <memory>
 
 class AnomalousThresholdGenerator {
 public:
-    AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
-
-    void train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn);
-    float update(int num_epochs, float lr_update, const std::vector<float>& past_errors, float recent_error);
+    AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, 
+                               int lookback_len, int prediction_len);
+    
+    // Train the generator on error data - match NormalDataPredictor's interface
+    std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
+    train(int epoch, float lr, const std::vector<float>& data2learn);
+    
+    // Make a single prediction (renamed from generate)
     float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
-    void train();
-    void eval();
+    
+    // Update the model with new error observations
+    void update(int epoch_update, float lr_update,
+                const std::vector<float>& past_errors, float recent_error);
+    
+    // Add these new methods to delegate to LSTM predictor
+    void eval() { generator->eval(); }
+    void train() { generator->train(); }
+    LSTMPredictor::LSTMOutput forward(const std::vector<std::vector<std::vector<float>>>& x) {
+        return generator->forward(x);
+    }
+    std::vector<float> get_final_prediction(const LSTMPredictor::LSTMOutput& output) {
+        return generator->get_final_prediction(output);
+    }
+    
+    // Add these delegate methods
+    void reset_states() { generator->reset_states(); }
+    void train_step(const std::vector<std::vector<std::vector<float>>>& x,
+                   const std::vector<float>& target,
+                   float learning_rate) {
+        generator->train_step(x, target, learning_rate);
+    }
 
 private:
     int lookback_len;
     int prediction_len;
-    LSTMPredictor generator;
-    bool is_training = true;
-
-    std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
-    sliding_windows(const std::vector<float>& data, int window_size, int prediction_len);
-
-    float compute_mse_loss(const std::vector<float>& output, const std::vector<float>& target);
-    std::vector<float> compute_mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target);
+    std::unique_ptr<LSTMPredictor> generator;
+    
+    std::pair<std::vector<std::vector<float>>, std::vector<float>>
+    create_sliding_windows(const std::vector<float>& data);
 };
 
 #endif // ANOMALOUS_THRESHOLD_GENERATOR_HPP

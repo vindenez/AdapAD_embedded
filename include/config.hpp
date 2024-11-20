@@ -64,6 +64,7 @@ namespace config {
 
     // Anomaly detection
     extern float minimal_threshold;
+    extern float threshold_multiplier;
 
     // Data preprocessing
     extern float lower_bound;
@@ -72,14 +73,6 @@ namespace config {
     // Logging and debugging
     extern bool verbose_output;
     extern std::string log_file_path;
-
-    // Performance tuning
-    extern int batch_size;
-    extern float dropout_rate;
-    
-    // Early stopping
-    extern int patience;
-    extern float min_delta;
 
     // Random seed for reproducibility
     extern unsigned int random_seed;

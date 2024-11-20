@@ -1,127 +1,137 @@
 #include "normal_data_predictor.hpp"
-#include <iostream>
-#include <cmath>
-#include <algorithm>
-#include <numeric>
+#include "normal_data_prediction_error_calculator.hpp"
 #include "matrix_utils.hpp"
-#include <chrono>
+#include <algorithm>
+#include <cmath>
+#include <iostream>
 
-NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
-    : num_layers(lstm_layer), 
-      hidden_size(lstm_unit), 
-      lookback_len(lookback_len), 
-      prediction_len(prediction_len),
-      predictor(prediction_len,    // num_classes
-               lookback_len,      // input_size
-               lstm_unit,         // hidden_size
-               lstm_layer,        // num_layers
-               lookback_len) {    // lookback_len
+NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, 
+                                       int lookback_len, int prediction_len)
+    : lookback_len(lookback_len),
+      prediction_len(prediction_len) {
+    
+    predictor = std::make_unique<LSTMPredictor>(
+        prediction_len,  // num_classes
+        lookback_len,    // input_size
+        lstm_unit,       // hidden_size
+        lstm_layer,      // num_layers
+        lookback_len     // seq_length
+    );
 }
 
-std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
-NormalDataPredictor::train(int num_epochs, float learning_rate, 
-                          const std::vector<float>& data_to_learn, 
-                          const EarlyStoppingCallback& callback) {
-    auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
+std::pair<std::vector<std::vector<float>>, std::vector<float>>
+NormalDataPredictor::create_sliding_windows(const std::vector<float>& data) {
+    return ::create_sliding_windows(data, lookback_len, prediction_len);
+}
+
+std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
+NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2learn) {
+    std::cout << "Starting training with " << data2learn.size() << " samples..." << std::endl;
+    auto windows = create_sliding_windows(data2learn);
+    std::cout << "Created " << windows.first.size() << " training windows" << std::endl;
     
-    predictor.train();
-    predictor.init_adam_optimizer();
+    predictor->train();  // Set to training mode
+    float best_loss = std::numeric_limits<float>::max();
+    int no_improve_count = 0;
     
-    // Gradient check on first batch before training
-    std::cout << "\n=== Gradient Check for Data Predictor ===" << std::endl;
-    std::vector<std::vector<std::vector<float>>> first_input;
-    reshape_input(x[0], first_input);
-    bool gradients_ok = predictor.check_gradients(first_input, y[0]);
-    std::cout << "Gradient check " << (gradients_ok ? "PASSED" : "FAILED") << "\n" << std::endl;
-    
-    for (int epoch = 0; epoch < num_epochs; ++epoch) {
+    for (int e = 0; e < epoch; ++e) {
         float epoch_loss = 0.0f;
         
-        for (size_t i = 0; i < x.size(); ++i) {
-            predictor.zero_grad();
+        // Process each sample individually for better learning
+        for (size_t i = 0; i < windows.first.size(); ++i) {
+            // Prepare input tensor
+            std::vector<std::vector<std::vector<float>>> input_tensor(1);
+            input_tensor[0].resize(1);
+            input_tensor[0][0] = windows.first[i];
             
-            std::vector<std::vector<std::vector<float>>> reshaped_input;
-            reshape_input(x[i], reshaped_input);
+            // Forward pass
+            auto output = predictor->forward(input_tensor);
+            auto pred = predictor->get_final_prediction(output);
             
-            auto outputs = predictor.forward(reshaped_input);
-            float loss = compute_mse_loss(outputs, y[i]);
+            // Calculate loss
+            float sample_loss = 0.0f;
+            std::vector<float> target{windows.second[i]};
+            for (size_t k = 0; k < pred.size(); ++k) {
+                float diff = pred[k] - target[k];
+                sample_loss += diff * diff;
+            }
             
-            predictor.backward(y[i], "MSE");
-            predictor.update_parameters_adam();
+            epoch_loss += sample_loss;
             
-            epoch_loss += loss;
+            // Train step for each sample
+            predictor->train_step(input_tensor, target, lr);
         }
         
-        epoch_loss /= x.size();
-    }
-
-    predictor.eval();
-    return {x, y};
-}
-
-float NormalDataPredictor::predict(const std::vector<float>& observed) {
-    predictor.eval();
-    
-    std::vector<std::vector<std::vector<float>>> reshaped_input;
-    reshape_input(observed, reshaped_input);
-    
-    predictor.reset_states();
-    std::vector<float> output = predictor.forward(reshaped_input);
-    
-    if (output.empty()) {
-        throw std::runtime_error("Empty output from predictor");
+        // Report progress
+        if ((e + 1) % 100 == 0) {
+            float avg_loss = epoch_loss / windows.first.size();
+            std::cout << "Epoch " << (e + 1) << "/" << epoch 
+                     << ", Average Loss: " << avg_loss << std::endl;
+        }
     }
     
-    float predicted_val = std::max(0.0f, output[0]);
-    return predicted_val;
+    // Convert windows to 3D format for return
+    std::vector<std::vector<std::vector<float>>> x3d;
+    for (const auto& window : windows.first) {
+        std::vector<std::vector<std::vector<float>>> input_tensor(1);
+        input_tensor[0].resize(1);
+        input_tensor[0][0] = window;
+        x3d.push_back(input_tensor[0]);
+    }
+    
+    return {x3d, windows.second};
 }
 
-void NormalDataPredictor::update(int epoch_update, float lr_update, 
-                                const std::vector<float>& past_observations, 
-                                float recent_observation) {
-    predictor.train();
-    predictor.init_adam_optimizer();
+float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<float>>>& observed) {
+    predictor->eval();
     
-    std::vector<std::vector<std::vector<float>>> reshaped_input;
-    reshape_input(past_observations, reshaped_input);
+    // Reshape input to match Python version: (batch=1, features=lookback_len)
+    if (observed.size() != 1 || observed[0].size() != 1 || 
+        observed[0][0].size() != lookback_len) {
+        throw std::runtime_error("Invalid input dimensions for prediction");
+    }
+    
+    // Flatten the input to match Python's reshape(1, -1)
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].resize(1);
+    reshaped_input[0][0] = observed[0][0];  // Already in correct shape
+    
+    auto output = predictor->forward(reshaped_input);
+    auto pred = predictor->get_final_prediction(output);
+    return std::max(0.0f, pred[0]);
+}
 
-    std::vector<float> target_vec = {recent_observation};
+void NormalDataPredictor::update(int epoch_update, float lr_update,
+                               const std::vector<std::vector<std::vector<float>>>& past_observations,
+                               const std::vector<float>& recent_observation) {
+    // Input validation
+    if (past_observations.size() != 1 || past_observations[0].size() != 1 ||
+        past_observations[0][0].size() != lookback_len) {
+        throw std::runtime_error("Invalid input dimensions for update");
+    }
+    
     std::vector<float> loss_history;
-
-    for (int epoch = 0; epoch < epoch_update; ++epoch) {
-        predictor.reset_states();
-        auto predicted_val = predictor.forward(reshaped_input);
-        float loss = compute_mse_loss(predicted_val, target_vec);
+    
+    for (int e = 0; e < epoch_update; ++e) {
+        predictor->reset_states();
+        auto output = predictor->forward(past_observations);
+        auto pred = predictor->get_final_prediction(output);
         
-        predictor.zero_grad();
-        predictor.backward(target_vec, "MSE");
-        predictor.update_parameters_adam();
-
-        if (!loss_history.empty() && loss > loss_history.back()) {
+        // Compute loss
+        float current_loss = 0.0f;
+        for (size_t i = 0; i < pred.size(); ++i) {
+            float diff = pred[i] - recent_observation[i];
+            current_loss += diff * diff;
+        }
+        current_loss /= pred.size();
+        
+        // Early stopping check
+        if (!loss_history.empty() && current_loss > loss_history.back()) {
             break;
         }
-        loss_history.push_back(loss);
-    }
-
-    predictor.eval();
-}
-
-void NormalDataPredictor::reshape_input(const std::vector<float>& input_sequence, 
-                                    std::vector<std::vector<std::vector<float>>>& reshaped) {
-    if (input_sequence.size() < lookback_len) {
-        throw std::runtime_error("Input sequence length is less than lookback_len");
-    }
-
-    // Reshape to [batch_size=1, seq_len=1, input_size=lookback_len]
-    reshaped.clear();
-    reshaped.resize(1);        // batch_size = 1
-    reshaped[0].resize(1);     // seq_len = 1
-    reshaped[0][0].resize(lookback_len);  // input_size = lookback_len
-    
-    // Copy the last lookback_len values
-    for (int i = 0; i < lookback_len; i++) {
-        reshaped[0][0][i] = input_sequence[input_sequence.size() - lookback_len + i];
+        loss_history.push_back(current_loss);
+        
+        // Backward pass and update
+        predictor->train_step(past_observations, recent_observation, lr_update);
     }
 }
-
-

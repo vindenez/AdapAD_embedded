@@ -39,7 +39,7 @@ std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matr
     }
 
     std::vector<float> result(matrix.size(), 0.0f);
-
+    
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
     // NEON-optimized ARM implementation
     for (size_t i = 0; i < matrix.size(); ++i) {
@@ -98,12 +98,13 @@ std::vector<float> elementwise_add(const std::vector<float>& a, const std::vecto
 }
 
 std::vector<float> elementwise_mul(const std::vector<float>& a, const std::vector<float>& b) {
+    
     if (a.size() != b.size()) {
         throw std::runtime_error("Dimension mismatch in elementwise multiplication");
     }
 
     std::vector<float> result(a.size());
-
+    
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
     for (size_t i = 0; i < a.size(); i += 4) {
         float32x4_t va = vld1q_f32(&a[i]);
@@ -168,64 +169,41 @@ std::vector<float> compute_mse_loss_gradient(const std::vector<float>& output, c
     return gradient;
 }
 
-std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> sliding_windows(const std::vector<float>& data, int window_size, int prediction_len) {
-    std::vector<std::vector<float>> x, y;
-    for (size_t i = window_size; i < data.size(); ++i) {
-        x.push_back(std::vector<float>(data.begin() + i - window_size, data.begin() + i));
-        y.push_back(std::vector<float>(data.begin() + i, std::min(data.begin() + i + prediction_len, data.end())));
-    }
-    return {x, y};
-}
-
 std::vector<float> matrix_vector_mul_transpose(const std::vector<std::vector<float>>& matrix, 
                                              const std::vector<float>& vec) {
-    if (matrix.empty() || vec.empty()) {
-        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul_transpose");
+    
+    if (matrix.empty() || matrix[0].empty() || vec.empty()) {
+        throw std::invalid_argument("Empty matrix or vector in matrix_vector_mul_transpose");
     }
-
-    if (matrix.size() != vec.size()) {
-        throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul_transpose");
+    
+    if (matrix[0].size() != vec.size()) {
+        throw std::invalid_argument(
+            "Matrix-vector dimension mismatch in transpose multiplication: " +
+            std::to_string(matrix[0].size()) + " != " + std::to_string(vec.size())
+        );
     }
-
-    std::vector<float> result(matrix[0].size(), 0.0f);
-
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-    // NEON-optimized implementation
-    for (size_t j = 0; j < matrix[0].size(); ++j) {
-        float32x4_t sum = vdupq_n_f32(0.0f);
-        for (size_t i = 0; i < matrix.size(); i += 4) {
-            float32x4_t v = vld1q_f32(&vec[i]);
-            float32x4_t m = vld1q_f32(&matrix[i][j]);
-            sum = vmlaq_f32(sum, v, m);
-        }
-        float32x2_t sum2 = vadd_f32(vget_low_f32(sum), vget_high_f32(sum));
-        result[j] = vget_lane_f32(vpadd_f32(sum2, sum2), 0);
-
-        // Handle remaining elements
-        for (size_t i = (matrix.size() / 4) * 4; i < matrix.size(); ++i) {
-            result[j] += matrix[i][j] * vec[i];
+    
+    std::vector<float> result(matrix.size(), 0.0f);
+    
+    // Perform matrix-vector multiplication with transpose
+    for (size_t i = 0; i < matrix.size(); ++i) {
+        for (size_t j = 0; j < vec.size(); ++j) {
+            result[i] += matrix[i][j] * vec[j];
         }
     }
-#else
-    // Standard implementation
-    for (size_t j = 0; j < matrix[0].size(); ++j) {
-        for (size_t i = 0; i < matrix.size(); ++i) {
-            result[j] += matrix[i][j] * vec[i];
-        }
-    }
-#endif
-
+    
     return result;
 }
 
 std::vector<std::vector<float>> outer_product(const std::vector<float>& a, 
                                             const std::vector<float>& b) {
+    
     if (a.empty() || b.empty()) {
         throw std::runtime_error("Error: Empty vectors in outer_product");
     }
 
     std::vector<std::vector<float>> result(a.size(), std::vector<float>(b.size(), 0.0f));
-
+    
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
     // NEON-optimized implementation
     for (size_t i = 0; i < a.size(); ++i) {
@@ -514,4 +492,24 @@ std::vector<float> dtanh_vector(const std::vector<float>& x) {
 #endif
 
     return result;
+}
+
+std::pair<std::vector<std::vector<float>>, std::vector<float>>
+create_sliding_windows(const std::vector<float>& data, int lookback_len, int prediction_len) {
+    std::vector<std::vector<float>> x;
+    std::vector<float> y;
+    
+    for (size_t i = lookback_len; i < data.size() - prediction_len + 1; ++i) {
+        // Create x window (past values)
+        std::vector<float> window(data.begin() + (i - lookback_len), 
+                                data.begin() + i);
+        x.push_back(window);
+        
+        // Create y window (next value)
+        std::vector<float> target(data.begin() + i,
+                                data.begin() + i + prediction_len);
+        y.push_back(target[0]);  // Only take the first prediction value
+    }
+    
+    return {x, y};
 }

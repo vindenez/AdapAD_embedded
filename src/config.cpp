@@ -4,7 +4,7 @@
 namespace config {
     // Located in /data
     std::string data_source_path = "data/Tide_pressure.csv";
-    std::string data_val_path = "data/Tide_pressure.benchmark_stage.csv";
+    std::string data_val_path = "data/Tide_pressure.validation_stage.csv";
     std::string data_source = "Tide_pressure";
 
     // Located on SD Card on the module /mnt/data
@@ -32,6 +32,7 @@ namespace config {
 
     // Anomaly detection
     float minimal_threshold = 0.0038f;   
+    float threshold_multiplier = 1.0f;
 
     // Data preprocessing
     float lower_bound = 713.0f;          
@@ -40,14 +41,7 @@ namespace config {
     // Logging and debugging
     bool verbose_output = true;
     std::string log_file_path = "adapad_log.csv";
-
-    // Performance tuning
-    int batch_size = 32;
-    float dropout_rate = 0.2f;
-    
-    // Early stopping
-    int patience = 50;                    
-    float min_delta = 0.0001f;           
+     
 
     // Random seed for reproducibility
     unsigned int random_seed = 42;
