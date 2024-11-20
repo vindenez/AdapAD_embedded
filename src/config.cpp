@@ -2,45 +2,53 @@
 #include <iostream>
 
 namespace config {
-    // General configuration
-    std::string data_source_path = "data/Tide_pressure.validation_stage.csv";
+    // Located in /data
+    std::string data_source_path = "data/Tide_pressure.csv";
+    std::string data_val_path = "data/Tide_pressure.validation_stage.csv";
     std::string data_source = "Tide_pressure";
 
-    // Training parameters
-    int epoch_train = 3000;
-    float lr_train = 0.00005f;
-    int epoch_update = 100;
-    float lr_update = 0.00005f;
-    int update_G_epoch = 100;
-    float update_G_lr = 0.00005f;
+    // Located on SD Card on the module /mnt/data
+    // std::string data_source_path = "/mnt/sdcard/data/Tide_pressure.csv";
+    // std::string data_val_path = "/mnt/sdcard/data/Tide_pressure.validation_stage.csv";
+    // std::string data_source = "Tide_pressure";
+
+    // Training parameters (SLOW)
+    int epoch_train = 3000;              
+    float lr_train = 0.00005f;           
+    int epoch_update = 100;              
+    float lr_update = 0.00005f;          
+    int update_G_epoch = 100;            
+    float update_G_lr = 0.00005f;        
 
     // Model architecture
-    int LSTM_size = 100;
-    int LSTM_size_layer = 3;
-    int lookback_len = 3;
-    int prediction_len = 1;
+    int LSTM_size = 100;                 
+    int LSTM_size_layer = 3;            
+    int lookback_len = 3;                
+    int prediction_len = 1;              
+
     int train_size = 5 * lookback_len + prediction_len;
     int num_classes = 1;
     int input_size = lookback_len;
 
     // Anomaly detection
+    float minimal_threshold = 0.0038f;   
+    float threshold_multiplier = 1.0f;
+
+    // Data preprocessing
+    float lower_bound = 713.0f;          
+    float upper_bound = 763.0f;          
+
     float minimal_threshold = 0.0038f;  
 
     // Data preprocessing
     float lower_bound = 713.0f;  
     float upper_bound = 763.0f;  
 
+
     // Logging and debugging
     bool verbose_output = true;
     std::string log_file_path = "adapad_log.csv";
-
-    // Performance tuning
-    int batch_size = 32;
-    float dropout_rate = 0.2f;
-    
-    // Early stopping
-    int patience = 10;
-    float min_delta = 0.001f;
+     
 
     // Random seed for reproducibility
     unsigned int random_seed = 42;
@@ -56,6 +64,8 @@ PredictorConfig init_predictor_config() {
     predictor_config.hidden_size = config::LSTM_size;
     predictor_config.num_classes = config::num_classes;
     predictor_config.input_size = config::input_size;
+    predictor_config.epoch_train = config::epoch_train;
+    predictor_config.lr_train = config::lr_train;
     predictor_config.epoch_update = config::epoch_update;
     predictor_config.lr_update = config::lr_update;
 

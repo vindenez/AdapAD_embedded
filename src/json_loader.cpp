@@ -6,7 +6,6 @@
 
 using json = nlohmann::json;
 
-// Load all LSTM weights from JSON file
 std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weights(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -27,7 +26,6 @@ std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weight
 
     std::unordered_map<std::string, std::vector<std::vector<float>>> all_weights;
 
-    // Print out all keys in the JSON data
     std::cout << "Keys in JSON data:" << std::endl;
     for (const auto& [key, value] : json_data.items()) {
         std::cout << key << std::endl;
@@ -40,10 +38,7 @@ std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weight
                     std::vector<std::vector<float>> weight_matrix = value.get<std::vector<std::vector<float>>>();
                     all_weights[key] = weight_matrix;
 
-                    // Print out the size of the weight matrix
                     size_t rows = weight_matrix.size();
-                    size_t cols = rows > 0 ? weight_matrix[0].size() : 0;
-                    std::cout << "Loaded weight '" << key << "' with size: " << rows << " x " << cols << std::endl;
                 } catch (const json::exception& e) {
                     std::cerr << "Error parsing weight matrix for key '" << key << "': " << e.what() << std::endl;
                 }
@@ -56,7 +51,6 @@ std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weight
     return all_weights;
 }
 
-// Load all LSTM biases from JSON file
 std::unordered_map<std::string, std::vector<float>> load_all_biases(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -77,7 +71,6 @@ std::unordered_map<std::string, std::vector<float>> load_all_biases(const std::s
 
     std::unordered_map<std::string, std::vector<float>> all_biases;
 
-    // Print out all keys in the JSON data
     std::cout << "Keys in JSON data:" << std::endl;
     for (const auto& [key, value] : json_data.items()) {
         std::cout << key << std::endl;
@@ -90,7 +83,6 @@ std::unordered_map<std::string, std::vector<float>> load_all_biases(const std::s
                     std::vector<float> bias_vector = value.get<std::vector<float>>();
                     all_biases[key] = bias_vector;
 
-                    // Print out the size of the bias vector
                     size_t size = bias_vector.size();
                     std::cout << "Loaded bias '" << key << "' with size: " << size << std::endl;
                 } catch (const json::exception& e) {
