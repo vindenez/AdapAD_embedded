@@ -6,12 +6,6 @@
 #include <algorithm>
 #include <iostream>
 
-#ifdef DEBUG
-#define DEBUG_PRINT(x) printf x
-#else
-#define DEBUG_PRINT(x) do {} while (0)
-#endif
-
 LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, 
                             int num_layers, int lookback_len, 
                             bool batch_first)
@@ -22,20 +16,13 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
       seq_length(lookback_len),
       batch_first(batch_first) {
     
-    DEBUG_PRINT(("Initializing LSTM Predictor\n"));
-    DEBUG_PRINT(("Classes: %d, Input: %d, Hidden: %d, Layers: %d, Seq: %d\n",
-        num_classes, input_size, hidden_size, num_layers, lookback_len));
-    
     lstm_layers.resize(num_layers);
     last_gradients.resize(num_layers);
     
-    DEBUG_PRINT(("Initializing weights\n"));
     initialize_weights();
     
-    DEBUG_PRINT(("Resetting states\n"));
     reset_states();
     
-    DEBUG_PRINT(("Initialization complete\n"));
 }
 
 void LSTMPredictor::reset_states() {
@@ -65,34 +52,19 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     // Verify weight dimensions
     int weight_input_size = layer.weight_ih[0].size();
     if (weight_input_size != expected_layer_input) {
-        DEBUG_PRINT(("Weight input size (%d) doesn't match expected layer input size (%d) for layer %d\n",
-            weight_input_size, expected_layer_input, current_layer));
         throw std::runtime_error("Weight dimension mismatch in lstm_cell_forward");
     }
 
     // Verify input size
     if (input.size() != expected_layer_input) {
-        DEBUG_PRINT(("Input size mismatch in layer %d: got %zu, expected %d\n",
-            current_layer, input.size(), expected_layer_input));
         throw std::runtime_error("Input size mismatch in lstm_cell_forward");
     }
 
-    // Debug prints
-    DEBUG_PRINT(("  expected_layer_input: %d\n", expected_layer_input));
-    DEBUG_PRINT(("  hidden_size: %d\n", hidden_size));
-    DEBUG_PRINT(("  input.size(): %zu\n", input.size()));
-    DEBUG_PRINT(("  h_state.size(): %zu\n", h_state.size()));
-    DEBUG_PRINT(("  c_state.size(): %zu\n", c_state.size()));
-    
     // Verify state dimensions
     if (h_state.size() != hidden_size) {
-        DEBUG_PRINT(("Hidden state size mismatch: got %zu, expected %d\n", 
-            h_state.size(), hidden_size));
         h_state.resize(hidden_size, 0.0f);
     }
     if (c_state.size() != hidden_size) {
-        DEBUG_PRINT(("Cell state size mismatch: got %zu, expected %d\n", 
-            c_state.size(), hidden_size));
         c_state.resize(hidden_size, 0.0f);
     }
 
@@ -166,12 +138,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         }
     }
 
-    DEBUG_PRINT(("Gate values for timestep %d:\n", current_timestep));
-    DEBUG_PRINT(("  input_gate[0]=%f\n", gates[0]));
-    DEBUG_PRINT(("  forget_gate[0]=%f\n", gates[hidden_size]));
-    DEBUG_PRINT(("  cell_gate[0]=%f\n", gates[2 * hidden_size]));
-    DEBUG_PRINT(("  output_gate[0]=%f\n", gates[3 * hidden_size]));
-    
     // Apply activations and update states
     for (int h = 0; h < hidden_size; ++h) {
         float i_t = sigmoid(gates[h]);                    // input gate
@@ -179,11 +145,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         float g_t = tanh_custom(gates[2 * hidden_size + h]); // cell gate
         float o_t = sigmoid(gates[3 * hidden_size + h]);  // output gate
 
-        if (h == 0) {  // Only print first unit to avoid spam
-            DEBUG_PRINT(("Activated gate values:\n"));
-            DEBUG_PRINT(("  i_t=%f, f_t=%f, g_t=%f, o_t=%f\n", i_t, f_t, g_t, o_t));
-        }
-        
         // Update cell state
         float new_cell = f_t * c_state[h] + i_t * g_t;
         c_state[h] = new_cell;
@@ -205,7 +166,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     
     // Ensure h_state has the correct size
     if (h_state.size() != hidden_size) {
-        DEBUG_PRINT(("h_state size mismatch: got %zu, expected %d\n", h_state.size(), hidden_size));
         h_state.resize(hidden_size);
     }
 
@@ -214,8 +174,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     
     // Verify output dimensions one last time
     if (output.size() != hidden_size) {
-        DEBUG_PRINT(("Output size mismatch: got %zu, expected %d\n", 
-            output.size(), hidden_size));
         throw std::runtime_error("Output size mismatch in lstm_cell_forward");
     }
 
@@ -233,39 +191,16 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
     const std::vector<std::vector<float>>* initial_hidden,
     const std::vector<std::vector<float>>* initial_cell) {
     
-    // Detailed input validation
-    DEBUG_PRINT(("Forward pass input validation:\n"));
-    DEBUG_PRINT(("  batch_size = %zu\n", x.size()));
-    
     for (size_t batch = 0; batch < x.size(); ++batch) {
-        DEBUG_PRINT(("  Batch %zu:\n", batch));
-        DEBUG_PRINT(("    sequence_length = %zu\n", x[batch].size()));
         
         for (size_t seq = 0; seq < x[batch].size(); ++seq) {
-            DEBUG_PRINT(("    Timestep %zu:\n", seq));
-            DEBUG_PRINT(("      features = %zu (expected %d)\n", x[batch][seq].size(), input_size));
-            
-            // Print first few feature values
-            if (!x[batch][seq].empty()) {
-                DEBUG_PRINT(("      First features: "));
-                for (size_t f = 0; f < std::min(size_t(3), x[batch][seq].size()); ++f) {
-                    DEBUG_PRINT(("%f ", x[batch][seq][f]));
-                }
-                DEBUG_PRINT(("\n"));
-            }
             
             // Verify input dimensions for each timestep
             if (x[batch][seq].size() != input_size) {
-                DEBUG_PRINT(("Input dimension mismatch at batch %zu, timestep %zu: got %zu features\n",
-                    batch, seq, x[batch][seq].size()));
                 throw std::runtime_error("Input dimension mismatch in sequence");
             }
         }
     }
-    
-    DEBUG_PRINT(("Starting forward pass\n"));
-    DEBUG_PRINT(("Input dimensions: batch=%zu, seq=%zu, features=%zu\n",
-        x.size(), x[0].size(), x[0][0].size()));
     
     try {
         size_t batch_size = x.size();
@@ -278,9 +213,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                 layer_cache[0].size() != batch_size ||
                 layer_cache[0][0].size() != seq_len) {
                 
-                DEBUG_PRINT(("Initializing cache: layers=%d, batch=%zu, seq=%zu\n", 
-                    num_layers, batch_size, seq_len));
-                    
                 layer_cache.clear();
                 layer_cache.resize(num_layers);
                 
@@ -327,8 +259,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                 std::vector<std::vector<float>> layer_outputs(num_layers + 1);
                 layer_outputs[0] = layer_input;
                 
-                DEBUG_PRINT(("Timestep %zu - Initial input size: %zu\n", t, layer_input.size()));
-                
                 // Process through LSTM layers
                 for (int layer = 0; layer < num_layers; ++layer) {
                     current_layer = layer;
@@ -342,20 +272,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                                                std::to_string(layer));
                     }
                     
-                    DEBUG_PRINT(("Layer %d before: input_size=%zu, h_state_size=%zu, c_state_size=%zu\n", 
-                        layer, layer_outputs[layer].size(), 
-                        h_state[layer].size(), 
-                        c_state[layer].size()));
-                    
-                    if (training_mode) {
-                        DEBUG_PRINT(("Layer %d weights - ih: %zux%zu, hh: %zux%zu\n",
-                            layer,
-                            lstm_layers[layer].weight_ih.size(),
-                            lstm_layers[layer].weight_ih[0].size(),
-                            lstm_layers[layer].weight_hh.size(),
-                            lstm_layers[layer].weight_hh[0].size()));
-                    }
-                    
                     layer_outputs[layer + 1] = lstm_cell_forward(
                         layer_outputs[layer],
                         h_state[layer],
@@ -363,12 +279,8 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                         lstm_layers[layer]
                     );
                     
-                    DEBUG_PRINT(("Layer %d after: output_size=%zu\n", layer, layer_outputs[layer + 1].size()));
                 }
                 
-                DEBUG_PRINT(("Final output size for timestep %zu: %zu\n", 
-                    t, layer_outputs[num_layers].size()));
-                    
                 output.sequence_output[batch][t] = layer_outputs[num_layers];
             }
         }
@@ -379,7 +291,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         return output;
         
     } catch (const std::exception& e) {
-        DEBUG_PRINT(("Exception in forward: %s\n", e.what()));
         throw;
     }
 }
@@ -415,9 +326,6 @@ void LSTMPredictor::backward_linear_layer(
     std::vector<std::vector<float>>& weight_grad,
     std::vector<float>& bias_grad,
     std::vector<float>& input_grad) {
-    
-    DEBUG_PRINT(("backward_linear_layer - Input sizes: grad_output=%zu, last_hidden=%zu\n",
-        grad_output.size(), last_hidden.size()));
     
     // Check dimensions
     if (grad_output.size() != num_classes) {
@@ -461,24 +369,13 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
     const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
     float learning_rate) {
     
-    DEBUG_PRINT(("Starting backward_lstm_layer\n"));
-    DEBUG_PRINT(("Gradient output: %f\n", grad_output[0]));
-    DEBUG_PRINT(("cache dimensions: layers=%zu, batch=%zu, seq=%zu\n",
-        cache.size(),
-        cache.empty() ? 0 : cache[0].size(),
-        cache.empty() || cache[0].empty() ? 0 : cache[0][0].size()));
-    
     // Add dimension validation
     if (grad_output.size() != hidden_size) {
-        DEBUG_PRINT(("Dimension mismatch - grad_output: %zu, hidden_size: %d\n",
-            grad_output.size(), hidden_size));
         throw std::runtime_error("grad_output size mismatch in backward_lstm_layer");
     }
     
     // Add cache validation
     if (cache.size() != num_layers) {
-        DEBUG_PRINT(("Cache layer mismatch - cache: %zu, num_layers: %d\n",
-            cache.size(), num_layers));
         throw std::runtime_error("cache layer count mismatch in backward_lstm_layer");
     }
     
@@ -493,14 +390,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
             std::vector<float>(hidden_size, 0.0f));
         layer_grads[layer].bias_ih_grad.resize(4 * hidden_size, 0.0f);
         layer_grads[layer].bias_hh_grad.resize(4 * hidden_size, 0.0f);
-        DEBUG_PRINT(("Initialized gradients for layer %d: ih=%zux%zu, hh=%zux%zu, bias_ih=%zu, bias_hh=%zu\n",
-            layer,
-            layer_grads[layer].weight_ih_grad.size(),
-            layer_grads[layer].weight_ih_grad[0].size(),
-            layer_grads[layer].weight_hh_grad.size(),
-            layer_grads[layer].weight_hh_grad[0].size(),
-            layer_grads[layer].bias_ih_grad.size(),
-            layer_grads[layer].bias_hh_grad.size()));
+
     }
     
     // Initialize dh_next and dc_next for each layer
@@ -509,33 +399,24 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
     
     // Start from the last layer and move backward
     for (int layer = num_layers - 1; layer >= 0; --layer) {
-        DEBUG_PRINT(("Processing layer %d\n", layer));
-        DEBUG_PRINT(("current_batch=%zu\n", current_batch));
 
         std::vector<float> dh = dh_next[layer];
         std::vector<float> dc = dc_next[layer];
         
         // Add bounds checking before accessing cache
         if (current_batch >= cache[layer].size()) {
-            DEBUG_PRINT(("Buffer overflow detected: current_batch=%zu, cache[%d].size()=%zu\n",
-                current_batch, layer, cache[layer].size()));
             throw std::runtime_error("Cache batch index out of bounds");
         }
         
         const auto& layer_cache = cache[layer][current_batch];
-        DEBUG_PRINT(("Layer cache size=%zu\n", layer_cache.size()));
         
         // If this is the last layer, add grad_output (like dy @ Wy.T in Python)
         if (layer == num_layers - 1) {
             for (int h = 0; h < hidden_size; ++h) {
                 dh[h] += grad_output[h];
             }
-            DEBUG_PRINT(("Added grad_output to last layer dh[0]=%f\n", dh[0]));
         }
 
-
-        
-        DEBUG_PRINT(("Starting backward pass through time, sequence length=%zu\n", layer_cache.size()));
         // Process each time step in reverse order
         for (int t = layer_cache.size() - 1; t >= 0; --t) {
 
@@ -608,7 +489,6 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
     }
     
     last_gradients = layer_grads;
-    DEBUG_PRINT(("Backward LSTM layer complete\n"));
     return layer_grads;
 }
 
@@ -618,62 +498,26 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                               float learning_rate) {
     try {
         // Add detailed dimension checking for each sequence step
-        DEBUG_PRINT(("Verifying input dimensions:\n"));
         for (size_t batch = 0; batch < x.size(); ++batch) {
-            DEBUG_PRINT(("Batch %zu:\n", batch));
             for (size_t seq = 0; seq < x[batch].size(); ++seq) {
-                DEBUG_PRINT(("  Sequence %zu: features=%zu\n", seq, x[batch][seq].size()));
                 if (x[batch][seq].size() != input_size) {
-                    DEBUG_PRINT(("Input dimension mismatch at batch %zu, seq %zu: got %zu features\n",
-                        batch, seq, x[batch][seq].size()));
                     throw std::runtime_error(
                         "Input sequence dimension mismatch in train_step: batch " + 
                         std::to_string(batch) + ", seq " + std::to_string(seq));
-                }
-                // Print first few features to verify data
-                DEBUG_PRINT(("    First features: "));
-                for (size_t f = 0; f < std::min(size_t(3), x[batch][seq].size()); ++f) {
-                    DEBUG_PRINT(("%f ", x[batch][seq][f]));
-                }
-                DEBUG_PRINT(("\n"));
-            }
-        }
-
-        // Add more detailed dimension debugging
-        DEBUG_PRINT(("Starting train_step with dimensions:\n"));
-        DEBUG_PRINT(("  batch_size (x.size()) = %zu\n", x.size()));
-        DEBUG_PRINT(("  seq_len (x[0].size()) = %zu\n", x[0].size()));
-        DEBUG_PRINT(("  input_size (x[0][0].size()) = %zu\n", x[0][0].size()));
-        DEBUG_PRINT(("  expected_input_size = %d\n", input_size));
-        
-        // Verify each sequence in the batch has correct dimensions
-        for (size_t batch = 0; batch < x.size(); ++batch) {
-            for (size_t seq = 0; seq < x[batch].size(); ++seq) {
-                if (x[batch][seq].size() != input_size) {
-                    DEBUG_PRINT(("Dimension mismatch at batch %zu, seq %zu: got %zu features\n",
-                        batch, seq, x[batch][seq].size()));
-                    throw std::runtime_error("Input feature size mismatch in sequence");
                 }
             }
         }
         
         // Initialize Adam states if needed
         if (!are_adam_states_initialized()) {
-            DEBUG_PRINT(("Initializing Adam states before first training step\n"));
             initialize_adam_states();
         }
         
-        DEBUG_PRINT(("Starting train_step with batch_size=%zu, seq_len=%zu, input_size=%zu\n",
-            x.size(), x[0].size(), x[0][0].size()));
-
         // Verify input dimensions
         if (x.empty() || x[0].empty() || x[0][0].empty()) {
-            DEBUG_PRINT(("Empty input tensor in train_step\n"));
             throw std::runtime_error("Empty input tensor");
         }
         if (x[0][0].size() != input_size) {
-            DEBUG_PRINT(("Input feature size mismatch: got %zu, expected %d\n",
-                x[0][0].size(), input_size));
             throw std::runtime_error("Input feature size mismatch");
         }
         
@@ -690,27 +534,20 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         timestep++;
 
         // Forward pass
-        DEBUG_PRINT(("Starting forward pass\n"));
         auto lstm_output = forward(x);
         auto output = get_final_prediction(lstm_output);
-        DEBUG_PRINT(("Forward pass complete, output size=%zu\n", output.size()));
 
         // Compute gradients
         auto grad_output = compute_mse_loss_gradient(output, target);
-        DEBUG_PRINT(("Loss gradient computed, size=%zu, target size=%zu\n", 
-            grad_output.size(), target.size()));
 
         // Extract final hidden state
         const auto& last_hidden = lstm_output.final_hidden.back();
-        DEBUG_PRINT(("Last hidden state size=%zu\n", last_hidden.size()));
 
         // Backward pass through linear layer
         std::vector<std::vector<float>> fc_weight_grad;
         std::vector<float> fc_bias_grad;
         std::vector<float> lstm_grad;
-        DEBUG_PRINT(("Starting linear layer backward pass\n"));
         backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
-        DEBUG_PRINT(("Linear backward complete\n"));
 
         // Verify FC layer dimensions before Adam updates
         if (fc_weight.size() != fc_weight_grad.size() || 
@@ -718,25 +555,17 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             fc_weight.size() != m_fc_weight.size() ||
             fc_weight[0].size() != m_fc_weight[0].size()) {
             
-            DEBUG_PRINT(("FC dimension mismatch:\n"));
-            DEBUG_PRINT(("fc_weight: %zux%zu\n", fc_weight.size(), fc_weight[0].size()));
-            DEBUG_PRINT(("fc_weight_grad: %zux%zu\n", fc_weight_grad.size(), fc_weight_grad[0].size()));
-            DEBUG_PRINT(("m_fc_weight: %zux%zu\n", m_fc_weight.size(), m_fc_weight[0].size()));
             throw std::runtime_error("Dimension mismatch in FC layer Adam update");
         }
 
         // Apply Adam updates to FC layer
         try {
-            DEBUG_PRINT(("Starting FC Adam updates\n"));
             apply_adam_update(fc_weight, fc_weight_grad, m_fc_weight, v_fc_weight,
                             learning_rate, beta1, beta2, epsilon, timestep);
-            DEBUG_PRINT(("FC weight Adam update complete\n"));
             
             apply_adam_update(fc_bias, fc_bias_grad, m_fc_bias, v_fc_bias,
                             learning_rate, beta1, beta2, epsilon, timestep);
-            DEBUG_PRINT(("FC bias Adam update complete\n"));
         } catch (const std::exception& e) {
-            DEBUG_PRINT(("Exception in FC Adam update: %s\n", e.what()));
             throw;
         }
 
@@ -747,14 +576,11 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
 
         // Verify lstm_grad dimensions
         if (lstm_grad.size() != hidden_size) {
-            DEBUG_PRINT(("lstm_grad size: %zu, expected: %d\n", lstm_grad.size(), hidden_size));
             throw std::runtime_error("Invalid lstm_grad dimensions");
         }
 
         // LSTM backward pass
-        DEBUG_PRINT(("Starting LSTM backward pass\n"));
         auto lstm_grads = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
-        DEBUG_PRINT(("LSTM backward complete\n"));
 
         // Apply Adam updates to LSTM layers
         for (int layer = 0; layer < num_layers; ++layer) {
@@ -789,14 +615,11 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
 
 
             } catch (const std::exception& e) {
-                DEBUG_PRINT(("Exception in LSTM layer %d Adam update: %s\n", layer, e.what()));
                 throw;
             }
         }
-        DEBUG_PRINT(("Adam updates complete\n"));
 
     } catch (const std::exception& e) {
-        DEBUG_PRINT(("Exception in train_step: %s\n", e.what()));
         throw;
     }
 }
@@ -811,8 +634,6 @@ float LSTMPredictor::compute_loss(const std::vector<float>& output,
     for (size_t i = 0; i < output.size(); ++i) {
         float diff = output[i] - target[i];
         loss += 0.5f * diff * diff;  // MSE loss
-        DEBUG_PRINT(("Loss computation: output=%f, target=%f, diff=%f, loss=%f\n",
-            output[i], target[i], diff, loss));
     }
     
     return loss;
@@ -874,18 +695,11 @@ void LSTMPredictor::initialize_weights() {
             lstm_layers[layer].bias_ih[i] = dist(gen);
             lstm_layers[layer].bias_hh[i] = dist(gen);
         }
-
-        // Add debug statements to verify dimensions
-        DEBUG_PRINT(("Layer %d weight_ih dimensions: %zux%zu\n", layer,
-            lstm_layers[layer].weight_ih.size(), lstm_layers[layer].weight_ih[0].size()));
-        DEBUG_PRINT(("Layer %d weight_hh dimensions: %zux%zu\n", layer,
-            lstm_layers[layer].weight_hh.size(), lstm_layers[layer].weight_hh[0].size()));
     }
 }
 
 
 void LSTMPredictor::initialize_adam_states() {
-    DEBUG_PRINT(("Starting Adam state initialization\n"));
     float k = 0.0f;
     
     try {
@@ -911,8 +725,6 @@ void LSTMPredictor::initialize_adam_states() {
         for (int layer = 0; layer < num_layers; ++layer) {
             int input_size_layer = (layer == 0) ? input_size : hidden_size;
             
-            DEBUG_PRINT(("Initializing LSTM layer %d Adam states\n", layer));
-            
             new_m_weight_ih[layer] = std::vector<std::vector<float>>(
                 4 * hidden_size, std::vector<float>(input_size_layer, k));
             new_v_weight_ih[layer] = std::vector<std::vector<float>>(
@@ -926,8 +738,6 @@ void LSTMPredictor::initialize_adam_states() {
             new_m_bias_hh[layer] = std::vector<float>(4 * hidden_size, k);
             new_v_bias_hh[layer] = std::vector<float>(4 * hidden_size, k);
             
-            DEBUG_PRINT(("Layer %d weight_ih dimensions: %zux%zu\n", 
-                layer, new_m_weight_ih[layer].size(), new_m_weight_ih[layer][0].size()));
         }
 
         // Assign new vectors to member variables
@@ -941,10 +751,8 @@ void LSTMPredictor::initialize_adam_states() {
         v_bias_hh = std::move(new_v_bias_hh);
 
         adam_initialized = true;
-        DEBUG_PRINT(("Adam initialization complete\n"));
         
     } catch (const std::exception& e) {
-        DEBUG_PRINT(("Exception during Adam initialization: %s\n", e.what()));
         throw;
     }
 }
@@ -1064,7 +872,6 @@ bool LSTMPredictor::are_adam_states_initialized() const {
 }
 
 void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
-    DEBUG_PRINT(("Setting weights:\n"));
     for (size_t layer = 0; layer < weights.size(); ++layer) {
         // Deep copy weight_ih
         lstm_layers[layer].weight_ih.resize(weights[layer].weight_ih.size());
@@ -1082,16 +889,6 @@ void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
         lstm_layers[layer].bias_ih = weights[layer].bias_ih;
         lstm_layers[layer].bias_hh = weights[layer].bias_hh;
         
-        // Debug print first few weights to verify
-        if (layer == 0) {
-            DEBUG_PRINT(("  After setting - Layer %zu first gate weights:\n", layer));
-            DEBUG_PRINT(("    input gate: ih=%f, hh=%f\n", 
-                lstm_layers[layer].weight_ih[0][0], 
-                lstm_layers[layer].weight_hh[0][0]));
-            DEBUG_PRINT(("    forget gate: ih=%f, hh=%f\n", 
-                lstm_layers[layer].weight_ih[4][0], 
-                lstm_layers[layer].weight_hh[4][0]));
-        }
     }
 }
 
