@@ -47,7 +47,7 @@ void AnomalousThresholdGenerator::update(
     
     generator->train();  // Set to training mode
     
-    // Single reshape like Python
+    // Single reshape
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].resize(1);
     reshaped_input[0][0] = past_errors;
@@ -61,30 +61,6 @@ void AnomalousThresholdGenerator::update(
     
     // Single update step
     generator->train_step(reshaped_input, target, lr_update);
-
-  float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
-    if (prediction_errors.size() != lookback_len) {
-        std::cerr << "Error: Invalid prediction_errors size in generate(). Expected: " << lookback_len 
-                  << ", Got: " << prediction_errors.size() << std::endl;
-        return minimal_threshold;
-    }
-
-    if (is_training) {
-        eval();  
-    }
-
-    auto output = generator.forward(prediction_errors);
-
-    if (output.empty()) {
-        std::cerr << "Error: output is empty after generator forward pass in generate(). Returning minimal_threshold." << std::endl;
-        return minimal_threshold;
-    }
-
-    float threshold = std::max(minimal_threshold, output[0]);
-    std::cout << "Generated threshold: " << threshold << " (minimal: " << minimal_threshold << ")" << std::endl;
-
-    return threshold;
-
 }
 
 std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>

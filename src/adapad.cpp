@@ -275,7 +275,6 @@ void AdapAD::train() {
     std::cout << "Training complete" << std::endl;
 }
 
-lstmpredictor-update
 void AdapAD::learn_error_pattern(
     const std::vector<std::vector<std::vector<float>>>& trainX,
     const std::vector<float>& trainY) {
@@ -323,19 +322,6 @@ void AdapAD::learn_error_pattern(
         f_log << reverse_normalized_data(trainY[i]) << ","
               << reverse_normalized_data(predicted_vals[i]) << ",,,,\n";
         f_log.close();
-
-void AdapAD::open_log_file() {
-    bool file_exists = std::filesystem::exists(f_name);
-
-    f_log.open(f_name, std::ios::app);
-    if (!f_log.is_open()) {
-        std::cerr << "Error: Could not open log file: " << f_name << std::endl;
-        std::cerr << "Current working directory: " << std::filesystem::current_path() << std::endl;
-        throw std::runtime_error("Could not open log file: " + f_name);
-    }
-
-    if (!file_exists) {
-        f_log << "Observed,Predicted,LowerBound,UpperBound,PredictedAnomaly,ActualAnomaly,Error,Threshold\n";
     }
 }
 
