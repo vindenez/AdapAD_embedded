@@ -5,53 +5,54 @@
 #include "anomalous_threshold_generator.hpp"
 #include "config.hpp"
 #include <vector>
-#include <string>
+#include <memory>
 #include <fstream>
 
 class AdapAD {
 public:
-    AdapAD(const PredictorConfig& predictor_config,
+    AdapAD(const PredictorConfig& predictor_config, 
            const ValueRangeConfig& value_range_config,
            float minimal_threshold);
-
+    
     void set_training_data(const std::vector<float>& data);
-    bool is_anomalous(float observed_val, bool actual_anomaly);
+    void train();
+    bool is_anomalous(float observed_val);
     void clean();
 
-    // Public methods for data normalization
-    float normalize_data(float val) const;
-    float reverse_normalized_data(float val) const;
-
-    // Add this new method
-    std::string get_log_filename() const {
-        return f_name;
-    }
+    std::string get_log_filename() const { return f_name; }
 
 private:
-    NormalDataPredictor data_predictor;
-    AnomalousThresholdGenerator generator;
-    PredictorConfig predictor_config;
+    // Configuration
     ValueRangeConfig value_range_config;
+    PredictorConfig predictor_config;
     float minimal_threshold;
-
+    
+    // Learning components
+    std::unique_ptr<NormalDataPredictor> data_predictor;
+    std::unique_ptr<AnomalousThresholdGenerator> generator;
+    
+    // Data storage
     std::vector<float> observed_vals;
     std::vector<float> predicted_vals;
-    std::vector<float> thresholds;
     std::vector<float> predictive_errors;
+    std::vector<float> thresholds;
     std::vector<size_t> anomalies;
-
-    std::string f_name;
+    
+    // Logging
     std::ofstream f_log;
-
-    // Private methods
-    void train(const std::vector<float>& data);
-    bool is_inside_range(float val) const;
-    std::vector<float> prepare_data_for_prediction();
-    bool is_default_normal() const;
-    void update_generator(const std::vector<float>& past_observations, float observed_val);
-    void log_result(bool is_anomalous, float normalized_val, float predicted_val, float threshold, bool actual_anomaly);
-    void open_log_file();
-    std::vector<float> calc_error(const std::vector<float>& ground_truth, const std::vector<float>& predict);
+    std::string f_name;
+    
+    // Helper methods
+    void learn_error_pattern(const std::vector<std::vector<std::vector<float>>>& trainX,
+                           const std::vector<float>& trainY);
+    void update_generator(const std::vector<float>& past_errors, float recent_error);
+    std::vector<std::vector<std::vector<float>>> prepare_data_for_prediction(size_t supposed_anomalous_pos);
+    void logging(bool is_anomalous_ret);
+    float normalize_data(float val);
+    float reverse_normalized_data(float val);
+    bool is_inside_range(float val);
+    bool is_default_normal();
+    float simplify_error(const std::vector<float>& errors, float N_sigma = 0);
 };
 
 #endif // ADAPAD_HPP

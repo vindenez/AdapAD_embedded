@@ -1,6 +1,4 @@
-#ifndef CONFIG_HPP
-#define CONFIG_HPP
-
+#pragma once
 #include <string>
 
 // Configuration structure for predictor settings
@@ -12,6 +10,8 @@ struct PredictorConfig {
     int hidden_size;       // Hidden size for LSTM
     int num_classes;       // Number of output classes (usually 1 for regression tasks)
     int input_size;        // Input size for LSTM, can be set to lookback_len
+    int epoch_train;
+    float lr_train;
     int epoch_update;
     float lr_update;
 };
@@ -22,9 +22,27 @@ struct ValueRangeConfig {
     float upper_bound;     // Upper bound of sensor values
 };
 
+class ValueRangeDb {
+public:
+    ValueRangeDb() : lower_bound(0), upper_bound(0) {}
+
+    void init(float lower, float upper) {
+        lower_bound = lower;
+        upper_bound = upper;
+    }
+
+    float lower() const { return lower_bound; }
+    float upper() const { return upper_bound; }
+
+private:
+    float lower_bound;
+    float upper_bound;
+};
+
 namespace config {
     // General configuration
     extern std::string data_source_path;
+    extern std::string data_val_path;
     extern std::string data_source;
 
     // Training parameters
@@ -46,6 +64,7 @@ namespace config {
 
     // Anomaly detection
     extern float minimal_threshold;
+    extern float threshold_multiplier;
 
     // Data preprocessing
     extern float lower_bound;
@@ -55,14 +74,6 @@ namespace config {
     extern bool verbose_output;
     extern std::string log_file_path;
 
-    // Performance tuning
-    extern int batch_size;
-    extern float dropout_rate;
-    
-    // Early stopping
-    extern int patience;
-    extern float min_delta;
-
     // Random seed for reproducibility
     extern unsigned int random_seed;
 }
@@ -70,5 +81,3 @@ namespace config {
 // Declare the configuration functions
 PredictorConfig init_predictor_config();
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold);
-
-#endif // CONFIG_HPP

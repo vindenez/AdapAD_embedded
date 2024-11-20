@@ -1,89 +1,68 @@
 #include "anomalous_threshold_generator.hpp"
 #include "matrix_utils.hpp"
-#include "activation_functions.hpp"
-#include <cmath>
 #include <algorithm>
-#include <iostream>
-#include <numeric>
 #include <stdexcept>
+#include <iostream>
 #include "config.hpp"
 
-AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
+AnomalousThresholdGenerator::AnomalousThresholdGenerator(
+    int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
     : lookback_len(lookback_len),
-      prediction_len(prediction_len),
-      generator(lookback_len, lstm_unit, prediction_len, lstm_layer, lookback_len) {
-}
-
-void AnomalousThresholdGenerator::train(int num_epochs, float learning_rate, const std::vector<float>& data_to_learn) {
-    auto [x, y] = sliding_windows(data_to_learn, lookback_len, prediction_len);
-
-    this->train();
-    generator.init_adam_optimizer(learning_rate);
-
-    for (int epoch = 0; epoch < num_epochs; ++epoch) {
-        float epoch_loss = 0.0f;
-
-        for (size_t i = 0; i < x.size(); ++i) {
-            generator.zero_grad();
-
-            auto outputs = generator.forward(x[i]);
-            
-            float loss = compute_mse_loss(outputs, y[i]);
-            epoch_loss += loss;
-
-            auto loss_grad = compute_mse_loss_gradient(outputs, y[i]);
-            
-            generator.backward(y[i], "MSE");
-            generator.update_parameters_adam(learning_rate);
-        }
-
-        epoch_loss /= x.size();
-        std::cout << "Epoch " << epoch + 1 << "/" << num_epochs << ", Loss: " << epoch_loss << std::endl;
-    }
-}
-
-float AnomalousThresholdGenerator::update(int num_epochs, float lr_update, const std::vector<float>& past_errors, float recent_error) {
-    this->train();
-    generator.init_adam_optimizer(lr_update);
-
-    float total_loss = 0.0f;
-    std::vector<float> loss_history;
+      prediction_len(prediction_len) {
     
-    for (int epoch = 0; epoch < num_epochs; ++epoch) {
-        auto predicted_val = generator.forward(past_errors);
-        
-        float loss = compute_mse_loss(predicted_val, {recent_error});
-        total_loss += loss;
-        loss_history.push_back(loss);
-        
-        generator.zero_grad();
-        generator.backward({recent_error}, "MSE");
-        generator.update_parameters_adam(lr_update);
-
-        // Early stopping condition
-        if (loss_history.size() >= 3) {
-            if (loss_history[loss_history.size() - 1] >= loss_history[loss_history.size() - 2] &&
-                loss_history[loss_history.size() - 2] >= loss_history[loss_history.size() - 3]) {
-                std::cout << "Early stopping at epoch " << epoch + 1 << std::endl;
-                break;
-            }
-        }
-    }
-
-    return total_loss / loss_history.size();
+    generator = std::make_unique<LSTMPredictor>(
+        prediction_len,  // num_classes
+        lookback_len,    // input_size
+        lstm_unit,       // hidden_size
+        lstm_layer,      // num_layers
+        lookback_len     // seq_length
+    );
 }
 
-void AnomalousThresholdGenerator::train() {
-    is_training = true;
-    generator.train();
+std::pair<std::vector<std::vector<float>>, std::vector<float>>
+AnomalousThresholdGenerator::create_sliding_windows(const std::vector<float>& data) {
+    return ::create_sliding_windows(data, lookback_len, prediction_len);
 }
 
-void AnomalousThresholdGenerator::eval() {
-    is_training = false;
-    generator.eval();
+float AnomalousThresholdGenerator::generate(
+    const std::vector<float>& prediction_errors,
+    float minimal_threshold) {
+    
+    generator->eval();
+    
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].resize(1);
+    reshaped_input[0][0] = prediction_errors;
+    
+    auto output = generator->forward(reshaped_input);
+    auto pred = generator->get_final_prediction(output);
+    
+    // Clamp to minimal_threshold
+    return std::max(minimal_threshold, pred[0] * config::threshold_multiplier);
 }
 
-float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
+void AnomalousThresholdGenerator::update(
+    int epoch_update, float lr_update,
+    const std::vector<float>& past_errors, float recent_error) {
+    
+    generator->train();  // Set to training mode
+    
+    // Single reshape like Python
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].resize(1);
+    reshaped_input[0][0] = past_errors;
+    
+    std::vector<float> target{recent_error};
+    
+    // Single forward/backward pass
+    generator->reset_states();
+    auto output = generator->forward(reshaped_input);
+    auto pred = generator->get_final_prediction(output);
+    
+    // Single update step
+    generator->train_step(reshaped_input, target, lr_update);
+
+  float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction_errors, float minimal_threshold) {
     if (prediction_errors.size() != lookback_len) {
         std::cerr << "Error: Invalid prediction_errors size in generate(). Expected: " << lookback_len 
                   << ", Got: " << prediction_errors.size() << std::endl;
@@ -105,31 +84,57 @@ float AnomalousThresholdGenerator::generate(const std::vector<float>& prediction
     std::cout << "Generated threshold: " << threshold << " (minimal: " << minimal_threshold << ")" << std::endl;
 
     return threshold;
+
 }
 
-std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>> 
-AnomalousThresholdGenerator::sliding_windows(const std::vector<float>& data, int window_size, int prediction_len) {
-    std::vector<std::vector<float>> x, y;
-    for (size_t i = window_size; i < data.size(); ++i) {
-        x.push_back(std::vector<float>(data.begin() + i - window_size, data.begin() + i));
-        y.push_back(std::vector<float>(data.begin() + i, std::min(data.begin() + i + prediction_len, data.end())));
+std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
+AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>& data2learn) {
+    if (data2learn.size() < lookback_len + prediction_len) {
+        throw std::runtime_error("Not enough data for generator training");
     }
-    return {x, y};
-}
-
-float AnomalousThresholdGenerator::compute_mse_loss(const std::vector<float>& output, const std::vector<float>& target) {
-    float loss = 0.0f;
-    for (size_t i = 0; i < output.size(); ++i) {
-        float error = output[i] - target[i];
-        loss += error * error;
+    
+    auto windows = create_sliding_windows(data2learn);
+    generator->train();  // Set to training mode
+    
+    for (int e = 0; e < epoch; ++e) {
+        float epoch_loss = 0.0f;
+        
+        for (size_t i = 0; i < windows.first.size(); ++i) {
+            generator->reset_states();
+            
+            // Reshape input to match PyTorch's format
+            std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+            reshaped_input[0].resize(1);
+            reshaped_input[0][0] = windows.first[i];
+            
+            std::vector<float> target{windows.second[i]};
+            
+            auto output = generator->forward(reshaped_input);
+            auto pred = generator->get_final_prediction(output);
+            
+            // Calculate MSE loss
+            float diff = pred[0] - target[0];
+            epoch_loss += diff * diff;
+            
+            generator->train_step(reshaped_input, target, lr);
+        }
+        
+        // Report progress
+        if ((e + 1) % 100 == 0) {
+            float avg_loss = epoch_loss / windows.first.size();
+            std::cout << "Generator Epoch " << (e + 1) << "/" << epoch 
+                     << ", Average Loss: " << avg_loss << std::endl;
+        }
     }
-    return loss / output.size();
-}
-
-std::vector<float> AnomalousThresholdGenerator::compute_mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target) {
-    std::vector<float> gradient(output.size());
-    for (size_t i = 0; i < output.size(); ++i) {
-        gradient[i] = 2.0f * (output[i] - target[i]) / output.size();
+    
+    // Return processed windows in the expected format
+    std::vector<std::vector<std::vector<float>>> x3d;
+    for (const auto& window : windows.first) {
+        std::vector<std::vector<std::vector<float>>> input_tensor(1);
+        input_tensor[0].resize(1);
+        input_tensor[0][0] = window;
+        x3d.push_back(input_tensor[0]);
     }
-    return gradient;
+    
+    return {x3d, windows.second};
 }

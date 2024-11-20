@@ -1,243 +1,218 @@
-#ifndef LSTM_PREDICTOR_HPP
-#define LSTM_PREDICTOR_HPP
-
+#pragma once
 #include <vector>
+#include <cmath>
 #include <tuple>
-#include <string>
+#include <random>
 
 class LSTMPredictor {
 public:
-    // Constructors
-    LSTMPredictor(int input_size, int hidden_size, int output_size, int num_layers, int lookback_len);
+    // Define all structs first
+    struct LSTMLayer {
+        // Change weight matrix organization to match PyTorch
+        // [i,f,g,o] gates stacked vertically: (4*hidden_size, input_size)
+        std::vector<std::vector<float>> weight_ih;  // (4*hidden_size, input_size)
+        std::vector<std::vector<float>> weight_hh;  // (4*hidden_size, hidden_size)
+        std::vector<float> bias_ih;                 // (4*hidden_size)
+        std::vector<float> bias_hh;                 // (4*hidden_size)
+    };
 
-    LSTMPredictor(
-        const std::vector<std::vector<float>>& weight_ih_input,
-        const std::vector<std::vector<float>>& weight_hh_input,
-        const std::vector<float>& bias_ih_input,
-        const std::vector<float>& bias_hh_input,
-        const std::vector<std::vector<float>>& weight_ih_forget,
-        const std::vector<std::vector<float>>& weight_hh_forget,
-        const std::vector<float>& bias_ih_forget,
-        const std::vector<float>& bias_hh_forget,
-        const std::vector<std::vector<float>>& weight_ih_output,
-        const std::vector<std::vector<float>>& weight_hh_output,
-        const std::vector<float>& bias_ih_output,
-        const std::vector<float>& bias_hh_output,
-        const std::vector<std::vector<float>>& weight_ih_cell,
-        const std::vector<std::vector<float>>& weight_hh_cell,
-        const std::vector<float>& bias_ih_cell,
-        const std::vector<float>& bias_hh_cell,
-        int input_size,
-        int hidden_size
-    );
+    struct LSTMGradients {
+        std::vector<std::vector<float>> weight_ih_grad;
+        std::vector<std::vector<float>> weight_hh_grad;
+        std::vector<float> bias_ih_grad;
+        std::vector<float> bias_hh_grad;
+    };
 
-    // Copy constructor
-    LSTMPredictor(const LSTMPredictor& other);
+    struct LSTMOutput {
+        std::vector<std::vector<std::vector<float>>> sequence_output; // [batch_size][seq_len][hidden_size]
+        std::vector<std::vector<float>> final_hidden;  // [num_layers][hidden_size]
+        std::vector<std::vector<float>> final_cell;    // [num_layers][hidden_size]
+    };
 
-    // Forward pass methods
-    std::tuple<std::vector<float>, std::vector<float>, std::vector<float>> forward(
-        const std::vector<float>& input,
-        const std::vector<float>& prev_h,
-        const std::vector<float>& prev_c
-    );
+    // Constructor and methods
+    LSTMPredictor(int num_classes, int input_size, int hidden_size, 
+                  int num_layers, int lookback_len, 
+                  bool batch_first = true);
+    
+    void set_random_seed(unsigned seed) {
+        random_seed = seed;
+        initialize_weights();
+    }
+    
+    LSTMOutput forward(const std::vector<std::vector<std::vector<float>>>& x,
+                      const std::vector<std::vector<float>>* initial_hidden = nullptr,
+                      const std::vector<std::vector<float>>* initial_cell = nullptr);
+    
+    // Weight setters for loading pretrained models
+    void set_lstm_weights(int layer, const std::vector<std::vector<float>>& w_ih,
+                         const std::vector<std::vector<float>>& w_hh);
+    void set_lstm_bias(int layer, const std::vector<float>& b_ih,
+                      const std::vector<float>& b_hh);
+    void set_fc_weights(const std::vector<std::vector<float>>& weights,
+                       const std::vector<float>& bias);
 
-    std::tuple<std::vector<float>, std::vector<float>, std::vector<float>,
-               std::vector<float>, std::vector<float>, std::vector<float>, std::vector<float>>
-    forward_step(
-        const std::vector<float>& input_vec,
-        const std::vector<float>& prev_h,
-        const std::vector<float>& prev_c
-    );
-
-    std::vector<float> forward(const std::vector<float>& input_sequence);
+    void reset_states();
 
     // Training methods
-    void backward(const std::vector<float>& targets, const std::string& loss_function = "MSE");
-    void zero_grad();
-    void update_parameters(float learning_rate);
-    void init_adam_optimizer(float learning_rate);
-    void update_parameters_adam(float learning_rate);
-    void train();
-    void eval();
+    void train_step(const std::vector<std::vector<std::vector<float>>>& x,
+                   const std::vector<float>& target,
+                   float learning_rate);
+    
+    float compute_loss(const std::vector<float>& output,
+                      const std::vector<float>& target);
 
-    // Getters
-    int get_input_size() const;
-    int get_hidden_size() const;
-    const std::vector<float>& get_h() const;
-    const std::vector<float>& get_c() const;
+    std::vector<float> get_final_prediction(const LSTMOutput& lstm_output);
 
-    // Getter methods for weights and biases
-    // Input gate
-    const std::vector<std::vector<float>>& get_weight_ih_input() const { return weight_ih_input; }
-    const std::vector<std::vector<float>>& get_weight_hh_input() const { return weight_hh_input; }
-    const std::vector<float>& get_bias_ih_input() const { return bias_ih_input; }
-    const std::vector<float>& get_bias_hh_input() const { return bias_hh_input; }
+    // Add these testing methods
+    #ifdef TESTING
+    float get_weight(int layer, int gate, int input_idx) const {
+        // Convert from gate index to PyTorch's layout [i,f,g,o]
+        int offset = gate * hidden_size;
+        return lstm_layers[layer].weight_ih[offset][input_idx];
+    }
 
-    // Forget gate
-    const std::vector<std::vector<float>>& get_weight_ih_forget() const { return weight_ih_forget; }
-    const std::vector<std::vector<float>>& get_weight_hh_forget() const { return weight_hh_forget; }
-    const std::vector<float>& get_bias_ih_forget() const { return bias_ih_forget; }
-    const std::vector<float>& get_bias_hh_forget() const { return bias_hh_forget; }
+    void set_weight(int layer, int gate, int input_idx, float value) {
+        // Convert from gate index to PyTorch's layout [i,f,g,o]
+        int offset = gate * hidden_size;
+        lstm_layers[layer].weight_ih[offset][input_idx] = value;
+    }
 
-    // Output gate
-    const std::vector<std::vector<float>>& get_weight_ih_output() const { return weight_ih_output; }
-    const std::vector<std::vector<float>>& get_weight_hh_output() const { return weight_hh_output; }
-    const std::vector<float>& get_bias_ih_output() const { return bias_ih_output; }
-    const std::vector<float>& get_bias_hh_output() const { return bias_hh_output; }
+    float get_weight_gradient(int layer, int gate, int input_idx) const {
+        if (layer < num_layers) {
+            // Convert from gate index to PyTorch's layout [i,f,g,o]
+            int offset = gate * hidden_size;
+            return last_gradients[layer].weight_ih_grad[offset][input_idx];
+        }
+        return 0.0f;
+    }
+    #endif
 
-    // Cell gate
-    const std::vector<std::vector<float>>& get_weight_ih_cell() const { return weight_ih_cell; }
-    const std::vector<std::vector<float>>& get_weight_hh_cell() const { return weight_hh_cell; }
-    const std::vector<float>& get_bias_ih_cell() const { return bias_ih_cell; }
-    const std::vector<float>& get_bias_hh_cell() const { return bias_hh_cell; }
+    // Add these methods for gradient checking
+    std::vector<LSTMLayer> get_weights() const {
+        return lstm_layers;
+    }
+    
+    void set_weights(const std::vector<LSTMLayer>& weights);
+    
+    std::vector<LSTMGradients> get_last_gradients() const {
+        return last_gradients;
+    }
 
-    // Setter methods for weights and biases
-    // Input gate
-    void set_weight_ih_input(const std::vector<std::vector<float>>& w) { weight_ih_input = w; }
-    void set_weight_hh_input(const std::vector<std::vector<float>>& w) { weight_hh_input = w; }
-    void set_bias_ih_input(const std::vector<float>& b) { bias_ih_input = b; }
-    void set_bias_hh_input(const std::vector<float>& b) { bias_hh_input = b; }
+    int get_num_layers() const { return num_layers; }
 
-    // Forget gate
-    void set_weight_ih_forget(const std::vector<std::vector<float>>& w) { weight_ih_forget = w; }
-    void set_weight_hh_forget(const std::vector<std::vector<float>>& w) { weight_hh_forget = w; }
-    void set_bias_ih_forget(const std::vector<float>& b) { bias_ih_forget = b; }
-    void set_bias_hh_forget(const std::vector<float>& b) { bias_hh_forget = b; }
-
-    // Output gate
-    void set_weight_ih_output(const std::vector<std::vector<float>>& w) { weight_ih_output = w; }
-    void set_weight_hh_output(const std::vector<std::vector<float>>& w) { weight_hh_output = w; }
-    void set_bias_ih_output(const std::vector<float>& b) { bias_ih_output = b; }
-    void set_bias_hh_output(const std::vector<float>& b) { bias_hh_output = b; }
-
-    // Cell gate
-    void set_weight_ih_cell(const std::vector<std::vector<float>>& w) { weight_ih_cell = w; }
-    void set_weight_hh_cell(const std::vector<std::vector<float>>& w) { weight_hh_cell = w; }
-    void set_bias_ih_cell(const std::vector<float>& b) { bias_ih_cell = b; }
-    void set_bias_hh_cell(const std::vector<float>& b) { bias_hh_cell = b; }
+    void eval() { training_mode = false; }
+    void train() { training_mode = true; }
+    bool is_training() const { return training_mode; }
 
 private:
-    // Dimensions
+    unsigned random_seed;
+    // Model dimensions
+    int num_classes;
+    int num_layers;
     int input_size;
     int hidden_size;
-    int output_size;
-    int num_layers;
-    int lookback_len;
+    int seq_length;
+    bool batch_first;
 
-    float learning_rate;
+    std::vector<LSTMLayer> lstm_layers;
 
-    // Weights and biases for LSTM gates
-    // Input gate
-    std::vector<std::vector<float>> weight_ih_input;
-    std::vector<std::vector<float>> weight_hh_input;
-    std::vector<float> bias_ih_input;
-    std::vector<float> bias_hh_input;
+    // Final linear layer weights
+    std::vector<std::vector<float>> fc_weight;
+    std::vector<float> fc_bias;
 
-    // Forget gate
-    std::vector<std::vector<float>> weight_ih_forget;
-    std::vector<std::vector<float>> weight_hh_forget;
-    std::vector<float> bias_ih_forget;
-    std::vector<float> bias_hh_forget;
+    // Hidden states
+    std::vector<std::vector<float>> h_state; // [num_layers][hidden_size]
+    std::vector<std::vector<float>> c_state; // [num_layers][hidden_size]
 
-    // Output gate
-    std::vector<std::vector<float>> weight_ih_output;
-    std::vector<std::vector<float>> weight_hh_output;
-    std::vector<float> bias_ih_output;
-    std::vector<float> bias_hh_output;
+    struct LSTMCacheEntry {
+        std::vector<float> input;
+        std::vector<float> prev_hidden;
+        std::vector<float> prev_cell;
+        std::vector<float> cell_state;
+        std::vector<float> input_gate;
+        std::vector<float> forget_gate;
+        std::vector<float> cell_gate;
+        std::vector<float> output_gate;
+        std::vector<float> hidden_state;
+        
+        // Add constructor to properly initialize vectors
+        LSTMCacheEntry() = default;
+        
+        // Add copy constructor to ensure proper deep copying
+        LSTMCacheEntry(const LSTMCacheEntry& other) = default;
+        
+        // Add assignment operator
+        LSTMCacheEntry& operator=(const LSTMCacheEntry& other) = default;
+    };
+    std::vector<std::vector<std::vector<LSTMCacheEntry>>> layer_cache;
 
-    // Cell gate
-    std::vector<std::vector<float>> weight_ih_cell;
-    std::vector<std::vector<float>> weight_hh_cell;
-    std::vector<float> bias_ih_cell;
-    std::vector<float> bias_hh_cell;
 
-    // Fully connected layer
-    std::vector<std::vector<float>> fc_weights;     // Size: output_size x hidden_size
-    std::vector<float> fc_bias;                     // Size: output_size
 
-    // Hidden and cell states
-    std::vector<float> h;       // Current hidden state
-    std::vector<float> c;       // Current cell state
-    std::vector<float> h_init;  // Initial hidden state
-    std::vector<float> c_init;  // Initial cell state
+    // Store last gradients for testing
+    std::vector<LSTMGradients> last_gradients;
 
-    // Training state
-    bool is_training;
+    // Helper functions
+    float sigmoid(float x);
+    float tanh_custom(float x);
+    std::vector<float> lstm_cell_forward(
+        const std::vector<float>& input,
+        std::vector<float>& h_state,
+        std::vector<float>& c_state,
+        const LSTMLayer& layer);
+    
+    // Training helper functions
+    void backward_linear_layer(const std::vector<float>& grad_output,
+                             const std::vector<float>& last_hidden,
+                             std::vector<std::vector<float>>& weight_grad,
+                             std::vector<float>& bias_grad,
+                             std::vector<float>& input_grad);
+    
+    std::vector<LSTMGradients> backward_lstm_layer(
+        const std::vector<float>& grad_output,
+        const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
+        float learning_rate);
 
-    // Stored activations and inputs for backpropagation
-    std::vector<std::vector<float>> x_t_list;
-    std::vector<std::vector<float>> i_t_list, f_t_list, o_t_list, g_t_list;
-    std::vector<std::vector<float>> c_t_list, h_t_list;
-    std::vector<std::vector<float>> outputs_list;
+    int current_layer = 0;
+    size_t current_batch{0};  // Track current batch being processed
+    size_t current_timestep{0};
 
-    // Gradients for LSTM gates
-    // Input gate
-    std::vector<std::vector<float>> dw_ih_input, dw_hh_input;
-    std::vector<float> db_ih_input, db_hh_input;
+    void initialize_weights();
 
-    // Forget gate
-    std::vector<std::vector<float>> dw_ih_forget, dw_hh_forget;
-    std::vector<float> db_ih_forget, db_hh_forget;
+    // Adam optimizer state variables
+    bool adam_initialized = false;
+    
+    // For LSTM layers
+    std::vector<std::vector<std::vector<float>>> m_weight_ih;
+    std::vector<std::vector<std::vector<float>>> v_weight_ih;
+    std::vector<std::vector<std::vector<float>>> m_weight_hh;
+    std::vector<std::vector<std::vector<float>>> v_weight_hh;
+    std::vector<std::vector<float>> m_bias_ih;
+    std::vector<std::vector<float>> v_bias_ih;
+    std::vector<std::vector<float>> m_bias_hh;
+    std::vector<std::vector<float>> v_bias_hh;
 
-    // Output gate
-    std::vector<std::vector<float>> dw_ih_output, dw_hh_output;
-    std::vector<float> db_ih_output, db_hh_output;
-
-    // Cell gate
-    std::vector<std::vector<float>> dw_ih_cell, dw_hh_cell;
-    std::vector<float> db_ih_cell, db_hh_cell;
-
-    // Gradients for fully connected layer
-    std::vector<std::vector<float>> dw_fc_weights;
-    std::vector<float> db_fc_bias;
-
-    // Adam optimizer parameters
-    float beta1;
-    float beta2;
-    float epsilon;
-    int t;  // Time step
-
-    // First moment estimates (m_) for weights and biases
-    // Input gate
-    std::vector<std::vector<float>> m_w_ih_input, m_w_hh_input;
-    std::vector<float> m_b_ih_input, m_b_hh_input;
-
-    // Forget gate
-    std::vector<std::vector<float>> m_w_ih_forget, m_w_hh_forget;
-    std::vector<float> m_b_ih_forget, m_b_hh_forget;
-
-    // Output gate
-    std::vector<std::vector<float>> m_w_ih_output, m_w_hh_output;
-    std::vector<float> m_b_ih_output, m_b_hh_output;
-
-    // Cell gate
-    std::vector<std::vector<float>> m_w_ih_cell, m_w_hh_cell;
-    std::vector<float> m_b_ih_cell, m_b_hh_cell;
-
-    // Fully connected layer
-    std::vector<std::vector<float>> m_fc_weights;
+    // For FC layer
+    std::vector<std::vector<float>> m_fc_weight;
+    std::vector<std::vector<float>> v_fc_weight;
     std::vector<float> m_fc_bias;
-
-    // Second moment estimates (v_) for weights and biases
-    // Input gate
-    std::vector<std::vector<float>> v_w_ih_input, v_w_hh_input;
-    std::vector<float> v_b_ih_input, v_b_hh_input;
-
-    // Forget gate
-    std::vector<std::vector<float>> v_w_ih_forget, v_w_hh_forget;
-    std::vector<float> v_b_ih_forget, v_b_hh_forget;
-
-    // Output gate
-    std::vector<std::vector<float>> v_w_ih_output, v_w_hh_output;
-    std::vector<float> v_b_ih_output, v_b_hh_output;
-
-    // Cell gate
-    std::vector<std::vector<float>> v_w_ih_cell, v_w_hh_cell;
-    std::vector<float> v_b_ih_cell, v_b_hh_cell;
-
-    // Fully connected layer
-    std::vector<std::vector<float>> v_fc_weights;
     std::vector<float> v_fc_bias;
-};
 
-#endif // LSTM_PREDICTOR_HPP
+    // Adam initialization methods
+    void initialize_adam_states();
+    bool are_adam_states_initialized() const;
+
+    void apply_adam_update(std::vector<std::vector<float>>& weights, 
+                        std::vector<std::vector<float>>& grads,
+                        std::vector<std::vector<float>>& m_t, 
+                        std::vector<std::vector<float>>& v_t,
+                        float learning_rate, float beta1, float beta2, float epsilon, int t);
+    
+    void apply_adam_update(std::vector<float>& biases, 
+                        std::vector<float>& grads,
+                        std::vector<float>& m_t, 
+                        std::vector<float>& v_t,
+                        float learning_rate, float beta1, float beta2, float epsilon, int t);
+
+    bool training_mode = true;  // Add this member variable
+
+};
