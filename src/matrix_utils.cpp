@@ -31,11 +31,16 @@
 // 
 std::vector<float> matrix_vector_mul(const std::vector<std::vector<float>>& matrix, const std::vector<float>& vec) {
     if (matrix.empty() || vec.empty()) {
-        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul.");
+        throw std::runtime_error("Error: Empty matrix or vector in matrix_vector_mul. Matrix size: " + 
+                                 std::to_string(static_cast<long long>(matrix.size())) + 
+                                 ", Vector size: " + 
+                                 std::to_string(static_cast<long long>(vec.size())));
     }
 
     if (matrix[0].size() != vec.size()) {
-        throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul.");
+        throw std::runtime_error("Error: Dimension mismatch in matrix_vector_mul. Matrix columns: " + 
+                                 std::to_string(matrix[0].size()) + ", Vector size: " + std::to_string(vec.size()) +
+                                 ", Matrix rows: " + std::to_string(matrix.size()));
     }
 
     std::vector<float> result(matrix.size(), 0.0f);
@@ -179,7 +184,9 @@ std::vector<float> matrix_vector_mul_transpose(const std::vector<std::vector<flo
     if (matrix[0].size() != vec.size()) {
         throw std::invalid_argument(
             "Matrix-vector dimension mismatch in transpose multiplication: " +
-            std::to_string(matrix[0].size()) + " != " + std::to_string(vec.size())
+            std::to_string(static_cast<long long>(matrix[0].size())) + 
+            " != " + 
+            std::to_string(static_cast<long long>(vec.size()))
         );
     }
     
@@ -412,7 +419,8 @@ std::vector<std::vector<float>> transpose(const std::vector<std::vector<float>>&
 std::string vector_to_string(const std::vector<float>& vec, size_t max_elements) {
     std::stringstream ss;
     ss << "[";
-    for (size_t i = 0; i < std::min(vec.size(), max_elements); ++i) {
+    size_t limit = std::min<size_t>(vec.size(), max_elements);
+    for (size_t i = 0; i < limit; ++i) {
         if (i > 0) ss << ", ";
         ss << vec[i];
     }

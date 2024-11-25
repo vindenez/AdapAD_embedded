@@ -269,7 +269,7 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                     // Verify dimensions before forward pass
                     if (layer_outputs[layer].size() != expected_input_size) {
                         throw std::runtime_error("Layer input dimension mismatch at layer " + 
-                                               std::to_string(layer));
+                                               std::to_string(static_cast<long long>(layer)));
                     }
                     
                     layer_outputs[layer + 1] = lstm_cell_forward(
@@ -741,14 +741,22 @@ void LSTMPredictor::initialize_adam_states() {
         }
 
         // Assign new vectors to member variables
-        m_weight_ih = std::move(new_m_weight_ih);
-        v_weight_ih = std::move(new_v_weight_ih);
-        m_weight_hh = std::move(new_m_weight_hh);
-        v_weight_hh = std::move(new_v_weight_hh);
-        m_bias_ih = std::move(new_m_bias_ih);
-        v_bias_ih = std::move(new_v_bias_ih);
-        m_bias_hh = std::move(new_m_bias_hh);
-        v_bias_hh = std::move(new_v_bias_hh);
+        m_weight_ih = std::vector<std::vector<std::vector<float>>>();
+        m_weight_ih.swap(new_m_weight_ih);
+        v_weight_ih = std::vector<std::vector<std::vector<float>>>();
+        v_weight_ih.swap(new_v_weight_ih);
+        m_weight_hh = std::vector<std::vector<std::vector<float>>>();
+        m_weight_hh.swap(new_m_weight_hh);
+        v_weight_hh = std::vector<std::vector<std::vector<float>>>();
+        v_weight_hh.swap(new_v_weight_hh);
+        m_bias_ih = std::vector<std::vector<float>>();
+        m_bias_ih.swap(new_m_bias_ih);
+        v_bias_ih = std::vector<std::vector<float>>();
+        v_bias_ih.swap(new_v_bias_ih);
+        m_bias_hh = std::vector<std::vector<float>>();
+        m_bias_hh.swap(new_m_bias_hh);
+        v_bias_hh = std::vector<std::vector<float>>();
+        v_bias_hh.swap(new_v_bias_hh);
 
         adam_initialized = true;
         
@@ -797,8 +805,8 @@ void LSTMPredictor::apply_adam_update(
             v_t[i][j] = beta2 * v_t[i][j] + (1.0f - beta2) * grads[i][j] * grads[i][j];
             
             // Compute bias-corrected moments
-            float m_hat = m_t[i][j] / (1.0f - std::pow(beta1, t));
-            float v_hat = v_t[i][j] / (1.0f - std::pow(beta2, t));
+            float m_hat = m_t[i][j] / (1.0f - std::powf(beta1, static_cast<float>(t)));
+            float v_hat = v_t[i][j] / (1.0f - std::powf(beta2, static_cast<float>(t)));
             
             // Update weights
             weights[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
@@ -824,8 +832,8 @@ void LSTMPredictor::apply_adam_update(
         v_t[i] = beta2 * v_t[i] + (1.0f - beta2) * grads[i] * grads[i];
         
         // Compute bias-corrected moments
-        float m_hat = m_t[i] / (1.0f - std::pow(beta1, t));
-        float v_hat = v_t[i] / (1.0f - std::pow(beta2, t));
+        float m_hat = m_t[i] / (1.0f - std::powf(beta1, static_cast<float>(t)));
+        float v_hat = v_t[i] / (1.0f - std::powf(beta2, static_cast<float>(t)));
         
         // Update biases
         biases[i] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);

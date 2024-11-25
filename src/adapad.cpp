@@ -13,19 +13,19 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
       minimal_threshold(minimal_threshold) {
     
     // Initialize learning components
-    data_predictor = std::make_unique<NormalDataPredictor>(
+    data_predictor.reset(new NormalDataPredictor(
         config::LSTM_size_layer,
         config::LSTM_size,
         predictor_config.lookback_len,
         predictor_config.prediction_len
-    );
+    ));
     
-    generator = std::make_unique<AnomalousThresholdGenerator>(
+    generator.reset(new AnomalousThresholdGenerator(
         config::LSTM_size_layer,
         config::LSTM_size,
         predictor_config.lookback_len,
         predictor_config.prediction_len
-    );
+    ));
     
     // Initialize logging with the specified filename
     f_name = config::log_file_path;  // Use the path from config
@@ -242,7 +242,10 @@ void AdapAD::train() {
               << ", lr=" << config::lr_train << std::endl;
     
     // Train data predictor and get training data
-    auto [trainX, trainY] = data_predictor->train(config::epoch_train, config::lr_train, observed_vals);
+    std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> 
+        training_data = data_predictor->train(config::epoch_train, config::lr_train, observed_vals);
+    auto& trainX = training_data.first;
+    auto& trainY = training_data.second;
     
     // Calculate and store predicted values for training data
     predicted_vals.clear();
@@ -299,11 +302,14 @@ void AdapAD::learn_error_pattern(
         trainY, recent_predicted);
 
     // Train generator using batch learning approach
-    auto [batch_x, batch_y] = create_sliding_windows(
-        predictive_errors, 
-        predictor_config.lookback_len,
-        predictor_config.prediction_len
-    );
+    std::pair<std::vector<std::vector<float>>, std::vector<float>> 
+        batch_data = create_sliding_windows(
+            predictive_errors, 
+            predictor_config.lookback_len,
+            predictor_config.prediction_len
+        );
+    auto& batch_x = batch_data.first;
+    auto& batch_y = batch_data.second;
     
     generator->reset_states();
     for (int epoch = 0; epoch < config::epoch_train; epoch++) {
