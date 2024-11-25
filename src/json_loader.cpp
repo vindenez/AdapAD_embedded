@@ -110,7 +110,9 @@ std::vector<std::vector<float>> load_weights(const std::string& filename, const 
     } else {
         std::cerr << "Error: Could not find key '" << key << "' in weights file." << std::endl;
         std::cerr << "Available keys are:" << std::endl;
-        for (const auto& [k, v] : all_weights) {
+        for (const auto& pair : all_weights) {
+            const auto& k = pair.first;
+            const auto& v = pair.second;
             std::cout << k << std::endl;
         }
         return {};
@@ -126,7 +128,9 @@ std::vector<float> load_bias(const std::string& filename, const std::string& key
     } else {
         std::cerr << "Error: Could not find key '" << key << "' in biases file." << std::endl;
         std::cerr << "Available keys are:" << std::endl;
-        for (const auto& [k, v] : all_biases) {
+        for (const auto& pair : all_biases) {
+            const auto& k = pair.first;
+            const auto& v = pair.second;
             std::cout << k << std::endl;
         }
         return {};

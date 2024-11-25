@@ -3,6 +3,8 @@
 
 #include <vector>
 #include <cmath>
+#include <stdexcept>
+#include <cstddef>
 
 class NormalDataPredictionErrorCalculator {
 public:
@@ -22,7 +24,7 @@ public:
         std::vector<float> errors;
         errors.reserve(observed_vals.size());
         
-        for (size_t i = 0; i < observed_vals.size(); i++) {
+        for (std::size_t i = 0; i < observed_vals.size(); i++) {
             errors.push_back(calc_error(predicted_vals[i], observed_vals[i]));
         }
         
