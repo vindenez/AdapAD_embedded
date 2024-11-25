@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -g -std=c++17 -Wall -O2
+CXXFLAGS = -g -std=c++11 -Wall -O2
 
 # Include paths
 INCLUDES = -Iinclude

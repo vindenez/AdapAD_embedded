@@ -10,13 +10,13 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit,
     : lookback_len(lookback_len),
       prediction_len(prediction_len) {
     
-    predictor = std::make_unique<LSTMPredictor>(
+    predictor.reset(new LSTMPredictor(
         prediction_len,  // num_classes
         lookback_len,    // input_size
         lstm_unit,       // hidden_size
         lstm_layer,      // num_layers
         lookback_len     // seq_length
-    );
+    ));
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -64,7 +64,7 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
         
         // Report progress
         if ((e + 1) % 100 == 0) {
-            float avg_loss = epoch_loss / windows.first.size();
+            float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
             std::cout << "Epoch " << (e + 1) << "/" << epoch 
                      << ", Average Loss: " << avg_loss << std::endl;
         }
@@ -123,7 +123,7 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
             float diff = pred[i] - recent_observation[i];
             current_loss += diff * diff;
         }
-        current_loss /= pred.size();
+        current_loss /= static_cast<float>(pred.size());
         
         // Early stopping check
         if (!loss_history.empty() && current_loss > loss_history.back()) {

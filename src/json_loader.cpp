@@ -27,11 +27,13 @@ std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weight
     std::unordered_map<std::string, std::vector<std::vector<float>>> all_weights;
 
     std::cout << "Keys in JSON data:" << std::endl;
-    for (const auto& [key, value] : json_data.items()) {
-        std::cout << key << std::endl;
+    for (const auto& item : json_data.items()) {
+        std::cout << item.key() << std::endl;
     }
 
-    for (const auto& [key, value] : json_data.items()) {
+    for (const auto& item : json_data.items()) {
+        const auto& key = item.key();
+        const auto& value = item.value();
         if (key.find("lstm.weight") != std::string::npos || key.find("fc.weight") != std::string::npos) {
             if (value.is_array()) {
                 try {
@@ -72,11 +74,13 @@ std::unordered_map<std::string, std::vector<float>> load_all_biases(const std::s
     std::unordered_map<std::string, std::vector<float>> all_biases;
 
     std::cout << "Keys in JSON data:" << std::endl;
-    for (const auto& [key, value] : json_data.items()) {
-        std::cout << key << std::endl;
+    for (const auto& item : json_data.items()) {
+        std::cout << item.key() << std::endl;
     }
 
-    for (const auto& [key, value] : json_data.items()) {
+    for (const auto& item : json_data.items()) {
+        const auto& key = item.key();
+        const auto& value = item.value();
         if (key.find("lstm.bias") != std::string::npos || key.find("fc.bias") != std::string::npos) {
             if (value.is_array()) {
                 try {

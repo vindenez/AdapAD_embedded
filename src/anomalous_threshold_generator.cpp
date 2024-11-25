@@ -10,13 +10,13 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(
     : lookback_len(lookback_len),
       prediction_len(prediction_len) {
     
-    generator = std::make_unique<LSTMPredictor>(
+    generator.reset(new LSTMPredictor(
         prediction_len,  // num_classes
         lookback_len,    // input_size
         lstm_unit,       // hidden_size
         lstm_layer,      // num_layers
         lookback_len     // seq_length
-    );
+    ));
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -97,7 +97,7 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
         
         // Report progress
         if ((e + 1) % 100 == 0) {
-            float avg_loss = epoch_loss / windows.first.size();
+            float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
             std::cout << "Generator Epoch " << (e + 1) << "/" << epoch 
                      << ", Average Loss: " << avg_loss << std::endl;
         }
