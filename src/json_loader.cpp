@@ -39,8 +39,6 @@ std::unordered_map<std::string, std::vector<std::vector<float>>> load_all_weight
                 try {
                     std::vector<std::vector<float>> weight_matrix = value.get<std::vector<std::vector<float>>>();
                     all_weights[key] = weight_matrix;
-
-                    size_t rows = weight_matrix.size();
                 } catch (const json::exception& e) {
                     std::cerr << "Error parsing weight matrix for key '" << key << "': " << e.what() << std::endl;
                 }
@@ -130,7 +128,7 @@ std::vector<float> load_bias(const std::string& filename, const std::string& key
         std::cerr << "Available keys are:" << std::endl;
         for (const auto& pair : all_biases) {
             const auto& k = pair.first;
-            const auto& v = pair.second;
+            const std::vector<float>& value = pair.second;
             std::cout << k << std::endl;
         }
         return {};

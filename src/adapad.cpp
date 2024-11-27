@@ -70,7 +70,7 @@ bool AdapAD::is_anomalous(float observed_val) {
             // Only process thresholds and errors for in-range values
             float threshold = minimal_threshold;
             
-            if (predictive_errors.size() >= predictor_config.lookback_len) {
+            if (static_cast<int>(predictive_errors.size()) >= predictor_config.lookback_len) {
                 auto past_errors = std::vector<float>(
                     predictive_errors.end() - predictor_config.lookback_len,
                     predictive_errors.end());

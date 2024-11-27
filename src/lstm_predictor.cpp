@@ -6,6 +6,10 @@
 #include <algorithm>
 #include <iostream>
 
+inline float pow_float(float base, float exp) {
+    return std::pow(base, exp);
+}
+
 LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, 
                             int num_layers, int lookback_len, 
                             bool batch_first)
@@ -591,9 +595,6 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                                            std::to_string(layer));
                 }
                 
-                const int gates_count = 4;  // input, forget, cell, output gates
-
-
                 apply_adam_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad,
                                  m_weight_ih[layer], v_weight_ih[layer],
                                  learning_rate, beta1, beta2, epsilon, timestep);
@@ -805,8 +806,8 @@ void LSTMPredictor::apply_adam_update(
             v_t[i][j] = beta2 * v_t[i][j] + (1.0f - beta2) * grads[i][j] * grads[i][j];
             
             // Compute bias-corrected moments
-            float m_hat = m_t[i][j] / (1.0f - std::pow<float>(beta1, static_cast<float>(t)));
-            float v_hat = v_t[i][j] / (1.0f - std::pow<float>(beta2, static_cast<float>(t)));
+            float m_hat = m_t[i][j] / (1.0f - pow_float(beta1, static_cast<float>(t)));
+            float v_hat = v_t[i][j] / (1.0f - pow_float(beta2, static_cast<float>(t)));
             
             // Update weights
             weights[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
@@ -832,8 +833,8 @@ void LSTMPredictor::apply_adam_update(
         v_t[i] = beta2 * v_t[i] + (1.0f - beta2) * grads[i] * grads[i];
         
         // Compute bias-corrected moments
-        float m_hat = m_t[i] / (1.0f - std::pow<float>(beta1, static_cast<float>(t)));
-        float v_hat = v_t[i] / (1.0f - std::pow<float>(beta2, static_cast<float>(t)));
+        float m_hat = m_t[i] / (1.0f - pow_float(beta1, static_cast<float>(t)));
+        float v_hat = v_t[i] / (1.0f - pow_float(beta2, static_cast<float>(t)));
         
         // Update biases
         biases[i] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
