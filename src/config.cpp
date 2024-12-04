@@ -13,7 +13,7 @@ namespace config {
     // std::string data_source = "Tide_pressure";
 
     // Training parameters (SLOW)
-    int epoch_train = 3000;              
+    int epoch_train = 500;              
     float lr_train = 0.00005f;           
     int epoch_update = 100;              
     float lr_update = 0.00005f;          
@@ -22,11 +22,11 @@ namespace config {
 
     // Model architecture
     int LSTM_size = 100;                 
-    int LSTM_size_layer = 3;            
+    int LSTM_size_layer = 2;            
     int lookback_len = 3;                
     int prediction_len = 1;              
 
-    int train_size = 5 * lookback_len + prediction_len;
+    int train_size = 2 * lookback_len + prediction_len;
     int num_classes = 1;
     int input_size = lookback_len;
 
@@ -40,7 +40,10 @@ namespace config {
 
     // Logging and debugging
     bool verbose_output = true;
-    std::string log_file_path = "adapad_log.csv";
+    std::string log_file_path = "adapad_log_" + 
+                               std::to_string(epoch_train) + "_" +
+                               std::to_string(train_size) + "_" +
+                               std::to_string(LSTM_size_layer) + ".csv";
      
 
     // Random seed for reproducibility

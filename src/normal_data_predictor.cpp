@@ -104,11 +104,8 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
 void NormalDataPredictor::update(int epoch_update, float lr_update,
                                const std::vector<std::vector<std::vector<float>>>& past_observations,
                                const std::vector<float>& recent_observation) {
-    // Input validation
-    if (past_observations.size() != 1 || past_observations[0].size() != 1 ||
-        past_observations[0][0].size() != lookback_len) {
-        throw std::runtime_error("Invalid input dimensions for update");
-    }
+    static int update_count = 0;
+    update_count++;
     
     std::vector<float> loss_history;
     
@@ -117,7 +114,6 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         auto output = predictor->forward(past_observations);
         auto pred = predictor->get_final_prediction(output);
         
-        // Compute loss
         float current_loss = 0.0f;
         for (size_t i = 0; i < pred.size(); ++i) {
             float diff = pred[i] - recent_observation[i];
@@ -131,7 +127,6 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         }
         loss_history.push_back(current_loss);
         
-        // Backward pass and update
         predictor->train_step(past_observations, recent_observation, lr_update);
     }
 }

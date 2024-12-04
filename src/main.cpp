@@ -4,6 +4,7 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <chrono>
 
 struct DataPoint {
     float value;
@@ -57,6 +58,10 @@ int main() {
     std::cout << "GATHERING DATA FOR TRAINING... " << predictor_config.train_size << std::endl;
     
     std::vector<float> observed_data;
+    size_t total_decisions = 0;
+    
+    // Add timing variables
+    auto total_start_time = std::chrono::high_resolution_clock::now();
     
     // Process all data points like Python version
     for (size_t i = 0; i < all_data.size(); ++i) {
@@ -67,16 +72,29 @@ int main() {
             adapad.set_training_data(observed_data);
             adapad.train();
             std::cout << "\n------------STARTING ONLINE LEARNING PHASE------------" << std::endl;
+            
+            // Start timing the decision phase
+            total_start_time = std::chrono::high_resolution_clock::now();
         }
         else if (observed_data.size() > predictor_config.train_size) {
             bool is_anomalous = adapad.is_anomalous(measured_value);
             adapad.clean();
+            total_decisions++;
         }
         else {
             std::cout << observed_data.size() << "/" << predictor_config.train_size 
                       << " to warmup training" << std::endl;
         }
     }
+    
+    // Calculate total time for all decisions
+    auto total_end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> total_elapsed = total_end_time - total_start_time;
+    
+    std::cout << "Processed " << total_decisions << " points in " 
+              << total_elapsed.count() << " seconds" << std::endl;
+    std::cout << "Average time per decision: " 
+              << (total_elapsed.count() / total_decisions) << " seconds" << std::endl;
     
     std::cout << "Done! Check result at " << adapad.get_log_filename() << std::endl;
     return 0;

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <chrono>
 
 AdapAD::AdapAD(const PredictorConfig& predictor_config,
                const ValueRangeConfig& value_range_config,
@@ -241,6 +242,9 @@ void AdapAD::train() {
     std::cout << "Starting predictor training with epochs=" << config::epoch_train 
               << ", lr=" << config::lr_train << std::endl;
     
+    // Start timing
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
     // Train data predictor and get training data
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> 
         training_data = data_predictor->train(config::epoch_train, config::lr_train, observed_vals);
@@ -275,7 +279,11 @@ void AdapAD::train() {
     generator->reset_states();
     generator->train(config::epoch_train, config::lr_train, predictive_errors);
     
-    std::cout << "Training complete" << std::endl;
+    // End timing
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end_time - start_time;
+    
+    std::cout << "Training complete in " << elapsed.count() << " seconds" << std::endl;
 }
 
 void AdapAD::learn_error_pattern(
