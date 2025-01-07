@@ -12,9 +12,9 @@ namespace config {
     // std::string data_val_path = "/mnt/sdcard/data/Tide_pressure.validation_stage.csv";
     // std::string data_source = "Tide_pressure";
 
-    // Training parameters (SLOW)
+    // Training parameters
     int epoch_train = 500;              
-    float lr_train = 0.00005f;           
+    float lr_train = 0.0002f;           
     int epoch_update = 100;              
     float lr_update = 0.00005f;          
     int update_G_epoch = 100;            
@@ -71,9 +71,11 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
         value_range_config.lower_bound = config::lower_bound;
         value_range_config.upper_bound = config::upper_bound;
         minimal_threshold = config::minimal_threshold;
-        config::epoch_update = 30;
+        config::epoch_train = 40;
+        config::epoch_update = 40;
         config::update_G_epoch = 5;
-        config::update_G_lr = 0.00005f;
+        config::update_G_lr = 0.0002f;
+        config::lr_update = 0.0002f;
     } else if (data_source == "Wave_height") {
         value_range_config.lower_bound = 0;
         value_range_config.upper_bound = 15.2;
@@ -92,7 +94,9 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
                                std::to_string(config::train_size) + "_" +
                                std::to_string(config::LSTM_size_layer) + "_" +
                                std::to_string(config::epoch_update) + "_" +
-                               std::to_string(config::update_G_epoch) + ".csv";
+                               std::to_string(config::update_G_epoch) + "_" +
+                               std::to_string(config::update_G_lr) + "lrG_" + 
+                               std::to_string(config::lr_update) + "lr_" + ".csv";
 
     return value_range_config;
 }
