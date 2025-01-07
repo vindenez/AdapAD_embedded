@@ -38,16 +38,12 @@ namespace config {
     float lower_bound = 713.0f;          
     float upper_bound = 763.0f;          
 
-    // Logging and debugging
-    bool verbose_output = true;
-    std::string log_file_path = "adapad_log_" + 
-                               std::to_string(epoch_train) + "_" +
-                               std::to_string(train_size) + "_" +
-                               std::to_string(LSTM_size_layer) + ".csv";
-     
-
     // Random seed for reproducibility
     unsigned int random_seed = 42;
+
+    // Logging and debugging
+    bool verbose_output = true;
+    std::string log_file_path;
 }
 
 // Initialize predictor configuration
@@ -75,7 +71,7 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
         value_range_config.lower_bound = config::lower_bound;
         value_range_config.upper_bound = config::upper_bound;
         minimal_threshold = config::minimal_threshold;
-
+        config::epoch_update = 30;
         config::update_G_epoch = 5;
         config::update_G_lr = 0.00005f;
     } else if (data_source == "Wave_height") {
@@ -89,6 +85,14 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
     } else {
         std::cerr << "Unsupported data source! You need to set the hyperparameters manually." << std::endl;
     }
+
+    // Logging
+    config::log_file_path = "adapad_log_" + 
+                               std::to_string(config::epoch_train) + "_" +
+                               std::to_string(config::train_size) + "_" +
+                               std::to_string(config::LSTM_size_layer) + "_" +
+                               std::to_string(config::epoch_update) + "_" +
+                               std::to_string(config::update_G_epoch) + ".csv";
 
     return value_range_config;
 }

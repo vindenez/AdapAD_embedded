@@ -82,18 +82,18 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         throw std::runtime_error("Weight hh dimension mismatch");
     }
     
-    // **Change 1: Declare cache_entry only if training_mode is true**
+    // Declare cache_entry only if training_mode is true**
     LSTMCacheEntry cache_entry;
 
     if (training_mode) {
-        // **Change 2: Validate indices before accessing cache**
+        // Validate indices before accessing cache**
         if (current_layer >= layer_cache.size() ||
             current_batch >= layer_cache[current_layer].size() ||
             current_timestep >= layer_cache[current_layer][current_batch].size()) {
             throw std::runtime_error("Invalid cache access");
         }
         
-        // **Change 3: Initialize cache entry with proper sizes**
+        // Initialize cache entry with proper sizes**
         cache_entry = layer_cache[current_layer][current_batch][current_timestep];
         
         // Validate and copy input
@@ -181,7 +181,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         throw std::runtime_error("Output size mismatch in lstm_cell_forward");
     }
 
-    // **Change 5: If training_mode, store cache_entry back to layer_cache**
+    // If training_mode, store cache_entry back to layer_cache**
     if (training_mode) {
         layer_cache[current_layer][current_batch][current_timestep] = cache_entry;
     }
