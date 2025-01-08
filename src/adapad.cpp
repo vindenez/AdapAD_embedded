@@ -51,10 +51,26 @@ bool AdapAD::is_anomalous(float observed_val) {
     observed_vals.push_back(normalized);
     
     try {
-        // Make prediction (in normalized space)
+        // Validate vector sizes before operations
+        if (observed_vals.size() < predictor_config.lookback_len + 1) {
+            throw std::runtime_error("Not enough observed values");
+        }
+
+        // Validate past_observations dimensions
         auto past_observations = prepare_data_for_prediction(observed_vals.size());
+        if (past_observations.empty() || past_observations[0].empty() || 
+            past_observations[0][0].size() != predictor_config.lookback_len) {
+            throw std::runtime_error("Invalid past_observations dimensions");
+        }
+
+        // Make prediction
         data_predictor->eval();
         auto predicted_val = data_predictor->predict(past_observations);
+        
+        // Validate vector sizes before push_back
+        if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
+            predicted_vals.erase(predicted_vals.begin());
+        }
         predicted_vals.push_back(predicted_val);
         
         // Calculate error in normalized space to match thresholds
@@ -106,7 +122,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         f_log.close();
         
     } catch (const std::exception& e) {
-        std::cerr << "Exception in is_anomalous: " << e.what() << std::endl;
+        std::cerr << "Error in is_anomalous: " << e.what() << std::endl;
         throw;
     }
     
@@ -146,13 +162,40 @@ void AdapAD::update_generator(
 
 void AdapAD::clean() {
     size_t window_size = predictor_config.lookback_len;
-    if (predicted_vals.size() > window_size) {
-        predicted_vals.erase(predicted_vals.begin(), 
-                           predicted_vals.end() - window_size);
-        predictive_errors.erase(predictive_errors.begin(),
-                              predictive_errors.end() - window_size);
-        thresholds.erase(thresholds.begin(),
-                        thresholds.end() - window_size);
+    
+    // Only clean if we have more elements than the window size
+    // AND all vectors have the same size
+    if (predicted_vals.size() > window_size && 
+        predicted_vals.size() == predictive_errors.size() &&
+        predicted_vals.size() == thresholds.size()) {
+            
+        // Calculate how many elements to keep
+        size_t keep_count = std::min(window_size, predicted_vals.size());
+        
+        // Calculate starting point for keeping elements
+        size_t start_idx = predicted_vals.size() - keep_count;
+        
+        try {
+            // Create temporary vectors with the elements we want to keep
+            std::vector<float> new_predicted(predicted_vals.begin() + start_idx, predicted_vals.end());
+            
+            // Only clean other vectors if they have elements
+            if (!predictive_errors.empty()) {
+                std::vector<float> new_errors(predictive_errors.begin() + start_idx, predictive_errors.end());
+                predictive_errors.swap(new_errors);
+            }
+            
+            if (!thresholds.empty()) {
+                std::vector<float> new_thresholds(thresholds.begin() + start_idx, thresholds.end());
+                thresholds.swap(new_thresholds);
+            }
+            
+            predicted_vals.swap(new_predicted);
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error in clean(): " << e.what() << std::endl;
+            // Continue without cleaning if there's an error
+        }
     }
 }
 

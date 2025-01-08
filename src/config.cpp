@@ -8,6 +8,7 @@ namespace config {
     std::string data_source = "Tide_pressure";
 
     // Located on SD Card on the module /mnt/data
+    // mount -t vfat /dev/mmcblk1p1 /mnt/sdcard
     // std::string data_source_path = "/mnt/sdcard/data/Tide_pressure.csv";
     // std::string data_val_path = "/mnt/sdcard/data/Tide_pressure.validation_stage.csv";
     // std::string data_source = "Tide_pressure";

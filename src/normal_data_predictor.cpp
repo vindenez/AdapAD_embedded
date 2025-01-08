@@ -104,6 +104,16 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
 void NormalDataPredictor::update(int epoch_update, float lr_update,
                                const std::vector<std::vector<std::vector<float>>>& past_observations,
                                const std::vector<float>& recent_observation) {
+    // Validate input dimensions
+    if (past_observations.empty() || past_observations[0].empty() || 
+        past_observations[0][0].size() != lookback_len) {
+        throw std::runtime_error("Invalid past_observations dimensions in update");
+    }
+
+    if (recent_observation.empty()) {
+        throw std::runtime_error("Empty recent_observation in update");
+    }
+
     static int update_count = 0;
     update_count++;
     

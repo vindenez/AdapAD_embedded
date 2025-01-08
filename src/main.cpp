@@ -77,9 +77,21 @@ int main() {
             total_start_time = std::chrono::high_resolution_clock::now();
         }
         else if (observed_data.size() > predictor_config.train_size) {
-            bool is_anomalous = adapad.is_anomalous(measured_value);
-            adapad.clean();
-            total_decisions++;
+            try {
+                // Add size validation
+                if (observed_data.size() < predictor_config.lookback_len + 1) {
+                    std::cerr << "Not enough data for prediction" << std::endl;
+                    continue;
+                }
+                
+                bool is_anomalous = adapad.is_anomalous(measured_value);
+                adapad.clean();
+                total_decisions++;
+            } catch (const std::exception& e) {
+                std::cerr << "Error in online learning phase: " << e.what() << std::endl;
+                // Consider whether to continue or break based on error
+                continue;
+            }
         }
         else {
             std::cout << observed_data.size() << "/" << predictor_config.train_size 
