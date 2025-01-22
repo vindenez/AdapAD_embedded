@@ -65,6 +65,23 @@ inline float32x4_t vsqrtq_f32(float32x4_t x) {
     return vld1q_f32(x_array);
 }
 
+// Initialize static members
+std::vector<float> LSTMPredictor::aligned_input;
+std::vector<float> LSTMPredictor::gates;
+std::vector<float> LSTMPredictor::temp_vector;
+LSTMPredictor::LSTMCacheEntry LSTMPredictor::static_cache_entry;
+
+// Implement static cleanup
+void LSTMPredictor::cleanup_static_resources() {
+    aligned_input.clear();
+    aligned_input.shrink_to_fit();
+    gates.clear();
+    gates.shrink_to_fit();
+    temp_vector.clear();
+    temp_vector.shrink_to_fit();
+    static_cache_entry = LSTMCacheEntry();
+}
+
 LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, 
                             int num_layers, int lookback_len, 
                             bool batch_first)
@@ -1347,65 +1364,41 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
     }
 }
 
+// Implement destructor
 LSTMPredictor::~LSTMPredictor() {
     try {
-        // Add debug output
-        std::cout << "Starting LSTMPredictor cleanup..." << std::endl;
+        cleanup_static_resources();
         
-        // Clear vectors safely with size checks
-        if (!lstm_layers.empty()) {
-            std::cout << "Clearing lstm_layers..." << std::endl;
-            lstm_layers.clear();
-        }
+        lstm_layers.clear();
+        last_gradients.clear();
+        h_state.clear();
+        c_state.clear();
+        layer_cache.clear();
+        fc_weight.clear();
+        fc_bias.clear();
         
-        if (!last_gradients.empty()) {
-            std::cout << "Clearing last_gradients..." << std::endl;
-            last_gradients.clear();
-        }
+        // Clear Adam states
+        m_fc_weight.clear();
+        v_fc_weight.clear();
+        m_fc_bias.clear();
+        v_fc_bias.clear();
+        m_weight_ih.clear();
+        v_weight_ih.clear();
+        m_weight_hh.clear();
+        v_weight_hh.clear();
+        m_bias_ih.clear();
+        v_bias_ih.clear();
+        m_bias_hh.clear();
+        v_bias_hh.clear();
         
-        if (!h_state.empty()) {
-            std::cout << "Clearing h_state..." << std::endl;
-            h_state.clear();
-        }
-        
-        if (!c_state.empty()) {
-            std::cout << "Clearing c_state..." << std::endl;
-            c_state.clear();
-        }
-        
-        if (!layer_cache.empty()) {
-            std::cout << "Clearing layer_cache..." << std::endl;
-            layer_cache.clear();
-        }
-        
-        if (!fc_weight.empty()) {
-            std::cout << "Clearing fc_weight..." << std::endl;
-            fc_weight.clear();
-        }
-        
-        if (!fc_bias.empty()) {
-            std::cout << "Clearing fc_bias..." << std::endl;
-            fc_bias.clear();
-        }
-        
-        // Clear Adam states if they exist
-        if (!m_fc_weight.empty()) {
-            std::cout << "Clearing Adam states..." << std::endl;
-            m_fc_weight.clear();
-            v_fc_weight.clear();
-            m_fc_bias.clear();
-            v_fc_bias.clear();
-            m_weight_ih.clear();
-            v_weight_ih.clear();
-            m_weight_hh.clear();
-            v_weight_hh.clear();
-            m_bias_ih.clear();
-            v_bias_ih.clear();
-            m_bias_hh.clear();
-            v_bias_hh.clear();
-        }
-        
-        std::cout << "LSTMPredictor cleanup completed." << std::endl;
+        // Shrink vectors
+        lstm_layers.shrink_to_fit();
+        last_gradients.shrink_to_fit();
+        h_state.shrink_to_fit();
+        c_state.shrink_to_fit();
+        layer_cache.shrink_to_fit();
+        fc_weight.shrink_to_fit();
+        fc_bias.shrink_to_fit();
         
     } catch (const std::exception& e) {
         std::cerr << "Error during LSTMPredictor cleanup: " << e.what() << std::endl;

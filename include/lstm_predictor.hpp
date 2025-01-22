@@ -40,7 +40,7 @@ public:
     }
 
     ~LSTMPredictor();
-    
+
     LSTMOutput forward(const std::vector<std::vector<std::vector<float>>>& x,
                       const std::vector<std::vector<float>>* initial_hidden = nullptr,
                       const std::vector<std::vector<float>>* initial_cell = nullptr);
@@ -217,4 +217,12 @@ private:
 
     bool training_mode = true;  // Add this member variable
 
+    // Declare static members once
+    static std::vector<float> aligned_input;
+    static std::vector<float> gates;
+    static std::vector<float> temp_vector;
+    static LSTMCacheEntry static_cache_entry;
+    
+    // Declare cleanup method
+    static void cleanup_static_resources();
 };
