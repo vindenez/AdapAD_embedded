@@ -554,9 +554,12 @@ void LSTMPredictor::backward_linear_layer(
             for (size_t j = 0; j < hidden_size; j += 4) {
                 float32x4_t hidden_vec = vld1q_f32(&last_hidden[j]);
                 
+                // Store vectors in temporary arrays for lane access
+                float grad_vals[4];
+                vst1q_f32(grad_vals, grad_vec);
+                
                 for (size_t k = 0; k < 4 && i + k < num_classes; ++k) {
-                    float grad_val = vgetq_lane_f32(grad_vec, k);
-                    float32x4_t grad_val_vec = vdupq_n_f32(grad_val);
+                    float32x4_t grad_val_vec = vdupq_n_f32(grad_vals[k]);
                     float32x4_t curr_grad = vmulq_f32(grad_val_vec, hidden_vec);
                     vst1q_f32(&fc_weight_grad[i + k][j], curr_grad);
                 }
