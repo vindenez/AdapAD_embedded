@@ -1274,11 +1274,14 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                               const std::vector<float>& target,
                               float learning_rate) {
     try {
+        std::cout << "\nStarting train_step..." << std::endl;
+        
         // Input validation with aligned sizes
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
         const size_t aligned_input_size = (input_size + 3) & ~3;
         const size_t aligned_num_classes = (num_classes + 3) & ~3;
         
+        std::cout << "Validating input dimensions..." << std::endl;
         // Dimension checks
         for (size_t batch = 0; batch < x.size(); ++batch) {
             for (size_t seq = 0; seq < x[batch].size(); ++seq) {
@@ -1290,11 +1293,14 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             }
         }
         
+        std::cout << "Checking Adam initialization..." << std::endl;
         // Initialize Adam if needed
         if (!are_adam_states_initialized()) {
+            std::cout << "Initializing Adam states..." << std::endl;
             initialize_adam_states();
         }
         
+        std::cout << "Additional validation..." << std::endl;
         // Additional validation
         if (x.empty() || x[0].empty() || x[0][0].empty() ||
             x[0][0].size() != input_size || target.size() != num_classes) {
@@ -1308,39 +1314,49 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         const float beta2 = 0.999f;
         const float epsilon = 1e-8f;
 
+        std::cout << "Starting forward pass..." << std::endl;
         // Forward pass with aligned memory
         auto lstm_output = forward(x);
+        
+        std::cout << "Getting final prediction..." << std::endl;
         auto output = get_final_prediction(lstm_output);
 
+        std::cout << "Computing gradients..." << std::endl;
         // Compute gradients
         auto grad_output = compute_mse_loss_gradient(output, target);
         const auto& last_hidden = lstm_output.final_hidden.back();
 
+        std::cout << "Running backward pass through linear layer..." << std::endl;
         // Backward pass through linear layer
         std::vector<std::vector<float>> fc_weight_grad;
         std::vector<float> fc_bias_grad;
         std::vector<float> lstm_grad;
         backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
 
+        std::cout << "Verifying dimensions..." << std::endl;
         // Verify dimensions and apply Adam updates
         if (fc_weight.size() != fc_weight_grad.size() || 
             fc_weight[0].size() != fc_weight_grad[0].size()) {
             throw std::runtime_error("FC layer dimension mismatch");
         }
 
+        std::cout << "Applying Adam updates..." << std::endl;
         // Apply Adam updates using optimized functions
         apply_adam_update(fc_weight, fc_weight_grad, m_fc_weight, v_fc_weight,
                          learning_rate, beta1, beta2, epsilon, timestep);
         apply_adam_update(fc_bias, fc_bias_grad, m_fc_bias, v_fc_bias,
                          learning_rate, beta1, beta2, epsilon, timestep);
 
+        std::cout << "Validating cache..." << std::endl;
         // Validate cache and compute LSTM gradients
         if (layer_cache.empty() || lstm_grad.size() != hidden_size) {
             throw std::runtime_error("Invalid cache or gradient dimensions");
         }
 
+        std::cout << "Computing LSTM gradients..." << std::endl;
         auto lstm_grads = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
 
+        std::cout << "Applying LSTM Adam updates..." << std::endl;
         // Apply Adam updates to LSTM layers
         for (int layer = 0; layer < num_layers; ++layer) {
             if (lstm_layers[layer].weight_ih.size() != lstm_grads[layer].weight_ih_grad.size()) {
@@ -1363,7 +1379,10 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                             learning_rate, beta1, beta2, epsilon, timestep);
         }
 
+        std::cout << "Train step completed successfully" << std::endl;
+
     } catch (const std::exception& e) {
+        std::cerr << "Error in train_step: " << e.what() << std::endl;
         throw;
     }
 }
