@@ -217,12 +217,9 @@ private:
 
     bool training_mode = true;  // Add this member variable
 
-    // Declare static members once
-    static std::vector<float> aligned_input;
-    static std::vector<float> gates;
-    static std::vector<float> temp_vector;
-    static LSTMCacheEntry static_cache_entry;
-    
-    // Declare cleanup method
-    static void cleanup_static_resources();
+    // Add instance members instead
+    std::vector<float> aligned_input;
+    std::vector<float> gates;
+    std::vector<float> temp_vector;
+    LSTMCacheEntry instance_cache_entry;
 };

@@ -65,23 +65,6 @@ inline float32x4_t vsqrtq_f32(float32x4_t x) {
     return vld1q_f32(x_array);
 }
 
-// Initialize static members
-std::vector<float> LSTMPredictor::aligned_input;
-std::vector<float> LSTMPredictor::gates;
-std::vector<float> LSTMPredictor::temp_vector;
-LSTMPredictor::LSTMCacheEntry LSTMPredictor::static_cache_entry;
-
-// Implement static cleanup
-void LSTMPredictor::cleanup_static_resources() {
-    aligned_input.clear();
-    aligned_input.shrink_to_fit();
-    gates.clear();
-    gates.shrink_to_fit();
-    temp_vector.clear();
-    temp_vector.shrink_to_fit();
-    static_cache_entry = LSTMCacheEntry();
-}
-
 LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, 
                             int num_layers, int lookback_len, 
                             bool batch_first)
@@ -1367,38 +1350,63 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
 // Implement destructor
 LSTMPredictor::~LSTMPredictor() {
     try {
-        cleanup_static_resources();
+        std::cout << "Starting LSTMPredictor destructor..." << std::endl;
         
+        std::cout << "Clearing lstm_layers (size: " << lstm_layers.size() << ")" << std::endl;
         lstm_layers.clear();
+        
+        std::cout << "Clearing last_gradients (size: " << last_gradients.size() << ")" << std::endl;
         last_gradients.clear();
+        
+        std::cout << "Clearing h_state (size: " << h_state.size() << ")" << std::endl;
         h_state.clear();
+        
+        std::cout << "Clearing c_state (size: " << c_state.size() << ")" << std::endl;
         c_state.clear();
+        
+        std::cout << "Clearing layer_cache (size: " << layer_cache.size() << ")" << std::endl;
         layer_cache.clear();
+        
+        std::cout << "Clearing fc_weight (size: " << fc_weight.size() << ")" << std::endl;
         fc_weight.clear();
+        
+        std::cout << "Clearing fc_bias (size: " << fc_bias.size() << ")" << std::endl;
         fc_bias.clear();
         
-        // Clear Adam states
-        m_fc_weight.clear();
-        v_fc_weight.clear();
-        m_fc_bias.clear();
-        v_fc_bias.clear();
-        m_weight_ih.clear();
-        v_weight_ih.clear();
-        m_weight_hh.clear();
-        v_weight_hh.clear();
-        m_bias_ih.clear();
-        v_bias_ih.clear();
-        m_bias_hh.clear();
-        v_bias_hh.clear();
+        // Clear Adam states with size checks
+        std::cout << "Clearing Adam states..." << std::endl;
+        if (!m_fc_weight.empty()) {
+            std::cout << "Clearing m_fc_weight (size: " << m_fc_weight.size() << ")" << std::endl;
+            m_fc_weight.clear();
+            v_fc_weight.clear();
+        }
+        if (!m_fc_bias.empty()) {
+            std::cout << "Clearing m_fc_bias (size: " << m_fc_bias.size() << ")" << std::endl;
+            m_fc_bias.clear();
+            v_fc_bias.clear();
+        }
+        if (!m_weight_ih.empty()) {
+            std::cout << "Clearing m_weight_ih (size: " << m_weight_ih.size() << ")" << std::endl;
+            m_weight_ih.clear();
+            v_weight_ih.clear();
+        }
+        if (!m_weight_hh.empty()) {
+            std::cout << "Clearing m_weight_hh (size: " << m_weight_hh.size() << ")" << std::endl;
+            m_weight_hh.clear();
+            v_weight_hh.clear();
+        }
+        if (!m_bias_ih.empty()) {
+            std::cout << "Clearing m_bias_ih (size: " << m_bias_ih.size() << ")" << std::endl;
+            m_bias_ih.clear();
+            v_bias_ih.clear();
+        }
+        if (!m_bias_hh.empty()) {
+            std::cout << "Clearing m_bias_hh (size: " << m_bias_hh.size() << ")" << std::endl;
+            m_bias_hh.clear();
+            v_bias_hh.clear();
+        }
         
-        // Shrink vectors
-        lstm_layers.shrink_to_fit();
-        last_gradients.shrink_to_fit();
-        h_state.shrink_to_fit();
-        c_state.shrink_to_fit();
-        layer_cache.shrink_to_fit();
-        fc_weight.shrink_to_fit();
-        fc_bias.shrink_to_fit();
+        std::cout << "LSTMPredictor destructor completed successfully" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "Error during LSTMPredictor cleanup: " << e.what() << std::endl;
