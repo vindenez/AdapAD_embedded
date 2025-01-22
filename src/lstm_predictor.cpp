@@ -168,50 +168,28 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     std::vector<float>& h_state,
     std::vector<float>& c_state,
     const LSTMLayer& layer) {
-
-    // Get the correct input size for this layer
-    const int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
-    const size_t aligned_input_size = (expected_layer_input + 3) & ~3;
-    const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
-
-    std::cout << "\nLSTM Cell Forward Debug (Layer " << current_layer << "):" << std::endl;
-    std::cout << "Expected input size: " << expected_layer_input 
-              << " (aligned: " << aligned_input_size << ")" << std::endl;
-    std::cout << "Actual input size: " << input.size() << std::endl;
-    std::cout << "Hidden size: " << hidden_size 
-              << " (aligned: " << aligned_hidden_size << ")" << std::endl;
-    std::cout << "Weight ih dimensions: " << layer.weight_ih.size() 
-              << " x " << (layer.weight_ih.empty() ? 0 : layer.weight_ih[0].size()) << std::endl;
-    std::cout << "Weight hh dimensions: " << layer.weight_hh.size() 
-              << " x " << (layer.weight_hh.empty() ? 0 : layer.weight_hh[0].size()) << std::endl;
-    std::cout << "H state size: " << h_state.size() << std::endl;
-    std::cout << "C state size: " << c_state.size() << std::endl;
-
+    
     try {
-        std::cout << "Creating aligned input vector..." << std::endl;
+        // Calculate aligned sizes
+        const int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
+        const size_t aligned_input_size = (expected_layer_input + 3) & ~3;
+        const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
+
         // Create aligned input vector
         std::vector<float> aligned_input(aligned_input_size, 0.0f);
         std::copy(input.begin(), input.end(), aligned_input.begin());
 
-        std::cout << "Verifying dimensions..." << std::endl;
-        // Verify dimensions with aligned sizes
+        // Verify dimensions
         if (layer.weight_ih.size() != 4 * aligned_hidden_size || 
             layer.weight_ih[0].size() != aligned_input_size) {
-            throw std::runtime_error("Weight ih dimension mismatch: expected " + 
-                std::to_string(4 * aligned_hidden_size) + "x" + std::to_string(aligned_input_size) + 
-                " but got " + std::to_string(layer.weight_ih.size()) + "x" + 
-                std::to_string(layer.weight_ih[0].size()));
+            throw std::runtime_error("Weight ih dimension mismatch");
         }
 
         if (layer.weight_hh.size() != 4 * aligned_hidden_size || 
             layer.weight_hh[0].size() != aligned_hidden_size) {
-            throw std::runtime_error("Weight hh dimension mismatch: expected " + 
-                std::to_string(4 * aligned_hidden_size) + "x" + std::to_string(aligned_hidden_size) + 
-                " but got " + std::to_string(layer.weight_hh.size()) + "x" + 
-                std::to_string(layer.weight_hh[0].size()));
+            throw std::runtime_error("Weight hh dimension mismatch");
         }
 
-        std::cout << "Resizing state vectors if needed..." << std::endl;
         // Verify state dimensions and ensure alignment
         if (h_state.size() != aligned_hidden_size) {
             h_state.resize(aligned_hidden_size, 0.0f);
@@ -220,8 +198,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             c_state.resize(aligned_hidden_size, 0.0f);
         }
 
-        std::cout << "Setting up cache entry..." << std::endl;
-        // Declare cache_entry only if training_mode is true
+        // Set up cache entry if in training mode
         LSTMCacheEntry cache_entry;
         if (training_mode) {
             cache_entry.input = aligned_input;
@@ -235,11 +212,9 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             cache_entry.prev_cell = c_state;
         }
 
-        std::cout << "Initializing gates..." << std::endl;
         // Initialize gates with biases using NEON
         std::vector<float> gates(4 * aligned_hidden_size, 0.0f);
         for (int h = 0; h < hidden_size; h += 4) {
-            // Load bias vectors
             float32x4_t bias_ih_i = vld1q_f32(&layer.bias_ih[h]);
             float32x4_t bias_hh_i = vld1q_f32(&layer.bias_hh[h]);
             float32x4_t bias_ih_f = vld1q_f32(&layer.bias_ih[hidden_size + h]);
@@ -255,7 +230,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             vst1q_f32(&gates[3 * hidden_size + h], vaddq_f32(bias_ih_o, bias_hh_o));
         }
 
-        std::cout << "Processing input-to-hidden contributions..." << std::endl;
         // Process input-to-hidden contributions
         for (size_t i = 0; i < aligned_input_size; ++i) {
             float input_val = i < input.size() ? input[i] : 0.0f;
@@ -284,8 +258,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             }
         }
 
-        std::cout << "Processing hidden-to-hidden contributions..." << std::endl;
-        // Hidden to hidden contributions using NEON
+        // Process hidden-to-hidden contributions
         for (int h = 0; h < hidden_size; h += 4) {
             float32x4_t gates_i = vld1q_f32(&gates[h]);
             float32x4_t gates_f = vld1q_f32(&gates[hidden_size + h]);
@@ -312,20 +285,18 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             vst1q_f32(&gates[3 * hidden_size + h], gates_o);
         }
 
-        std::cout << "Creating output vector..." << std::endl;
+        // Create output vector
         std::vector<float> output(hidden_size);
         std::memcpy(output.data(), h_state.data(), hidden_size * sizeof(float));
 
+        // Store cache if in training mode
         if (training_mode) {
-            std::cout << "Storing cache..." << std::endl;
             layer_cache[current_layer][current_batch][current_timestep] = cache_entry;
         }
 
-        std::cout << "Returning output..." << std::endl;
         return output;
 
     } catch (const std::exception& e) {
-        std::cerr << "Error in lstm_cell_forward: " << e.what() << std::endl;
         throw;
     }
 }
@@ -513,41 +484,24 @@ void LSTMPredictor::backward_linear_layer(
     std::vector<float>& lstm_grad) {
     
     try {
-        std::cout << "Starting backward_linear_layer..." << std::endl;
-        
         // Get aligned sizes
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
         const size_t aligned_num_classes = (num_classes + 3) & ~3;
         
-        std::cout << "Debug info:" << std::endl;
-        std::cout << "num_classes: " << num_classes << std::endl;
-        std::cout << "aligned_num_classes: " << aligned_num_classes << std::endl;
-        std::cout << "hidden_size: " << hidden_size << std::endl;
-        std::cout << "aligned_hidden_size: " << aligned_hidden_size << std::endl;
-        
-        std::cout << "Initializing gradients..." << std::endl;
         // Initialize gradient vectors with aligned sizes
         fc_weight_grad.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size, 0.0f));
         fc_bias_grad.resize(aligned_num_classes, 0.0f);
         lstm_grad.resize(aligned_hidden_size, 0.0f);
         
-        std::cout << "Checking dimensions..." << std::endl;
-        std::cout << "grad_output size: " << grad_output.size() << std::endl;
-        std::cout << "last_hidden size: " << last_hidden.size() << std::endl;
-        std::cout << "fc_weight size: " << fc_weight.size() << " x " 
-                  << (fc_weight.empty() ? 0 : fc_weight[0].size()) << std::endl;
-        
-        // Create aligned grad_output if needed
+        // Create aligned vectors
         std::vector<float> aligned_grad_output(aligned_num_classes, 0.0f);
         std::copy(grad_output.begin(), grad_output.end(), aligned_grad_output.begin());
         
-        // Create aligned last_hidden if needed
         std::vector<float> aligned_last_hidden(aligned_hidden_size, 0.0f);
         std::copy(last_hidden.begin(), last_hidden.end(), aligned_last_hidden.begin());
         
         // Ensure fc_weight has correct dimensions
         if (fc_weight.size() != aligned_num_classes) {
-            std::cout << "Resizing fc_weight..." << std::endl;
             fc_weight.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size, 0.0f));
         }
         for (auto& row : fc_weight) {
@@ -556,7 +510,6 @@ void LSTMPredictor::backward_linear_layer(
             }
         }
         
-        std::cout << "Computing weight gradients..." << std::endl;
         // Compute gradients using NEON
         for (size_t i = 0; i < aligned_num_classes; i += 4) {
             float32x4_t grad_vec = vld1q_f32(&aligned_grad_output[i]);
@@ -568,7 +521,6 @@ void LSTMPredictor::backward_linear_layer(
             for (size_t j = 0; j < aligned_hidden_size; j += 4) {
                 float32x4_t hidden_vec = vld1q_f32(&aligned_last_hidden[j]);
                 
-                // Store vectors in temporary arrays for lane access
                 float grad_vals[4];
                 vst1q_f32(grad_vals, grad_vec);
                 
@@ -580,7 +532,6 @@ void LSTMPredictor::backward_linear_layer(
             }
         }
         
-        std::cout << "Computing LSTM gradients..." << std::endl;
         // Compute LSTM gradients
         for (size_t i = 0; i < aligned_hidden_size; i += 4) {
             float32x4_t lstm_grad_vec = vdupq_n_f32(0.0f);
@@ -594,10 +545,7 @@ void LSTMPredictor::backward_linear_layer(
             vst1q_f32(&lstm_grad[i], lstm_grad_vec);
         }
         
-        std::cout << "backward_linear_layer completed successfully" << std::endl;
-        
     } catch (const std::exception& e) {
-        std::cerr << "Error in backward_linear_layer: " << e.what() << std::endl;
         throw;
     }
 }
@@ -1255,33 +1203,25 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                               const std::vector<float>& target,
                               float learning_rate) {
     try {
-        std::cout << "\nStarting train_step..." << std::endl;
-        
         // Input validation with aligned sizes
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
         const size_t aligned_input_size = (input_size + 3) & ~3;
         const size_t aligned_num_classes = (num_classes + 3) & ~3;
         
-        std::cout << "Validating input dimensions..." << std::endl;
         // Dimension checks
         for (size_t batch = 0; batch < x.size(); ++batch) {
             for (size_t seq = 0; seq < x[batch].size(); ++seq) {
                 if (x[batch][seq].size() != input_size) {
-                    throw std::runtime_error(
-                        "Input sequence dimension mismatch in train_step: batch " + 
-                        std::to_string(batch) + ", seq " + std::to_string(seq));
+                    throw std::runtime_error("Input sequence dimension mismatch");
                 }
             }
         }
         
-        std::cout << "Checking Adam initialization..." << std::endl;
         // Initialize Adam if needed
         if (!are_adam_states_initialized()) {
-            std::cout << "Initializing Adam states..." << std::endl;
             initialize_adam_states();
         }
         
-        std::cout << "Additional validation..." << std::endl;
         // Additional validation
         if (x.empty() || x[0].empty() || x[0][0].empty() ||
             x[0][0].size() != input_size || target.size() != num_classes) {
@@ -1295,57 +1235,43 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         const float beta2 = 0.999f;
         const float epsilon = 1e-8f;
 
-        std::cout << "Starting forward pass..." << std::endl;
         // Forward pass with aligned memory
         auto lstm_output = forward(x);
+        auto prediction = get_final_prediction(lstm_output);
         
-        std::cout << "Getting final prediction..." << std::endl;
-        auto output = get_final_prediction(lstm_output);
-
-        std::cout << "Computing gradients..." << std::endl;
         // Compute gradients
-        auto grad_output = compute_mse_loss_gradient(output, target);
-        const auto& last_hidden = lstm_output.final_hidden.back();
+        std::vector<float> grad_output(num_classes);
+        for (size_t i = 0; i < num_classes; ++i) {
+            grad_output[i] = prediction[i] - target[i];
+        }
 
-        std::cout << "Running backward pass through linear layer..." << std::endl;
-        // Backward pass through linear layer
+        // Run backward pass
         std::vector<std::vector<float>> fc_weight_grad;
         std::vector<float> fc_bias_grad;
         std::vector<float> lstm_grad;
-        backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
+        
+        backward_linear_layer(grad_output, lstm_output.sequence_output.back().back(),
+                            fc_weight_grad, fc_bias_grad, lstm_grad);
 
-        std::cout << "Verifying dimensions..." << std::endl;
-        // Verify dimensions and apply Adam updates
-        if (fc_weight.size() != fc_weight_grad.size() || 
-            fc_weight[0].size() != fc_weight_grad[0].size()) {
-            throw std::runtime_error("FC layer dimension mismatch");
-        }
-
-        std::cout << "Applying Adam updates..." << std::endl;
-        // Apply Adam updates using optimized functions
+        // Apply Adam updates
         apply_adam_update(fc_weight, fc_weight_grad, m_fc_weight, v_fc_weight,
                          learning_rate, beta1, beta2, epsilon, timestep);
         apply_adam_update(fc_bias, fc_bias_grad, m_fc_bias, v_fc_bias,
                          learning_rate, beta1, beta2, epsilon, timestep);
 
-        std::cout << "Validating cache..." << std::endl;
         // Validate cache and compute LSTM gradients
         if (layer_cache.empty() || lstm_grad.size() != hidden_size) {
             throw std::runtime_error("Invalid cache or gradient dimensions");
         }
 
-        std::cout << "Computing LSTM gradients..." << std::endl;
         auto lstm_grads = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
 
-        std::cout << "Applying LSTM Adam updates..." << std::endl;
         // Apply Adam updates to LSTM layers
         for (int layer = 0; layer < num_layers; ++layer) {
             if (lstm_layers[layer].weight_ih.size() != lstm_grads[layer].weight_ih_grad.size()) {
-                throw std::runtime_error("LSTM dimension mismatch at layer " + 
-                                       std::to_string(layer));
+                throw std::runtime_error("LSTM dimension mismatch");
             }
 
-            // Apply updates using NEON-optimized functions
             apply_adam_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad,
                             m_weight_ih[layer], v_weight_ih[layer],
                             learning_rate, beta1, beta2, epsilon, timestep);
@@ -1360,10 +1286,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                             learning_rate, beta1, beta2, epsilon, timestep);
         }
 
-        std::cout << "Train step completed successfully" << std::endl;
-
     } catch (const std::exception& e) {
-        std::cerr << "Error in train_step: " << e.what() << std::endl;
         throw;
     }
 }
