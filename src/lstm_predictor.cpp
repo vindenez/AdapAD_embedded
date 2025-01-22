@@ -11,13 +11,10 @@
 
 // NEON-optimized pow function for vectors of 4 elements
 inline float32x4_t pow_float_neon(float32x4_t base, float32x4_t exp) {
-    // Store vectors in temporary arrays
-    float base_array[4], exp_array[4];
+    static float base_array[4], exp_array[4], result_array[4];
     vst1q_f32(base_array, base);
     vst1q_f32(exp_array, exp);
     
-    // Compute pow using scalar operations
-    float result_array[4];
     for (int i = 0; i < 4; i++) {
         result_array[i] = std::pow(base_array[i], exp_array[i]);
     }
@@ -32,7 +29,7 @@ inline float pow_float(float base, float exp) {
 
 // Custom implementations for missing NEON intrinsics 
 inline float32x4_t vdivq_f32(float32x4_t a, float32x4_t b) {
-    float a_array[4], b_array[4];
+    static float a_array[4], b_array[4];
     vst1q_f32(a_array, a);
     vst1q_f32(b_array, b);
     for (int i = 0; i < 4; i++) {
@@ -78,9 +75,23 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
       seq_length(lookback_len),
       batch_first(batch_first) {
     
-    // Ensure vectors are aligned for NEON operations
+    // Pre-calculate aligned sizes
+    const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
+    const size_t aligned_input_size = (input_size + 3) & ~3;
+    const size_t aligned_num_classes = (num_classes + 3) & ~3;
+    
+    // Pre-allocate vectors with aligned sizes
     lstm_layers.resize(num_layers);
     last_gradients.resize(num_layers);
+    h_state.resize(num_layers, std::vector<float>(aligned_hidden_size));
+    c_state.resize(num_layers, std::vector<float>(aligned_hidden_size));
+    
+    // Pre-allocate FC layer vectors
+    fc_weight.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size));
+    fc_bias.resize(aligned_num_classes);
+    
+    // Pre-allocate cache structure
+    layer_cache.resize(num_layers);
     
     initialize_weights();
     reset_states();
@@ -169,14 +180,34 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     std::vector<float>& c_state,
     const LSTMLayer& layer) {
     
+    // Static vectors for reuse across all calls
+    static std::vector<float> aligned_input;
+    static std::vector<float> gates;
+    static std::vector<float> output;
+    static LSTMCacheEntry cache_entry;
+    
     try {
         // Calculate aligned sizes
         const int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
         const size_t aligned_input_size = (expected_layer_input + 3) & ~3;
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
 
+        // Resize only if needed
+        if (aligned_input.size() < aligned_input_size) {
+            aligned_input.resize(aligned_input_size);
+        }
+        if (gates.size() < 4 * aligned_hidden_size) {
+            gates.resize(4 * aligned_hidden_size);
+        }
+        if (output.size() < hidden_size) {
+            output.resize(hidden_size);
+        }
+        
+        // Zero out vectors
+        std::fill(aligned_input.begin(), aligned_input.end(), 0.0f);
+        std::fill(gates.begin(), gates.end(), 0.0f);
+
         // Create aligned input vector
-        std::vector<float> aligned_input(aligned_input_size, 0.0f);
         std::copy(input.begin(), input.end(), aligned_input.begin());
 
         // Verify dimensions
@@ -199,7 +230,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         }
 
         // Set up cache entry if in training mode
-        LSTMCacheEntry cache_entry;
         if (training_mode) {
             cache_entry.input = aligned_input;
             cache_entry.input_gate.resize(aligned_hidden_size, 0.0f);
@@ -213,7 +243,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         }
 
         // Initialize gates with biases using NEON
-        std::vector<float> gates(4 * aligned_hidden_size, 0.0f);
         for (int h = 0; h < hidden_size; h += 4) {
             float32x4_t bias_ih_i = vld1q_f32(&layer.bias_ih[h]);
             float32x4_t bias_hh_i = vld1q_f32(&layer.bias_hh[h]);
@@ -286,7 +315,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         }
 
         // Create output vector
-        std::vector<float> output(hidden_size);
         std::memcpy(output.data(), h_state.data(), hidden_size * sizeof(float));
 
         // Store cache if in training mode
@@ -323,38 +351,57 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3; // Round up to multiple of 4
         const size_t aligned_input_size = (input_size + 3) & ~3;
         
-        // Initialize layer cache for training with aligned sizes
+        // Reuse layer cache memory if possible
         if (training_mode) {
-            layer_cache.clear();
-            layer_cache.resize(num_layers);
+            if (layer_cache.size() != num_layers) {
+                layer_cache.resize(num_layers);
+            }
             
             for (int layer = 0; layer < num_layers; ++layer) {
-                layer_cache[layer].resize(batch_size);
+                if (layer_cache[layer].size() != batch_size) {
+                    layer_cache[layer].resize(batch_size);
+                }
                 for (size_t batch = 0; batch < batch_size; ++batch) {
-                    layer_cache[layer][batch].resize(seq_len);
+                    if (layer_cache[layer][batch].size() != seq_len) {
+                        layer_cache[layer][batch].resize(seq_len);
+                    }
                 }
             }
         }
         
-        // Initialize output structure with aligned sizes
+        // Initialize output structure with preallocated memory
         LSTMOutput output;
-        output.sequence_output.resize(batch_size, 
-            std::vector<std::vector<float>>(seq_len, 
-                std::vector<float>(hidden_size)));  // Note: Not aligned size here
+        output.sequence_output.resize(batch_size);
+        for (auto& batch_seq : output.sequence_output) {
+            batch_seq.resize(seq_len);
+            for (auto& seq_output : batch_seq) {
+                seq_output.resize(hidden_size);
+            }
+        }
         
-        // Initialize or use provided states
+        // Reuse state vectors if possible
         if (!initial_hidden || !initial_cell) {
-            h_state.resize(num_layers);
-            c_state.resize(num_layers);
+            if (h_state.size() != num_layers) {
+                h_state.resize(num_layers);
+                c_state.resize(num_layers);
+            }
             
             for (int layer = 0; layer < num_layers; ++layer) {
-                h_state[layer].resize(hidden_size, 0.0f);  // Use actual size
-                c_state[layer].resize(hidden_size, 0.0f);  // Use actual size
+                if (h_state[layer].size() != hidden_size) {
+                    h_state[layer].resize(hidden_size, 0.0f);
+                    c_state[layer].resize(hidden_size, 0.0f);
+                } else {
+                    std::fill(h_state[layer].begin(), h_state[layer].end(), 0.0f);
+                    std::fill(c_state[layer].begin(), c_state[layer].end(), 0.0f);
+                }
             }
         } else {
             h_state = *initial_hidden;
             c_state = *initial_cell;
         }
+        
+        // Static vector for layer input to avoid reallocations
+        static std::vector<float> layer_input;
         
         // Process each batch and timestep
         for (size_t batch = 0; batch < batch_size; ++batch) {
@@ -366,9 +413,8 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
             
             for (size_t t = 0; t < seq_len; ++t) {
                 current_timestep = t;
-                std::vector<float> layer_input = x[batch][t];
+                layer_input = x[batch][t];  // Reuse vector
                 
-                // Process through LSTM layers
                 for (int layer = 0; layer < num_layers; ++layer) {
                     current_layer = layer;
                     layer_input = lstm_cell_forward(
@@ -379,12 +425,10 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                     );
                 }
                 
-                // Store output
                 output.sequence_output[batch][t] = layer_input;
             }
         }
         
-        // Store final states
         output.final_hidden = h_state;
         output.final_cell = c_state;
         
@@ -483,21 +527,28 @@ void LSTMPredictor::backward_linear_layer(
     std::vector<float>& fc_bias_grad,
     std::vector<float>& lstm_grad) {
     
+    static std::vector<float> aligned_grad_output;
+    static std::vector<float> aligned_last_hidden;
+    
     try {
         // Get aligned sizes
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
         const size_t aligned_num_classes = (num_classes + 3) & ~3;
         
-        // Initialize gradient vectors with aligned sizes
-        fc_weight_grad.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size, 0.0f));
-        fc_bias_grad.resize(aligned_num_classes, 0.0f);
-        lstm_grad.resize(aligned_hidden_size, 0.0f);
+        // Resize only if needed
+        if (aligned_grad_output.size() < aligned_num_classes) {
+            aligned_grad_output.resize(aligned_num_classes);
+        }
+        if (aligned_last_hidden.size() < aligned_hidden_size) {
+            aligned_last_hidden.resize(aligned_hidden_size);
+        }
+        
+        // Zero out vectors
+        std::fill(aligned_grad_output.begin(), aligned_grad_output.end(), 0.0f);
+        std::fill(aligned_last_hidden.begin(), aligned_last_hidden.end(), 0.0f);
         
         // Create aligned vectors
-        std::vector<float> aligned_grad_output(aligned_num_classes, 0.0f);
         std::copy(grad_output.begin(), grad_output.end(), aligned_grad_output.begin());
-        
-        std::vector<float> aligned_last_hidden(aligned_hidden_size, 0.0f);
         std::copy(last_hidden.begin(), last_hidden.end(), aligned_last_hidden.begin());
         
         // Ensure fc_weight has correct dimensions
@@ -537,7 +588,7 @@ void LSTMPredictor::backward_linear_layer(
             float32x4_t lstm_grad_vec = vdupq_n_f32(0.0f);
             
             for (size_t j = 0; j < num_classes; ++j) {
-                float grad_val = grad_output[j];
+                float grad_val = aligned_grad_output[j];
                 float32x4_t weight_vec = vld1q_f32(&fc_weight[j][i]);
                 lstm_grad_vec = vmlaq_n_f32(lstm_grad_vec, weight_vec, grad_val);
             }
@@ -907,19 +958,41 @@ void LSTMPredictor::initialize_adam_states() {
     const size_t aligned_num_classes = (num_classes + 3) & ~3;
     
     try {
+        // Static allocation for temporary vectors
+        static std::vector<float> temp_vector;
+        const size_t max_vector_size = std::max({
+            aligned_hidden_size * 4,
+            aligned_input_size,
+            aligned_num_classes
+        });
+        
+        if (temp_vector.size() < max_vector_size) {
+            temp_vector.resize(max_vector_size, 0.0f);
+        }
+        
         // Initialize FC layer vectors with aligned sizes
         m_fc_weight.resize(aligned_num_classes);
         v_fc_weight.resize(aligned_num_classes);
-        for (auto& row : m_fc_weight) row.resize(aligned_hidden_size, 0.0f);
-        for (auto& row : v_fc_weight) row.resize(aligned_hidden_size, 0.0f);
         
-        m_fc_bias.resize(aligned_num_classes, 0.0f);
-        v_fc_bias.resize(aligned_num_classes, 0.0f);
-        
-        // Initialize zero vector for NEON operations
+        // Use NEON to zero out vectors in blocks
         float32x4_t zero_vec = vdupq_n_f32(0.0f);
+        for (size_t i = 0; i < max_vector_size; i += 4) {
+            vst1q_f32(&temp_vector[i], zero_vec);
+        }
         
-        // Initialize LSTM layer states with correct dimensions
+        // Use the zeroed temp vector to initialize matrices
+        for (auto& row : m_fc_weight) {
+            row.assign(temp_vector.begin(), temp_vector.begin() + aligned_hidden_size);
+        }
+        for (auto& row : v_fc_weight) {
+            row.assign(temp_vector.begin(), temp_vector.begin() + aligned_hidden_size);
+        }
+        
+        // Initialize bias vectors
+        m_fc_bias.assign(temp_vector.begin(), temp_vector.begin() + aligned_num_classes);
+        v_fc_bias.assign(temp_vector.begin(), temp_vector.begin() + aligned_num_classes);
+        
+        // Initialize LSTM layer states
         m_weight_ih.resize(num_layers);
         v_weight_ih.resize(num_layers);
         m_weight_hh.resize(num_layers);
@@ -930,44 +1003,24 @@ void LSTMPredictor::initialize_adam_states() {
         v_bias_hh.resize(num_layers);
         
         for (int layer = 0; layer < num_layers; ++layer) {
-            int aligned_input_size_layer = (layer == 0) ? aligned_input_size : aligned_hidden_size;
+            const size_t aligned_input_size_layer = (layer == 0) ? aligned_input_size : aligned_hidden_size;
             
-            // Initialize weight matrices with correct dimensions
-            m_weight_ih[layer].resize(4 * aligned_hidden_size);
-            v_weight_ih[layer].resize(4 * aligned_hidden_size);
-            m_weight_hh[layer].resize(4 * aligned_hidden_size);
-            v_weight_hh[layer].resize(4 * aligned_hidden_size);
-            
-            // Resize each row correctly
-            for (auto& row : m_weight_ih[layer]) row.resize(aligned_input_size_layer, 0.0f);
-            for (auto& row : v_weight_ih[layer]) row.resize(aligned_input_size_layer, 0.0f);
-            for (auto& row : m_weight_hh[layer]) row.resize(aligned_hidden_size, 0.0f);
-            for (auto& row : v_weight_hh[layer]) row.resize(aligned_hidden_size, 0.0f);
-            
-            // Zero out matrices using NEON
-            for (int i = 0; i < 4 * aligned_hidden_size; i += 4) {
-                for (int j = 0; j < aligned_input_size_layer; j += 4) {
-                    vst1q_f32(&m_weight_ih[layer][i][j], zero_vec);
-                    vst1q_f32(&v_weight_ih[layer][i][j], zero_vec);
-                }
-                for (int j = 0; j < aligned_hidden_size; j += 4) {
-                    vst1q_f32(&m_weight_hh[layer][i][j], zero_vec);
-                    vst1q_f32(&v_weight_hh[layer][i][j], zero_vec);
+            // Initialize matrices using temp_vector
+            for (auto* matrices : {&m_weight_ih[layer], &v_weight_ih[layer],
+                                 &m_weight_hh[layer], &v_weight_hh[layer]}) {
+                matrices->resize(4 * aligned_hidden_size);
+                for (auto& row : *matrices) {
+                    row.assign(temp_vector.begin(), 
+                             temp_vector.begin() + 
+                             (matrices == &m_weight_ih[layer] || matrices == &v_weight_ih[layer] ? 
+                              aligned_input_size_layer : aligned_hidden_size));
                 }
             }
             
-            // Initialize and zero out bias vectors
-            m_bias_ih[layer].resize(4 * aligned_hidden_size, 0.0f);
-            v_bias_ih[layer].resize(4 * aligned_hidden_size, 0.0f);
-            m_bias_hh[layer].resize(4 * aligned_hidden_size, 0.0f);
-            v_bias_hh[layer].resize(4 * aligned_hidden_size, 0.0f);
-            
-            // Zero out bias vectors using NEON
-            for (int i = 0; i < 4 * aligned_hidden_size; i += 4) {
-                vst1q_f32(&m_bias_ih[layer][i], zero_vec);
-                vst1q_f32(&v_bias_ih[layer][i], zero_vec);
-                vst1q_f32(&m_bias_hh[layer][i], zero_vec);
-                vst1q_f32(&v_bias_hh[layer][i], zero_vec);
+            // Initialize bias vectors
+            for (auto* biases : {&m_bias_ih[layer], &v_bias_ih[layer],
+                                &m_bias_hh[layer], &v_bias_hh[layer]}) {
+                biases->assign(temp_vector.begin(), temp_vector.begin() + 4 * aligned_hidden_size);
             }
         }
         
@@ -985,59 +1038,47 @@ void LSTMPredictor::apply_adam_update(
     std::vector<std::vector<float>>& v_t,
     float learning_rate, float beta1, float beta2, float epsilon, int t) {
     
-    // Validation checks
-    if (weights.empty() || grads.empty() || m_t.empty() || v_t.empty() ||
-        weights[0].empty() || grads[0].empty() || m_t[0].empty() || v_t[0].empty() ||
-        weights.size() != grads.size() || weights[0].size() != grads[0].size() ||
-        weights.size() != m_t.size() || weights[0].size() != m_t[0].size() ||
-        weights.size() != v_t.size() || weights[0].size() != v_t[0].size() ||
-        t <= 0) {
-        throw std::runtime_error("Invalid inputs in Adam update");
+    // Static NEON vectors to avoid reallocation
+    static float32x4_t beta1_vec, one_minus_beta1, beta2_vec, one_minus_beta2;
+    static float32x4_t eps_vec, lr_vec, beta1_corr_vec, beta2_corr_vec;
+    
+    // Update constants only when t changes
+    static int last_t = 0;
+    if (t != last_t) {
+        beta1_vec = vdupq_n_f32(beta1);
+        one_minus_beta1 = vdupq_n_f32(1.0f - beta1);
+        beta2_vec = vdupq_n_f32(beta2);
+        one_minus_beta2 = vdupq_n_f32(1.0f - beta2);
+        eps_vec = vdupq_n_f32(epsilon);
+        lr_vec = vdupq_n_f32(learning_rate);
+        
+        float beta1_correction = 1.0f - pow_float(beta1, static_cast<float>(t));
+        float beta2_correction = 1.0f - pow_float(beta2, static_cast<float>(t));
+        beta1_corr_vec = vdupq_n_f32(beta1_correction);
+        beta2_corr_vec = vdupq_n_f32(beta2_correction);
+        
+        last_t = t;
     }
     
-    // Prepare NEON constants
-    float32x4_t beta1_vec = vdupq_n_f32(beta1);
-    float32x4_t one_minus_beta1 = vdupq_n_f32(1.0f - beta1);
-    float32x4_t beta2_vec = vdupq_n_f32(beta2);
-    float32x4_t one_minus_beta2 = vdupq_n_f32(1.0f - beta2);
-    float32x4_t eps_vec = vdupq_n_f32(epsilon);
-    float32x4_t lr_vec = vdupq_n_f32(learning_rate);
-    
-    float beta1_correction = 1.0f - pow_float(beta1, static_cast<float>(t));
-    float beta2_correction = 1.0f - pow_float(beta2, static_cast<float>(t));
-    float32x4_t beta1_corr_vec = vdupq_n_f32(beta1_correction);
-    float32x4_t beta2_corr_vec = vdupq_n_f32(beta2_correction);
-    
+    #pragma omp parallel for collapse(2)
     for (size_t i = 0; i < weights.size(); ++i) {
         for (size_t j = 0; j < weights[i].size(); j += 4) {
-            // Load vectors
+            // Process 4 elements at once using NEON
             float32x4_t grad_vec = vld1q_f32(&grads[i][j]);
             float32x4_t m_vec = vld1q_f32(&m_t[i][j]);
             float32x4_t v_vec = vld1q_f32(&v_t[i][j]);
+            float32x4_t weight_vec = vld1q_f32(&weights[i][j]);
             
-            // Update biased first moment
-            float32x4_t m_new = vmlaq_f32(
-                vmulq_f32(one_minus_beta1, grad_vec),
-                beta1_vec, m_vec
-            );
-            
-            // Update biased second moment
-            float32x4_t grad_squared = vmulq_f32(grad_vec, grad_vec);
-            float32x4_t v_new = vmlaq_f32(
-                vmulq_f32(one_minus_beta2, grad_squared),
-                beta2_vec, v_vec
-            );
-            
-            // Compute bias-corrected moments
-            float32x4_t m_hat = vdivq_f32(m_new, beta1_corr_vec);
-            float32x4_t v_hat = vdivq_f32(v_new, beta2_corr_vec);
+            // Fused multiply-add operations
+            float32x4_t m_new = vmlaq_f32(vmulq_f32(one_minus_beta1, grad_vec), beta1_vec, m_vec);
+            float32x4_t v_new = vmlaq_f32(vmulq_f32(one_minus_beta2, vmulq_f32(grad_vec, grad_vec)), beta2_vec, v_vec);
             
             // Compute update
-            float32x4_t denom = vaddq_f32(vsqrtq_f32(v_hat), eps_vec);
-            float32x4_t update = vdivq_f32(m_hat, denom);
+            float32x4_t m_hat = vdivq_f32(m_new, beta1_corr_vec);
+            float32x4_t v_hat = vdivq_f32(v_new, beta2_corr_vec);
+            float32x4_t update = vdivq_f32(m_hat, vaddq_f32(vsqrtq_f32(v_hat), eps_vec));
             
-            // Update weights
-            float32x4_t weight_vec = vld1q_f32(&weights[i][j]);
+            // Apply update
             weight_vec = vsubq_f32(weight_vec, vmulq_f32(lr_vec, update));
             
             // Store results
@@ -1055,58 +1096,73 @@ void LSTMPredictor::apply_adam_update(
     std::vector<float>& v_t,
     float learning_rate, float beta1, float beta2, float epsilon, int t) {
     
-    if (t <= 0) {
-        throw std::invalid_argument("Adam timestep must be positive");
+    // Static NEON vectors to avoid reallocation
+    static float32x4_t beta1_vec, one_minus_beta1, beta2_vec, one_minus_beta2;
+    static float32x4_t eps_vec, lr_vec, beta1_corr_vec, beta2_corr_vec;
+    
+    // Update constants only when t changes
+    static int last_t = 0;
+    if (t != last_t) {
+        beta1_vec = vdupq_n_f32(beta1);
+        one_minus_beta1 = vdupq_n_f32(1.0f - beta1);
+        beta2_vec = vdupq_n_f32(beta2);
+        one_minus_beta2 = vdupq_n_f32(1.0f - beta2);
+        eps_vec = vdupq_n_f32(epsilon);
+        lr_vec = vdupq_n_f32(learning_rate);
+        
+        float beta1_correction = 1.0f - pow_float(beta1, static_cast<float>(t));
+        float beta2_correction = 1.0f - pow_float(beta2, static_cast<float>(t));
+        beta1_corr_vec = vdupq_n_f32(beta1_correction);
+        beta2_corr_vec = vdupq_n_f32(beta2_correction);
+        
+        last_t = t;
     }
     
-    // Prepare NEON constants
-    float32x4_t beta1_vec = vdupq_n_f32(beta1);
-    float32x4_t one_minus_beta1 = vdupq_n_f32(1.0f - beta1);
-    float32x4_t beta2_vec = vdupq_n_f32(beta2);
-    float32x4_t one_minus_beta2 = vdupq_n_f32(1.0f - beta2);
-    float32x4_t eps_vec = vdupq_n_f32(epsilon);
-    float32x4_t lr_vec = vdupq_n_f32(learning_rate);
-    
-    float beta1_correction = 1.0f - pow_float(beta1, static_cast<float>(t));
-    float beta2_correction = 1.0f - pow_float(beta2, static_cast<float>(t));
-    float32x4_t beta1_corr_vec = vdupq_n_f32(beta1_correction);
-    float32x4_t beta2_corr_vec = vdupq_n_f32(beta2_correction);
-    
-    for (size_t i = 0; i < biases.size(); i += 4) {
-        // Load vectors
-        float32x4_t grad_vec = vld1q_f32(&grads[i]);
-        float32x4_t m_vec = vld1q_f32(&m_t[i]);
-        float32x4_t v_vec = vld1q_f32(&v_t[i]);
-        
-        // Update biased first moment
-        float32x4_t m_new = vmlaq_f32(
-            vmulq_f32(one_minus_beta1, grad_vec),
-            beta1_vec, m_vec
-        );
-        
-        // Update biased second moment
-        float32x4_t grad_squared = vmulq_f32(grad_vec, grad_vec);
-        float32x4_t v_new = vmlaq_f32(
-            vmulq_f32(one_minus_beta2, grad_squared),
-            beta2_vec, v_vec
-        );
-        
-        // Compute bias-corrected moments
-        float32x4_t m_hat = vdivq_f32(m_new, beta1_corr_vec);
-        float32x4_t v_hat = vdivq_f32(v_new, beta2_corr_vec);
-        
-        // Compute update
-        float32x4_t denom = vaddq_f32(vsqrtq_f32(v_hat), eps_vec);
-        float32x4_t update = vdivq_f32(m_hat, denom);
-        
-        // Update biases
-        float32x4_t bias_vec = vld1q_f32(&biases[i]);
-        bias_vec = vsubq_f32(bias_vec, vmulq_f32(lr_vec, update));
-        
-        // Store results
-        vst1q_f32(&biases[i], bias_vec);
-        vst1q_f32(&m_t[i], m_new);
-        vst1q_f32(&v_t[i], v_new);
+    // Process bias updates in parallel blocks
+    #pragma omp parallel for
+    for (size_t i = 0; i < biases.size(); i += 16) {
+        // Process 4 elements at a time using NEON, with prefetching
+        for (size_t j = i; j < std::min(i + 16, biases.size()); j += 4) {
+            // Prefetch next iteration's data
+            if (j + 4 < biases.size()) {
+                __builtin_prefetch(&grads[j + 4], 0, 3);
+                __builtin_prefetch(&m_t[j + 4], 1, 3);
+                __builtin_prefetch(&v_t[j + 4], 1, 3);
+                __builtin_prefetch(&biases[j + 4], 1, 3);
+            }
+            
+            // Load vectors
+            float32x4_t grad_vec = vld1q_f32(&grads[j]);
+            float32x4_t m_vec = vld1q_f32(&m_t[j]);
+            float32x4_t v_vec = vld1q_f32(&v_t[j]);
+            float32x4_t bias_vec = vld1q_f32(&biases[j]);
+            
+            // Fused multiply-add operations for moment updates
+            float32x4_t m_new = vmlaq_f32(
+                vmulq_f32(one_minus_beta1, grad_vec),
+                beta1_vec, m_vec
+            );
+            
+            float32x4_t grad_squared = vmulq_f32(grad_vec, grad_vec);
+            float32x4_t v_new = vmlaq_f32(
+                vmulq_f32(one_minus_beta2, grad_squared),
+                beta2_vec, v_vec
+            );
+            
+            // Compute bias-corrected moments and update in one go
+            float32x4_t m_hat = vdivq_f32(m_new, beta1_corr_vec);
+            float32x4_t v_hat = vdivq_f32(v_new, beta2_corr_vec);
+            float32x4_t denom = vaddq_f32(vsqrtq_f32(v_hat), eps_vec);
+            float32x4_t update = vdivq_f32(m_hat, denom);
+            
+            // Apply update to biases
+            bias_vec = vsubq_f32(bias_vec, vmulq_f32(lr_vec, update));
+            
+            // Store results
+            vst1q_f32(&biases[j], bias_vec);
+            vst1q_f32(&m_t[j], m_new);
+            vst1q_f32(&v_t[j], v_new);
+        }
     }
 }
 
@@ -1289,4 +1345,15 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
     } catch (const std::exception& e) {
         throw;
     }
+}
+
+LSTMPredictor::~LSTMPredictor() {
+    // Clear vectors explicitly
+    lstm_layers.clear();
+    last_gradients.clear();
+    h_state.clear();
+    c_state.clear();
+    layer_cache.clear();
+    fc_weight.clear();
+    fc_bias.clear();
 }
