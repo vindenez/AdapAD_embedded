@@ -42,7 +42,6 @@ inline float32x4_t vdivq_f32(float32x4_t a, float32x4_t b) {
 }
 
 inline float32x4_t vexpq_f32(float32x4_t x) {
-    float32x4_t result;
     float x_array[4];
     vst1q_f32(x_array, x);
     for (int i = 0; i < 4; i++) {
@@ -52,7 +51,6 @@ inline float32x4_t vexpq_f32(float32x4_t x) {
 }
 
 inline float32x4_t vlogq_f32(float32x4_t x) {
-    float32x4_t result;
     float x_array[4];
     vst1q_f32(x_array, x);
     for (int i = 0; i < 4; i++) {
@@ -62,7 +60,6 @@ inline float32x4_t vlogq_f32(float32x4_t x) {
 }
 
 inline float32x4_t vsqrtq_f32(float32x4_t x) {
-    float32x4_t result;
     float x_array[4];
     vst1q_f32(x_array, x);
     for (int i = 0; i < 4; i++) {
@@ -153,12 +150,9 @@ void process_vector_neon(float* data, size_t size, float (*scalar_func)(float)) 
         float32x4_t vec = vld1q_f32(data + i);
         float32x4_t result;
         
-        // Compare function pointers directly
-        if (scalar_func == &LSTMPredictor::sigmoid) {
-            result = sigmoid_neon(vec);
-        } else {
-            result = tanh_neon(vec);
-        }
+        // Use function pointer directly without class member comparison
+        result = (scalar_func == static_cast<float(*)(float)>(std::tanh)) ? 
+                 tanh_neon(vec) : sigmoid_neon(vec);
         
         vst1q_f32(data + i, result);
     }
@@ -192,10 +186,10 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
 
     // Verify state dimensions and ensure alignment
     const size_t aligned_size = (hidden_size + 3) & ~3; // Round up to multiple of 4
-    if (h_state.size() != hidden_size) {
+    if (h_state.size() != static_cast<size_t>(hidden_size)) {
         h_state.resize(aligned_size, 0.0f);
     }
-    if (c_state.size() != hidden_size) {
+    if (c_state.size() != static_cast<size_t>(hidden_size)) {
         c_state.resize(aligned_size, 0.0f);
     }
 
