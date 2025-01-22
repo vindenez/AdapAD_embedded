@@ -508,117 +508,81 @@ void LSTMPredictor::set_fc_weights(const std::vector<std::vector<float>>& weight
 void LSTMPredictor::backward_linear_layer(
     const std::vector<float>& grad_output,
     const std::vector<float>& last_hidden,
-    std::vector<std::vector<float>>& weight_grad,
-    std::vector<float>& bias_grad,
-    std::vector<float>& input_grad) {
+    std::vector<std::vector<float>>& fc_weight_grad,
+    std::vector<float>& fc_bias_grad,
+    std::vector<float>& lstm_grad) {
     
-    // Check dimensions
-    if (grad_output.size() != num_classes) {
-        throw std::invalid_argument(
-            "grad_output size mismatch: " + std::to_string(grad_output.size()) +
-            " != " + std::to_string(num_classes)
-        );
-    }
-    
-    if (last_hidden.size() != hidden_size) {
-        throw std::invalid_argument(
-            "last_hidden size mismatch: " + std::to_string(last_hidden.size()) +
-            " != " + std::to_string(hidden_size)
-        );
-    }
-    
-    // Calculate aligned sizes
-    const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
-    const size_t aligned_num_classes = (num_classes + 3) & ~3;
-    
-    // Initialize gradients with aligned dimensions
-    weight_grad.resize(aligned_num_classes);
-    for (auto& row : weight_grad) {
-        row.resize(aligned_hidden_size, 0.0f);
-    }
-    
-    // Copy and align grad_output for bias
-    bias_grad.resize(aligned_num_classes, 0.0f);
-    std::memcpy(bias_grad.data(), grad_output.data(), 
-                num_classes * sizeof(float));
-    
-    // Align input gradients
-    input_grad.resize(aligned_hidden_size, 0.0f);
-    
-    // Create aligned copies of input data
-    std::vector<float> aligned_grad_output(aligned_num_classes, 0.0f);
-    std::vector<float> aligned_last_hidden(aligned_hidden_size, 0.0f);
-    std::memcpy(aligned_grad_output.data(), grad_output.data(), 
-                num_classes * sizeof(float));
-    std::memcpy(aligned_last_hidden.data(), last_hidden.data(), 
-                hidden_size * sizeof(float));
-    
-    // Compute weight gradients using NEON
-    for (int i = 0; i < num_classes; i += 4) {
-        float32x4_t grad_vec = vld1q_f32(&aligned_grad_output[i]);
+    try {
+        std::cout << "Starting backward_linear_layer..." << std::endl;
         
-        for (int j = 0; j < hidden_size; j += 4) {
-            float32x4_t hidden_vec = vld1q_f32(&aligned_last_hidden[j]);
-            
-            // Use individual lanes with constant indices
-            float32x4_t result0 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 0));
-            if (i + 1 < num_classes) {
-                float32x4_t result1 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 1));
-                vst1q_f32(&weight_grad[i + 1][j], result1);
-            }
-            if (i + 2 < num_classes) {
-                float32x4_t result2 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 2));
-                vst1q_f32(&weight_grad[i + 2][j], result2);
-            }
-            if (i + 3 < num_classes) {
-                float32x4_t result3 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 3));
-                vst1q_f32(&weight_grad[i + 3][j], result3);
-            }
-            vst1q_f32(&weight_grad[i][j], result0);
-        }
-    }
-    
-    // Compute input gradients using NEON
-    for (int i = 0; i < hidden_size; i += 4) {
-        float32x4_t sum = vdupq_n_f32(0.0f);
+        // Get aligned sizes
+        const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
+        const size_t aligned_num_classes = (num_classes + 3) & ~3;
         
-        // Process 4 elements at a time for each class
-        for (int j = 0; j < num_classes; j += 4) {
-            float32x4_t grad_vec = vld1q_f32(&aligned_grad_output[j]);
-            
-            // Load 4x4 block of weights
-            float32x4_t w0 = vld1q_f32(&fc_weight[j][i]);
-            float32x4_t w1 = vld1q_f32(&fc_weight[j + 1][i]);
-            float32x4_t w2 = vld1q_f32(&fc_weight[j + 2][i]);
-            float32x4_t w3 = vld1q_f32(&fc_weight[j + 3][i]);
-            
-            // Multiply-accumulate for each row
-            sum = vmlaq_n_f32(sum, w0, vgetq_lane_f32(grad_vec, 0));
-            if (j + 1 < num_classes) sum = vmlaq_n_f32(sum, w1, vgetq_lane_f32(grad_vec, 1));
-            if (j + 2 < num_classes) sum = vmlaq_n_f32(sum, w2, vgetq_lane_f32(grad_vec, 2));
-            if (j + 3 < num_classes) sum = vmlaq_n_f32(sum, w3, vgetq_lane_f32(grad_vec, 3));
+        std::cout << "Initializing gradients..." << std::endl;
+        // Initialize gradient vectors with aligned sizes
+        fc_weight_grad.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size, 0.0f));
+        fc_bias_grad.resize(aligned_num_classes, 0.0f);
+        lstm_grad.resize(aligned_hidden_size, 0.0f);
+        
+        std::cout << "Checking dimensions..." << std::endl;
+        std::cout << "grad_output size: " << grad_output.size() << std::endl;
+        std::cout << "last_hidden size: " << last_hidden.size() << std::endl;
+        std::cout << "fc_weight size: " << fc_weight.size() << " x " 
+                  << (fc_weight.empty() ? 0 : fc_weight[0].size()) << std::endl;
+        
+        // Validate dimensions
+        if (grad_output.size() != num_classes || 
+            last_hidden.size() != aligned_hidden_size ||
+            fc_weight.size() != aligned_num_classes) {
+            throw std::runtime_error(
+                "Dimension mismatch in backward_linear_layer: grad_output=" + 
+                std::to_string(grad_output.size()) + 
+                ", last_hidden=" + std::to_string(last_hidden.size()) + 
+                ", fc_weight=" + std::to_string(fc_weight.size()));
         }
         
-        // Store the accumulated result
-        vst1q_f32(&input_grad[i], sum);
-    }
-    
-    // Handle remaining elements (if any)
-    for (int i = (hidden_size / 4) * 4; i < hidden_size; ++i) {
-        float sum = 0.0f;
-        for (int j = 0; j < num_classes; ++j) {
-            sum += fc_weight[j][i] * grad_output[j];
+        std::cout << "Computing weight gradients..." << std::endl;
+        // Compute gradients using NEON
+        for (size_t i = 0; i < num_classes; i += 4) {
+            float32x4_t grad_vec = vld1q_f32(&grad_output[i]);
+            
+            // Copy bias gradients
+            vst1q_f32(&fc_bias_grad[i], grad_vec);
+            
+            // Compute weight gradients
+            for (size_t j = 0; j < hidden_size; j += 4) {
+                float32x4_t hidden_vec = vld1q_f32(&last_hidden[j]);
+                
+                for (size_t k = 0; k < 4 && i + k < num_classes; ++k) {
+                    float grad_val = vgetq_lane_f32(grad_vec, k);
+                    float32x4_t grad_val_vec = vdupq_n_f32(grad_val);
+                    float32x4_t curr_grad = vmulq_f32(grad_val_vec, hidden_vec);
+                    vst1q_f32(&fc_weight_grad[i + k][j], curr_grad);
+                }
+            }
         }
-        input_grad[i] = sum;
+        
+        std::cout << "Computing LSTM gradients..." << std::endl;
+        // Compute LSTM gradients
+        for (size_t i = 0; i < hidden_size; i += 4) {
+            float32x4_t lstm_grad_vec = vdupq_n_f32(0.0f);
+            
+            for (size_t j = 0; j < num_classes; ++j) {
+                float grad_val = grad_output[j];
+                float32x4_t weight_vec = vld1q_f32(&fc_weight[j][i]);
+                lstm_grad_vec = vmlaq_n_f32(lstm_grad_vec, weight_vec, grad_val);
+            }
+            
+            vst1q_f32(&lstm_grad[i], lstm_grad_vec);
+        }
+        
+        std::cout << "backward_linear_layer completed successfully" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error in backward_linear_layer: " << e.what() << std::endl;
+        throw;
     }
-    
-    // Trim output vectors back to original sizes if needed
-    for (auto& row : weight_grad) {
-        row.resize(hidden_size);
-    }
-    weight_grad.resize(num_classes);
-    bias_grad.resize(num_classes);
-    input_grad.resize(hidden_size);
 }
 
 std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
