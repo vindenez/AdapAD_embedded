@@ -800,65 +800,77 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
                 float32x4_t dg_t = vmulq_f32(vmulq_f32(dc_t, i_gate),
                     vsubq_f32(one, vmulq_f32(g_gate, g_gate)));
 
-                // Accumulate weight gradients using NEON
-                int input_size_layer = (layer == 0) ? input_size : hidden_size;
-                for (int j = 0; j < input_size_layer; j += 4) {
-                    float32x4_t input_vec = vld1q_f32(&cache_entry.input[j]);
-                    
-                    // Input-hidden weight gradients
-                    for (int gate = 0; gate < 4; ++gate) {
-                        float32x4_t gate_grad;
-                        switch(gate) {
-                            case 0: gate_grad = di_t; break;
-                            case 1: gate_grad = df_t; break;
-                            case 2: gate_grad = dg_t; break;
-                            case 3: gate_grad = do_t; break;
-                        }
-                        
-                        for (int k = 0; k < 4; ++k) {
-                            float gate_val = vgetq_lane_f32(gate_grad, k);
-                            float32x4_t curr_grad = vld1q_f32(
-                                &layer_grads[layer].weight_ih_grad[gate * hidden_size + h + k][j]);
-                            curr_grad = vmlaq_n_f32(curr_grad, input_vec, gate_val);
-                            vst1q_f32(&layer_grads[layer].weight_ih_grad[gate * hidden_size + h + k][j],
-                                     curr_grad);
-                        }
-                    }
-                }
-
-                // Hidden-hidden weight gradients and next timestep gradients
-                for (int j = 0; j < hidden_size; j += 4) {
-                    float32x4_t h_prev = vld1q_f32(&cache_entry.prev_hidden[j]);
-                    float32x4_t dh_prev_vec = vld1q_f32(&dh_prev[j]);
-                    
-                    // Accumulate weight gradients
-                    for (int gate = 0; gate < 4; ++gate) {
-                        float32x4_t gate_grad;
-                        switch(gate) {
-                            case 0: gate_grad = di_t; break;
-                            case 1: gate_grad = df_t; break;
-                            case 2: gate_grad = dg_t; break;
-                            case 3: gate_grad = do_t; break;
-                        }
-                        
-                        for (int k = 0; k < 4; ++k) {
-                            float gate_val = vgetq_lane_f32(gate_grad, k);
-                            float32x4_t curr_grad = vld1q_f32(
-                                &layer_grads[layer].weight_hh_grad[gate * hidden_size + h + k][j]);
-                            curr_grad = vmlaq_n_f32(curr_grad, h_prev, gate_val);
-                            vst1q_f32(&layer_grads[layer].weight_hh_grad[gate * hidden_size + h + k][j],
-                                     curr_grad);
-                            
-                            // Accumulate dh_prev
-                            float32x4_t weight_vec = vld1q_f32(
-                                &lstm_layers[layer].weight_hh[gate * hidden_size + h + k][j]);
-                            dh_prev_vec = vmlaq_n_f32(dh_prev_vec, weight_vec, gate_val);
-                        }
+                // Process gates with constant indices
+                for (int gate = 0; gate < 4; ++gate) {
+                    float32x4_t gate_grad;
+                    switch(gate) {
+                        case 0: gate_grad = di_t; break;
+                        case 1: gate_grad = df_t; break;
+                        case 2: gate_grad = dg_t; break;
+                        case 3: gate_grad = do_t; break;
                     }
                     
-                    vst1q_f32(&dh_prev[j], dh_prev_vec);
+                    // Use separate operations for each lane
+                    float gate_val0 = vgetq_lane_f32(gate_grad, 0);
+                    float gate_val1 = vgetq_lane_f32(gate_grad, 1);
+                    float gate_val2 = vgetq_lane_f32(gate_grad, 2);
+                    float gate_val3 = vgetq_lane_f32(gate_grad, 3);
+                    
+                    float32x4_t h_prev = vld1q_f32(&cache_entry.prev_hidden[h]);
+                    float32x4_t dh_prev_vec = vld1q_f32(&dh_prev[h]);
+                    
+                    // Update gradients for each lane separately
+                    if (h + 0 < hidden_size) {
+                        float32x4_t curr_grad = vld1q_f32(
+                            &layer_grads[layer].weight_ih_grad[gate * hidden_size + h][0]);
+                        curr_grad = vmlaq_n_f32(curr_grad, h_prev, gate_val0);
+                        vst1q_f32(&layer_grads[layer].weight_ih_grad[gate * hidden_size + h][0],
+                                 curr_grad);
+                        
+                        float32x4_t weight_vec = vld1q_f32(
+                            &lstm_layers[layer].weight_ih[gate * hidden_size + h][0]);
+                        dh_prev_vec = vmlaq_n_f32(dh_prev_vec, weight_vec, gate_val0);
+                    }
+                    
+                    if (h + 1 < hidden_size) {
+                        float32x4_t curr_grad = vld1q_f32(
+                            &layer_grads[layer].weight_ih_grad[gate * hidden_size + h + 1][0]);
+                        curr_grad = vmlaq_n_f32(curr_grad, h_prev, gate_val1);
+                        vst1q_f32(&layer_grads[layer].weight_ih_grad[gate * hidden_size + h + 1][0],
+                                 curr_grad);
+                        
+                        float32x4_t weight_vec = vld1q_f32(
+                            &lstm_layers[layer].weight_ih[gate * hidden_size + h + 1][0]);
+                        dh_prev_vec = vmlaq_n_f32(dh_prev_vec, weight_vec, gate_val1);
+                    }
+                    
+                    if (h + 2 < hidden_size) {
+                        float32x4_t curr_grad = vld1q_f32(
+                            &layer_grads[layer].weight_ih_grad[gate * hidden_size + h + 2][0]);
+                        curr_grad = vmlaq_n_f32(curr_grad, h_prev, gate_val2);
+                        vst1q_f32(&layer_grads[layer].weight_ih_grad[gate * hidden_size + h + 2][0],
+                                 curr_grad);
+                        
+                        float32x4_t weight_vec = vld1q_f32(
+                            &lstm_layers[layer].weight_ih[gate * hidden_size + h + 2][0]);
+                        dh_prev_vec = vmlaq_n_f32(dh_prev_vec, weight_vec, gate_val2);
+                    }
+                    
+                    if (h + 3 < hidden_size) {
+                        float32x4_t curr_grad = vld1q_f32(
+                            &layer_grads[layer].weight_ih_grad[gate * hidden_size + h + 3][0]);
+                        curr_grad = vmlaq_n_f32(curr_grad, h_prev, gate_val3);
+                        vst1q_f32(&layer_grads[layer].weight_ih_grad[gate * hidden_size + h + 3][0],
+                                 curr_grad);
+                        
+                        float32x4_t weight_vec = vld1q_f32(
+                            &lstm_layers[layer].weight_ih[gate * hidden_size + h + 3][0]);
+                        dh_prev_vec = vmlaq_n_f32(dh_prev_vec, weight_vec, gate_val3);
+                    }
+                    
+                    vst1q_f32(&dh_prev[h], dh_prev_vec);
                 }
-
+                
                 // Accumulate bias gradients
                 vst1q_f32(&layer_grads[layer].bias_ih_grad[h], di_t);
                 vst1q_f32(&layer_grads[layer].bias_ih_grad[hidden_size + h], df_t);
