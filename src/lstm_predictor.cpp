@@ -639,17 +639,21 @@ void LSTMPredictor::backward_linear_layer(
         for (int j = 0; j < hidden_size; j += 4) {
             float32x4_t hidden_vec = vld1q_f32(&aligned_last_hidden[j]);
             
-            // Compute outer product using NEON
+            // Use individual lanes with constant indices
             float32x4_t result0 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 0));
-            float32x4_t result1 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 1));
-            float32x4_t result2 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 2));
-            float32x4_t result3 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 3));
-            
-            // Store results
+            if (i + 1 < num_classes) {
+                float32x4_t result1 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 1));
+                vst1q_f32(&weight_grad[i + 1][j], result1);
+            }
+            if (i + 2 < num_classes) {
+                float32x4_t result2 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 2));
+                vst1q_f32(&weight_grad[i + 2][j], result2);
+            }
+            if (i + 3 < num_classes) {
+                float32x4_t result3 = vmulq_n_f32(hidden_vec, vgetq_lane_f32(grad_vec, 3));
+                vst1q_f32(&weight_grad[i + 3][j], result3);
+            }
             vst1q_f32(&weight_grad[i][j], result0);
-            if (i + 1 < num_classes) vst1q_f32(&weight_grad[i + 1][j], result1);
-            if (i + 2 < num_classes) vst1q_f32(&weight_grad[i + 2][j], result2);
-            if (i + 3 < num_classes) vst1q_f32(&weight_grad[i + 3][j], result3);
         }
     }
     
@@ -695,6 +699,7 @@ void LSTMPredictor::backward_linear_layer(
     bias_grad.resize(num_classes);
     input_grad.resize(hidden_size);
 }
+
 std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
     const std::vector<float>& grad_output,
     const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
@@ -928,17 +933,28 @@ std::vector<float> LSTMPredictor::get_final_prediction(const LSTMOutput& lstm_ou
         vst1q_f32(&final_output[i], bias_vec);
     }
     
-    // Compute matrix multiplication using NEON
+    // Modify matrix multiplication
     for (int i = 0; i < num_classes; i += 4) {
         float32x4_t sum_vec = vld1q_f32(&final_output[i]);
         
         for (int j = 0; j < hidden_size; j += 4) {
             float32x4_t hidden_vec = vld1q_f32(&final_hidden[j]);
             
-            // Process 4x4 block
-            for (int k = 0; k < 4; ++k) {
-                float32x4_t weight_vec = vld1q_f32(&fc_weight[i + k][j]);
-                sum_vec = vmlaq_n_f32(sum_vec, weight_vec, vgetq_lane_f32(hidden_vec, k));
+            // Use constant indices
+            float32x4_t weight_vec0 = vld1q_f32(&fc_weight[i][j]);
+            sum_vec = vmlaq_n_f32(sum_vec, weight_vec0, vgetq_lane_f32(hidden_vec, 0));
+            
+            if (j + 1 < hidden_size) {
+                float32x4_t weight_vec1 = vld1q_f32(&fc_weight[i][j + 1]);
+                sum_vec = vmlaq_n_f32(sum_vec, weight_vec1, vgetq_lane_f32(hidden_vec, 1));
+            }
+            if (j + 2 < hidden_size) {
+                float32x4_t weight_vec2 = vld1q_f32(&fc_weight[i][j + 2]);
+                sum_vec = vmlaq_n_f32(sum_vec, weight_vec2, vgetq_lane_f32(hidden_vec, 2));
+            }
+            if (j + 3 < hidden_size) {
+                float32x4_t weight_vec3 = vld1q_f32(&fc_weight[i][j + 3]);
+                sum_vec = vmlaq_n_f32(sum_vec, weight_vec3, vgetq_lane_f32(hidden_vec, 3));
             }
         }
         
