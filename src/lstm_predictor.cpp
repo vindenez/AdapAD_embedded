@@ -11,10 +11,18 @@
 
 // NEON-optimized pow function for vectors of 4 elements
 inline float32x4_t pow_float_neon(float32x4_t base, float32x4_t exp) {
-    // Use exp(log(base) * exp) identity for power
-    float32x4_t log_base = vlogq_f32(base);
-    float32x4_t product = vmulq_f32(log_base, exp);
-    return vexpq_f32(product);
+    // Store vectors in temporary arrays
+    float base_array[4], exp_array[4];
+    vst1q_f32(base_array, base);
+    vst1q_f32(exp_array, exp);
+    
+    // Compute pow using scalar operations
+    float result_array[4];
+    for (int i = 0; i < 4; i++) {
+        result_array[i] = std::pow(base_array[i], exp_array[i]);
+    }
+    
+    return vld1q_f32(result_array);
 }
 
 // Scalar pow function for remaining elements
@@ -24,7 +32,6 @@ inline float pow_float(float base, float exp) {
 
 // Custom implementations for missing NEON intrinsics
 inline float32x4_t vdivq_f32(float32x4_t a, float32x4_t b) {
-    float32x4_t result;
     float a_array[4], b_array[4];
     vst1q_f32(a_array, a);
     vst1q_f32(b_array, b);
@@ -99,7 +106,7 @@ void LSTMPredictor::reset_states() {
         
         // Use NEON to zero out vectors
         float32x4_t zero = vdupq_n_f32(0.0f);
-        for (int j = 0; j < padded_size; j += 4) {
+        for (size_t j = 0; j < padded_size; j += 4) {
             vst1q_f32(&h_state[i][j], zero);
             vst1q_f32(&c_state[i][j], zero);
         }
@@ -123,7 +130,6 @@ float LSTMPredictor::sigmoid(float x) {
 // NEON-optimized tanh implementation
 inline float32x4_t tanh_neon(float32x4_t x) {
     float32x4_t two = vdupq_n_f32(2.0f);
-    float32x4_t neg_two = vdupq_n_f32(-2.0f);
     
     // tanh(x) = 2sigmoid(2x) - 1
     float32x4_t two_x = vmulq_f32(two, x);
@@ -147,9 +153,12 @@ void process_vector_neon(float* data, size_t size, float (*scalar_func)(float)) 
         float32x4_t vec = vld1q_f32(data + i);
         float32x4_t result;
         
-        // Use a different approach to identify the function
-        bool is_sigmoid = (scalar_func == static_cast<float(*)(float)>(std::sigmoid));
-        result = is_sigmoid ? sigmoid_neon(vec) : tanh_neon(vec);
+        // Compare function pointers directly
+        if (scalar_func == &LSTMPredictor::sigmoid) {
+            result = sigmoid_neon(vec);
+        } else {
+            result = tanh_neon(vec);
+        }
         
         vst1q_f32(data + i, result);
     }
@@ -177,7 +186,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     }
 
     // Verify input size
-    if (input.size() != expected_layer_input) {
+    if (input.size() != static_cast<size_t>(expected_layer_input)) {
         throw std::runtime_error("Input size mismatch in lstm_cell_forward");
     }
 
