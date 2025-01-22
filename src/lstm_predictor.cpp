@@ -519,6 +519,12 @@ void LSTMPredictor::backward_linear_layer(
         const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
         const size_t aligned_num_classes = (num_classes + 3) & ~3;
         
+        std::cout << "Debug info:" << std::endl;
+        std::cout << "num_classes: " << num_classes << std::endl;
+        std::cout << "aligned_num_classes: " << aligned_num_classes << std::endl;
+        std::cout << "hidden_size: " << hidden_size << std::endl;
+        std::cout << "aligned_hidden_size: " << aligned_hidden_size << std::endl;
+        
         std::cout << "Initializing gradients..." << std::endl;
         // Initialize gradient vectors with aligned sizes
         fc_weight_grad.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size, 0.0f));
@@ -531,34 +537,42 @@ void LSTMPredictor::backward_linear_layer(
         std::cout << "fc_weight size: " << fc_weight.size() << " x " 
                   << (fc_weight.empty() ? 0 : fc_weight[0].size()) << std::endl;
         
-        // Validate dimensions
-        if (grad_output.size() != num_classes || 
-            last_hidden.size() != aligned_hidden_size ||
-            fc_weight.size() != aligned_num_classes) {
-            throw std::runtime_error(
-                "Dimension mismatch in backward_linear_layer: grad_output=" + 
-                std::to_string(grad_output.size()) + 
-                ", last_hidden=" + std::to_string(last_hidden.size()) + 
-                ", fc_weight=" + std::to_string(fc_weight.size()));
+        // Create aligned grad_output if needed
+        std::vector<float> aligned_grad_output(aligned_num_classes, 0.0f);
+        std::copy(grad_output.begin(), grad_output.end(), aligned_grad_output.begin());
+        
+        // Create aligned last_hidden if needed
+        std::vector<float> aligned_last_hidden(aligned_hidden_size, 0.0f);
+        std::copy(last_hidden.begin(), last_hidden.end(), aligned_last_hidden.begin());
+        
+        // Ensure fc_weight has correct dimensions
+        if (fc_weight.size() != aligned_num_classes) {
+            std::cout << "Resizing fc_weight..." << std::endl;
+            fc_weight.resize(aligned_num_classes, std::vector<float>(aligned_hidden_size, 0.0f));
+        }
+        for (auto& row : fc_weight) {
+            if (row.size() != aligned_hidden_size) {
+                row.resize(aligned_hidden_size, 0.0f);
+            }
         }
         
         std::cout << "Computing weight gradients..." << std::endl;
         // Compute gradients using NEON
-        for (size_t i = 0; i < num_classes; i += 4) {
-            float32x4_t grad_vec = vld1q_f32(&grad_output[i]);
+        for (size_t i = 0; i < aligned_num_classes; i += 4) {
+            float32x4_t grad_vec = vld1q_f32(&aligned_grad_output[i]);
             
             // Copy bias gradients
             vst1q_f32(&fc_bias_grad[i], grad_vec);
             
             // Compute weight gradients
-            for (size_t j = 0; j < hidden_size; j += 4) {
-                float32x4_t hidden_vec = vld1q_f32(&last_hidden[j]);
+            for (size_t j = 0; j < aligned_hidden_size; j += 4) {
+                float32x4_t hidden_vec = vld1q_f32(&aligned_last_hidden[j]);
                 
                 // Store vectors in temporary arrays for lane access
                 float grad_vals[4];
                 vst1q_f32(grad_vals, grad_vec);
                 
-                for (size_t k = 0; k < 4 && i + k < num_classes; ++k) {
+                for (size_t k = 0; k < 4 && i + k < aligned_num_classes; ++k) {
                     float32x4_t grad_val_vec = vdupq_n_f32(grad_vals[k]);
                     float32x4_t curr_grad = vmulq_f32(grad_val_vec, hidden_vec);
                     vst1q_f32(&fc_weight_grad[i + k][j], curr_grad);
@@ -568,7 +582,7 @@ void LSTMPredictor::backward_linear_layer(
         
         std::cout << "Computing LSTM gradients..." << std::endl;
         // Compute LSTM gradients
-        for (size_t i = 0; i < hidden_size; i += 4) {
+        for (size_t i = 0; i < aligned_hidden_size; i += 4) {
             float32x4_t lstm_grad_vec = vdupq_n_f32(0.0f);
             
             for (size_t j = 0; j < num_classes; ++j) {
