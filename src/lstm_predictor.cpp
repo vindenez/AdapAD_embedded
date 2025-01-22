@@ -959,74 +959,90 @@ void LSTMPredictor::initialize_weights() {
     float k = 1.0f / std::sqrt(hidden_size);
     std::uniform_real_distribution<float> dist(-k, k);
     std::mt19937 gen(random_seed);
-    
-    // Calculate aligned sizes
-    const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
-    const size_t aligned_input_size = (input_size + 3) & ~3;
-    const size_t aligned_num_classes = (num_classes + 3) & ~3;
-    
-    // Initialize FC layer with aligned sizes
-    fc_weight.resize(aligned_num_classes);
-    for (auto& row : fc_weight) {
-        row.resize(aligned_hidden_size, 0.0f);
-    }
-    fc_bias.resize(aligned_num_classes, 0.0f);
+
+    // Initialize FC layer first with original dimensions
+    fc_weight.resize(num_classes, std::vector<float>(hidden_size));
+    fc_bias.resize(num_classes);
     
     // Initialize FC weights using NEON
-    for (int i = 0; i < aligned_num_classes; i += 4) {
-        // Initialize bias with random values
+    for (int i = 0; i < num_classes; i += 4) {
+        // Initialize bias
         float32x4_t rand_bias = {dist(gen), dist(gen), dist(gen), dist(gen)};
-        vst1q_f32(&fc_bias[i], rand_bias);
+        if (i + 4 <= num_classes) {
+            vst1q_f32(&fc_bias[i], rand_bias);
+        } else {
+            for (int k = 0; k < num_classes - i; ++k) {
+                fc_bias[i + k] = vgetq_lane_f32(rand_bias, k);
+            }
+        }
         
         // Initialize weights
-        for (int j = 0; j < aligned_hidden_size; j += 4) {
+        for (int j = 0; j < hidden_size; j += 4) {
             float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
-            for (int k = 0; k < 4; ++k) {
-                vst1q_f32(&fc_weight[i + k][j], rand_vec);
+            for (int k = 0; k < 4 && i + k < num_classes; ++k) {
+                if (j + 4 <= hidden_size) {
+                    vst1q_f32(&fc_weight[i + k][j], rand_vec);
+                } else {
+                    for (int l = 0; l < hidden_size - j; ++l) {
+                        fc_weight[i + k][j + l] = vgetq_lane_f32(rand_vec, l);
+                    }
+                }
             }
         }
     }
-    
-    // Initialize LSTM layers with aligned sizes
+
+    // Initialize LSTM layers with original PyTorch dimensions
     lstm_layers.resize(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
-        const size_t aligned_input_size_layer = 
-            (layer == 0) ? aligned_input_size : aligned_hidden_size;
+        int input_size_layer = (layer == 0) ? input_size : hidden_size;
         
-        // Initialize with aligned dimensions
-        lstm_layers[layer].weight_ih.resize(4 * aligned_hidden_size);
-        lstm_layers[layer].weight_hh.resize(4 * aligned_hidden_size);
-        
-        for (auto& row : lstm_layers[layer].weight_ih) {
-            row.resize(aligned_input_size_layer, 0.0f);
-        }
-        for (auto& row : lstm_layers[layer].weight_hh) {
-            row.resize(aligned_hidden_size, 0.0f);
-        }
-        
-        lstm_layers[layer].bias_ih.resize(4 * aligned_hidden_size, 0.0f);
-        lstm_layers[layer].bias_hh.resize(4 * aligned_hidden_size, 0.0f);
+        // Initialize with PyTorch dimensions
+        lstm_layers[layer].weight_ih.resize(4 * hidden_size, 
+            std::vector<float>(input_size_layer));
+        lstm_layers[layer].weight_hh.resize(4 * hidden_size, 
+            std::vector<float>(hidden_size));
+        lstm_layers[layer].bias_ih.resize(4 * hidden_size);
+        lstm_layers[layer].bias_hh.resize(4 * hidden_size);
         
         // Initialize weights and biases using NEON
-        for (int i = 0; i < 4 * aligned_hidden_size; i += 4) {
+        for (int i = 0; i < 4 * hidden_size; i += 4) {
             // Initialize biases
             float32x4_t rand_bias_ih = {dist(gen), dist(gen), dist(gen), dist(gen)};
             float32x4_t rand_bias_hh = {dist(gen), dist(gen), dist(gen), dist(gen)};
-            vst1q_f32(&lstm_layers[layer].bias_ih[i], rand_bias_ih);
-            vst1q_f32(&lstm_layers[layer].bias_hh[i], rand_bias_hh);
-            
-            // Initialize weights
-            for (int j = 0; j < aligned_input_size_layer; j += 4) {
-                float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
-                for (int k = 0; k < 4; ++k) {
-                    vst1q_f32(&lstm_layers[layer].weight_ih[i + k][j], rand_vec);
+            if (i + 4 <= 4 * hidden_size) {
+                vst1q_f32(&lstm_layers[layer].bias_ih[i], rand_bias_ih);
+                vst1q_f32(&lstm_layers[layer].bias_hh[i], rand_bias_hh);
+            } else {
+                for (int k = 0; k < 4 * hidden_size - i; ++k) {
+                    lstm_layers[layer].bias_ih[i + k] = vgetq_lane_f32(rand_bias_ih, k);
+                    lstm_layers[layer].bias_hh[i + k] = vgetq_lane_f32(rand_bias_hh, k);
                 }
             }
             
-            for (int j = 0; j < aligned_hidden_size; j += 4) {
+            // Initialize weights
+            for (int j = 0; j < input_size_layer; j += 4) {
                 float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
-                for (int k = 0; k < 4; ++k) {
-                    vst1q_f32(&lstm_layers[layer].weight_hh[i + k][j], rand_vec);
+                for (int k = 0; k < 4 && i + k < 4 * hidden_size; ++k) {
+                    if (j + 4 <= input_size_layer) {
+                        vst1q_f32(&lstm_layers[layer].weight_ih[i + k][j], rand_vec);
+                    } else {
+                        for (int l = 0; l < input_size_layer - j; ++l) {
+                            lstm_layers[layer].weight_ih[i + k][j + l] = vgetq_lane_f32(rand_vec, l);
+                        }
+                    }
+                }
+            }
+            
+            for (int j = 0; j < hidden_size; j += 4) {
+                float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
+                for (int k = 0; k < 4 && i + k < 4 * hidden_size; ++k) {
+                    if (j + 4 <= hidden_size) {
+                        vst1q_f32(&lstm_layers[layer].weight_hh[i + k][j], rand_vec);
+                    } else {
+                        for (int l = 0; l < hidden_size - j; ++l) {
+                            lstm_layers[layer].weight_hh[i + k][j + l] = vgetq_lane_f32(rand_vec, l);
+                        }
+                    }
                 }
             }
         }
