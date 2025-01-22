@@ -937,16 +937,16 @@ void LSTMPredictor::initialize_weights() {
     }
     fc_bias.resize(aligned_num_classes, 0.0f);
     
-    // Initialize FC weights using NEON for faster memory operations
-    float32x4_t zero_vec = vdupq_n_f32(0.0f);
-    for (int i = 0; i < num_classes; i += 4) {
-        // Initialize bias to zero
-        vst1q_f32(&fc_bias[i], zero_vec);
+    // Initialize FC weights using NEON
+    for (int i = 0; i < aligned_num_classes; i += 4) {
+        // Initialize bias with random values
+        float32x4_t rand_bias = {dist(gen), dist(gen), dist(gen), dist(gen)};
+        vst1q_f32(&fc_bias[i], rand_bias);
         
         // Initialize weights
-        for (int j = 0; j < hidden_size; j += 4) {
+        for (int j = 0; j < aligned_hidden_size; j += 4) {
             float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
-            for (int k = 0; k < 4 && i + k < num_classes; ++k) {
+            for (int k = 0; k < 4; ++k) {
                 vst1q_f32(&fc_weight[i + k][j], rand_vec);
             }
         }
@@ -955,8 +955,8 @@ void LSTMPredictor::initialize_weights() {
     // Initialize LSTM layers with aligned sizes
     lstm_layers.resize(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
-        int input_size_layer = (layer == 0) ? input_size : hidden_size;
-        int aligned_input_size_layer = (layer == 0) ? aligned_input_size : aligned_hidden_size;
+        const size_t aligned_input_size_layer = 
+            (layer == 0) ? aligned_input_size : aligned_hidden_size;
         
         // Initialize with aligned dimensions
         lstm_layers[layer].weight_ih.resize(4 * aligned_hidden_size);
@@ -973,7 +973,7 @@ void LSTMPredictor::initialize_weights() {
         lstm_layers[layer].bias_hh.resize(4 * aligned_hidden_size, 0.0f);
         
         // Initialize weights and biases using NEON
-        for (int i = 0; i < 4 * hidden_size; i += 4) {
+        for (int i = 0; i < 4 * aligned_hidden_size; i += 4) {
             // Initialize biases
             float32x4_t rand_bias_ih = {dist(gen), dist(gen), dist(gen), dist(gen)};
             float32x4_t rand_bias_hh = {dist(gen), dist(gen), dist(gen), dist(gen)};
@@ -981,16 +981,16 @@ void LSTMPredictor::initialize_weights() {
             vst1q_f32(&lstm_layers[layer].bias_hh[i], rand_bias_hh);
             
             // Initialize weights
-            for (int j = 0; j < input_size_layer; j += 4) {
+            for (int j = 0; j < aligned_input_size_layer; j += 4) {
                 float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
-                for (int k = 0; k < 4 && i + k < 4 * hidden_size; ++k) {
+                for (int k = 0; k < 4; ++k) {
                     vst1q_f32(&lstm_layers[layer].weight_ih[i + k][j], rand_vec);
                 }
             }
             
-            for (int j = 0; j < hidden_size; j += 4) {
+            for (int j = 0; j < aligned_hidden_size; j += 4) {
                 float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
-                for (int k = 0; k < 4 && i + k < 4 * hidden_size; ++k) {
+                for (int k = 0; k < 4; ++k) {
                     vst1q_f32(&lstm_layers[layer].weight_hh[i + k][j], rand_vec);
                 }
             }
@@ -1016,7 +1016,7 @@ void LSTMPredictor::initialize_adam_states() {
         // Initialize zero vector for NEON operations
         float32x4_t zero_vec = vdupq_n_f32(0.0f);
         
-        // Initialize LSTM layer states
+        // Initialize LSTM layer states with correct dimensions
         m_weight_ih.resize(num_layers);
         v_weight_ih.resize(num_layers);
         m_weight_hh.resize(num_layers);
@@ -1027,27 +1027,33 @@ void LSTMPredictor::initialize_adam_states() {
         v_bias_hh.resize(num_layers);
         
         for (int layer = 0; layer < num_layers; ++layer) {
-            int input_size_layer = (layer == 0) ? input_size : hidden_size;
             int aligned_input_size_layer = (layer == 0) ? aligned_input_size : aligned_hidden_size;
             
-            // Initialize weight matrices
+            // Initialize weight matrices with correct dimensions
             m_weight_ih[layer].resize(4 * aligned_hidden_size);
             v_weight_ih[layer].resize(4 * aligned_hidden_size);
             m_weight_hh[layer].resize(4 * aligned_hidden_size);
             v_weight_hh[layer].resize(4 * aligned_hidden_size);
             
-            // Initialize and zero out matrices using NEON
+            // Resize each row correctly
+            for (auto& row : m_weight_ih[layer]) row.resize(aligned_input_size_layer, 0.0f);
+            for (auto& row : v_weight_ih[layer]) row.resize(aligned_input_size_layer, 0.0f);
+            for (auto& row : m_weight_hh[layer]) row.resize(aligned_hidden_size, 0.0f);
+            for (auto& row : v_weight_hh[layer]) row.resize(aligned_hidden_size, 0.0f);
+            
+            // Zero out matrices using NEON
             for (int i = 0; i < 4 * aligned_hidden_size; i += 4) {
-                for (auto& matrix : {&m_weight_ih[layer], &v_weight_ih[layer], 
-                                   &m_weight_hh[layer], &v_weight_hh[layer]}) {
-                    (*matrix)[i].resize(aligned_input_size_layer, 0.0f);
-                    for (int j = 0; j < aligned_input_size_layer; j += 4) {
-                        vst1q_f32(&(*matrix)[i][j], zero_vec);
-                    }
+                for (int j = 0; j < aligned_input_size_layer; j += 4) {
+                    vst1q_f32(&m_weight_ih[layer][i][j], zero_vec);
+                    vst1q_f32(&v_weight_ih[layer][i][j], zero_vec);
+                }
+                for (int j = 0; j < aligned_hidden_size; j += 4) {
+                    vst1q_f32(&m_weight_hh[layer][i][j], zero_vec);
+                    vst1q_f32(&v_weight_hh[layer][i][j], zero_vec);
                 }
             }
             
-            // Initialize bias vectors
+            // Initialize and zero out bias vectors
             m_bias_ih[layer].resize(4 * aligned_hidden_size, 0.0f);
             v_bias_ih[layer].resize(4 * aligned_hidden_size, 0.0f);
             m_bias_hh[layer].resize(4 * aligned_hidden_size, 0.0f);
@@ -1055,10 +1061,10 @@ void LSTMPredictor::initialize_adam_states() {
             
             // Zero out bias vectors using NEON
             for (int i = 0; i < 4 * aligned_hidden_size; i += 4) {
-                for (auto& bias : {&m_bias_ih[layer], &v_bias_ih[layer],
-                                 &m_bias_hh[layer], &v_bias_hh[layer]}) {
-                    vst1q_f32(&(*bias)[i], zero_vec);
-                }
+                vst1q_f32(&m_bias_ih[layer][i], zero_vec);
+                vst1q_f32(&v_bias_ih[layer][i], zero_vec);
+                vst1q_f32(&m_bias_hh[layer][i], zero_vec);
+                vst1q_f32(&v_bias_hh[layer][i], zero_vec);
             }
         }
         
@@ -1263,7 +1269,7 @@ void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
         }
         
         // Copy weights using NEON
-        for (size_t i = 0; i < 4 * hidden_size; i += 4) {
+        for (size_t i = 0; i < 4 * aligned_hidden_size; i += 4) {
             // Copy weight_ih
             for (size_t j = 0; j < aligned_input_size_layer; j += 4) {
                 float32x4_t weight_vec = vld1q_f32(&weights[layer].weight_ih[i][j]);
@@ -1271,7 +1277,7 @@ void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
             }
             
             // Copy weight_hh
-            for (size_t j = 0; j < hidden_size; j += 4) {
+            for (size_t j = 0; j < aligned_hidden_size; j += 4) {
                 float32x4_t weight_vec = vld1q_f32(&weights[layer].weight_hh[i][j]);
                 vst1q_f32(&lstm_layers[layer].weight_hh[i][j], weight_vec);
             }
