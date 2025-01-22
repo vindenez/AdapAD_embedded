@@ -375,19 +375,13 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         
         // Initialize layer cache for training with aligned sizes
         if (training_mode) {
-            if (layer_cache.empty() || 
-                layer_cache.size() != num_layers ||
-                layer_cache[0].size() != batch_size ||
-                layer_cache[0][0].size() != seq_len) {
-                
-                layer_cache.clear();
-                layer_cache.resize(num_layers);
-                
-                for (int layer = 0; layer < num_layers; ++layer) {
-                    layer_cache[layer].resize(batch_size);
-                    for (size_t batch = 0; batch < batch_size; ++batch) {
-                        layer_cache[layer][batch].resize(seq_len);
-                    }
+            layer_cache.clear();
+            layer_cache.resize(num_layers);
+            
+            for (int layer = 0; layer < num_layers; ++layer) {
+                layer_cache[layer].resize(batch_size);
+                for (size_t batch = 0; batch < batch_size; ++batch) {
+                    layer_cache[layer][batch].resize(seq_len);
                 }
             }
         }
@@ -396,43 +390,20 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         LSTMOutput output;
         output.sequence_output.resize(batch_size, 
             std::vector<std::vector<float>>(seq_len, 
-                std::vector<float>(aligned_hidden_size)));
+                std::vector<float>(hidden_size)));  // Note: Not aligned size here
         
-        // Initialize or use provided states with aligned sizes
+        // Initialize or use provided states
         if (!initial_hidden || !initial_cell) {
             h_state.resize(num_layers);
             c_state.resize(num_layers);
             
-            // Use NEON to initialize states to zero
-            float32x4_t zero_vec = vdupq_n_f32(0.0f);
             for (int layer = 0; layer < num_layers; ++layer) {
-                h_state[layer].resize(aligned_hidden_size);
-                c_state[layer].resize(aligned_hidden_size);
-                
-                for (size_t i = 0; i < aligned_hidden_size; i += 4) {
-                    vst1q_f32(&h_state[layer][i], zero_vec);
-                    vst1q_f32(&c_state[layer][i], zero_vec);
-                }
+                h_state[layer].resize(hidden_size, 0.0f);  // Use actual size
+                c_state[layer].resize(hidden_size, 0.0f);  // Use actual size
             }
         } else {
-            // Copy and align provided states
-            h_state.resize(num_layers);
-            c_state.resize(num_layers);
-            for (int layer = 0; layer < num_layers; ++layer) {
-                h_state[layer].resize(aligned_hidden_size, 0.0f);
-                c_state[layer].resize(aligned_hidden_size, 0.0f);
-                std::memcpy(h_state[layer].data(), (*initial_hidden)[layer].data(), 
-                          hidden_size * sizeof(float));
-                std::memcpy(c_state[layer].data(), (*initial_cell)[layer].data(), 
-                          hidden_size * sizeof(float));
-            }
-        }
-        
-        // Allocate aligned temporary buffers
-        std::vector<float> aligned_input(aligned_input_size);
-        std::vector<std::vector<float>> layer_outputs(num_layers + 1);
-        for (auto& output : layer_outputs) {
-            output.resize(aligned_hidden_size);
+            h_state = *initial_hidden;
+            c_state = *initial_cell;
         }
         
         // Process each batch and timestep
@@ -445,56 +416,27 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
             
             for (size_t t = 0; t < seq_len; ++t) {
                 current_timestep = t;
-                
-                // Align input data
-                std::memcpy(aligned_input.data(), x[batch][t].data(), 
-                          input_size * sizeof(float));
-                layer_outputs[0] = aligned_input;
+                std::vector<float> layer_input = x[batch][t];
                 
                 // Process through LSTM layers
                 for (int layer = 0; layer < num_layers; ++layer) {
                     current_layer = layer;
-                    
-                    // Get correct input size for this layer
-                    int expected_input_size = (layer == 0) ? input_size : hidden_size;
-                    
-                    // Verify dimensions before forward pass
-                    if (layer_outputs[layer].size() < expected_input_size) {
-                        throw std::runtime_error("Layer input dimension mismatch at layer " + 
-                                               std::to_string(static_cast<long long>(layer)));
-                    }
-                    
-                    // Forward pass with NEON-optimized lstm_cell_forward
-                    auto layer_output = lstm_cell_forward(
-                        layer_outputs[layer],
+                    layer_input = lstm_cell_forward(
+                        layer_input,
                         h_state[layer],
                         c_state[layer],
                         lstm_layers[layer]
                     );
-                    
-                    // Copy output to aligned buffer
-                    std::memcpy(layer_outputs[layer + 1].data(), layer_output.data(),
-                              hidden_size * sizeof(float));
                 }
                 
-                // Copy final output, ensuring proper size
-                std::memcpy(output.sequence_output[batch][t].data(),
-                          layer_outputs[num_layers].data(),
-                          hidden_size * sizeof(float));
+                // Store output
+                output.sequence_output[batch][t] = layer_input;
             }
         }
         
-        // Prepare final states with proper sizes
-        output.final_hidden.resize(num_layers);
-        output.final_cell.resize(num_layers);
-        for (int layer = 0; layer < num_layers; ++layer) {
-            output.final_hidden[layer].resize(hidden_size);
-            output.final_cell[layer].resize(hidden_size);
-            std::memcpy(output.final_hidden[layer].data(), h_state[layer].data(),
-                       hidden_size * sizeof(float));
-            std::memcpy(output.final_cell[layer].data(), c_state[layer].data(),
-                       hidden_size * sizeof(float));
-        }
+        // Store final states
+        output.final_hidden = h_state;
+        output.final_cell = c_state;
         
         return output;
         
