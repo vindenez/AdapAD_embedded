@@ -959,7 +959,11 @@ void LSTMPredictor::initialize_weights() {
     float k = 1.0f / std::sqrt(hidden_size);
     std::uniform_real_distribution<float> dist(-k, k);
     std::mt19937 gen(random_seed);
-
+    
+    // Calculate aligned sizes
+    const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
+    const size_t aligned_input_size = (input_size + 3) & ~3;
+    
     // Initialize FC layer first with original dimensions
     fc_weight.resize(num_classes, std::vector<float>(hidden_size));
     fc_bias.resize(num_classes);
@@ -971,10 +975,9 @@ void LSTMPredictor::initialize_weights() {
         if (i + 4 <= num_classes) {
             vst1q_f32(&fc_bias[i], rand_bias);
         } else {
-            // Handle edge case without NEON
+            float temp[4];
+            vst1q_f32(temp, rand_bias);
             for (int k = 0; k < num_classes - i; ++k) {
-                float temp[4];
-                vst1q_f32(temp, rand_bias);
                 fc_bias[i + k] = temp[k];
             }
         }
@@ -986,7 +989,6 @@ void LSTMPredictor::initialize_weights() {
                 if (j + 4 <= hidden_size) {
                     vst1q_f32(&fc_weight[i + k][j], rand_vec);
                 } else {
-                    // Handle edge case without NEON
                     float temp[4];
                     vst1q_f32(temp, rand_vec);
                     for (int l = 0; l < hidden_size - j; ++l) {
@@ -997,16 +999,17 @@ void LSTMPredictor::initialize_weights() {
         }
     }
 
-    // Initialize LSTM layers with original PyTorch dimensions
+    // Initialize LSTM layers with aligned dimensions
     lstm_layers.resize(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
-        int input_size_layer = (layer == 0) ? input_size : hidden_size;
+        const size_t aligned_input_size_layer = 
+            (layer == 0) ? aligned_input_size : aligned_hidden_size;
         
-        // Initialize with PyTorch dimensions
+        // Initialize with aligned dimensions
         lstm_layers[layer].weight_ih.resize(4 * hidden_size, 
-            std::vector<float>(input_size_layer));
+            std::vector<float>(aligned_input_size_layer, 0.0f));
         lstm_layers[layer].weight_hh.resize(4 * hidden_size, 
-            std::vector<float>(hidden_size));
+            std::vector<float>(aligned_hidden_size, 0.0f));
         lstm_layers[layer].bias_ih.resize(4 * hidden_size);
         lstm_layers[layer].bias_hh.resize(4 * hidden_size);
         
@@ -1019,7 +1022,6 @@ void LSTMPredictor::initialize_weights() {
                 vst1q_f32(&lstm_layers[layer].bias_ih[i], rand_bias_ih);
                 vst1q_f32(&lstm_layers[layer].bias_hh[i], rand_bias_hh);
             } else {
-                // Handle edge case without NEON
                 float temp_ih[4], temp_hh[4];
                 vst1q_f32(temp_ih, rand_bias_ih);
                 vst1q_f32(temp_hh, rand_bias_hh);
@@ -1029,33 +1031,32 @@ void LSTMPredictor::initialize_weights() {
                 }
             }
             
-            // Initialize weights
-            for (int j = 0; j < input_size_layer; j += 4) {
+            // Initialize weights with actual values only up to input_size_layer
+            for (int j = 0; j < aligned_input_size_layer; j += 4) {
                 float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
                 for (int k = 0; k < 4 && i + k < 4 * hidden_size; ++k) {
-                    if (j + 4 <= input_size_layer) {
+                    if (j + 4 <= aligned_input_size_layer) {
                         vst1q_f32(&lstm_layers[layer].weight_ih[i + k][j], rand_vec);
                     } else {
-                        // Handle edge case without NEON
                         float temp[4];
                         vst1q_f32(temp, rand_vec);
-                        for (int l = 0; l < input_size_layer - j; ++l) {
+                        for (int l = 0; l < aligned_input_size_layer - j; ++l) {
                             lstm_layers[layer].weight_ih[i + k][j + l] = temp[l];
                         }
                     }
                 }
             }
             
-            for (int j = 0; j < hidden_size; j += 4) {
+            // Initialize weights with actual values only up to hidden_size
+            for (int j = 0; j < aligned_hidden_size; j += 4) {
                 float32x4_t rand_vec = {dist(gen), dist(gen), dist(gen), dist(gen)};
                 for (int k = 0; k < 4 && i + k < 4 * hidden_size; ++k) {
-                    if (j + 4 <= hidden_size) {
+                    if (j + 4 <= aligned_hidden_size) {
                         vst1q_f32(&lstm_layers[layer].weight_hh[i + k][j], rand_vec);
                     } else {
-                        // Handle edge case without NEON
                         float temp[4];
                         vst1q_f32(temp, rand_vec);
-                        for (int l = 0; l < hidden_size - j; ++l) {
+                        for (int l = 0; l < aligned_hidden_size - j; ++l) {
                             lstm_layers[layer].weight_hh[i + k][j + l] = temp[l];
                         }
                     }
