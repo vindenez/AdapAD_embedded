@@ -971,8 +971,11 @@ void LSTMPredictor::initialize_weights() {
         if (i + 4 <= num_classes) {
             vst1q_f32(&fc_bias[i], rand_bias);
         } else {
+            // Handle edge case without NEON
             for (int k = 0; k < num_classes - i; ++k) {
-                fc_bias[i + k] = vgetq_lane_f32(rand_bias, k);
+                float temp[4];
+                vst1q_f32(temp, rand_bias);
+                fc_bias[i + k] = temp[k];
             }
         }
         
@@ -983,8 +986,11 @@ void LSTMPredictor::initialize_weights() {
                 if (j + 4 <= hidden_size) {
                     vst1q_f32(&fc_weight[i + k][j], rand_vec);
                 } else {
+                    // Handle edge case without NEON
+                    float temp[4];
+                    vst1q_f32(temp, rand_vec);
                     for (int l = 0; l < hidden_size - j; ++l) {
-                        fc_weight[i + k][j + l] = vgetq_lane_f32(rand_vec, l);
+                        fc_weight[i + k][j + l] = temp[l];
                     }
                 }
             }
@@ -1013,9 +1019,13 @@ void LSTMPredictor::initialize_weights() {
                 vst1q_f32(&lstm_layers[layer].bias_ih[i], rand_bias_ih);
                 vst1q_f32(&lstm_layers[layer].bias_hh[i], rand_bias_hh);
             } else {
+                // Handle edge case without NEON
+                float temp_ih[4], temp_hh[4];
+                vst1q_f32(temp_ih, rand_bias_ih);
+                vst1q_f32(temp_hh, rand_bias_hh);
                 for (int k = 0; k < 4 * hidden_size - i; ++k) {
-                    lstm_layers[layer].bias_ih[i + k] = vgetq_lane_f32(rand_bias_ih, k);
-                    lstm_layers[layer].bias_hh[i + k] = vgetq_lane_f32(rand_bias_hh, k);
+                    lstm_layers[layer].bias_ih[i + k] = temp_ih[k];
+                    lstm_layers[layer].bias_hh[i + k] = temp_hh[k];
                 }
             }
             
@@ -1026,8 +1036,11 @@ void LSTMPredictor::initialize_weights() {
                     if (j + 4 <= input_size_layer) {
                         vst1q_f32(&lstm_layers[layer].weight_ih[i + k][j], rand_vec);
                     } else {
+                        // Handle edge case without NEON
+                        float temp[4];
+                        vst1q_f32(temp, rand_vec);
                         for (int l = 0; l < input_size_layer - j; ++l) {
-                            lstm_layers[layer].weight_ih[i + k][j + l] = vgetq_lane_f32(rand_vec, l);
+                            lstm_layers[layer].weight_ih[i + k][j + l] = temp[l];
                         }
                     }
                 }
@@ -1039,8 +1052,11 @@ void LSTMPredictor::initialize_weights() {
                     if (j + 4 <= hidden_size) {
                         vst1q_f32(&lstm_layers[layer].weight_hh[i + k][j], rand_vec);
                     } else {
+                        // Handle edge case without NEON
+                        float temp[4];
+                        vst1q_f32(temp, rand_vec);
                         for (int l = 0; l < hidden_size - j; ++l) {
-                            lstm_layers[layer].weight_hh[i + k][j + l] = vgetq_lane_f32(rand_vec, l);
+                            lstm_layers[layer].weight_hh[i + k][j + l] = temp[l];
                         }
                     }
                 }
