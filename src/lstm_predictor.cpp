@@ -197,7 +197,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             std::to_string(current_layer));
     }
 
-    // Verify weight dimensions
+    // Verify weight dimensions with aligned sizes
     if (layer.weight_ih.size() != 4 * aligned_hidden_size) {
         throw std::runtime_error(
             "Weight ih rows mismatch. Expected: " + 
@@ -211,30 +211,17 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             "Weight ih columns mismatch. Expected: " + 
             std::to_string(aligned_input_size) + ", Got: " + 
             std::to_string(layer.weight_ih[0].size()) + " at layer " + 
-            std::to_string(current_layer) + 
-            "\nInput size: " + std::to_string(input_size) + 
-            "\nHidden size: " + std::to_string(hidden_size));
+            std::to_string(current_layer));
     }
 
-    // Verify state dimensions and ensure alignment
-    if (h_state.size() != static_cast<size_t>(aligned_hidden_size)) {
-        std::cout << "Resizing h_state from " << h_state.size() 
-                  << " to " << aligned_hidden_size << std::endl;
-        h_state.resize(aligned_hidden_size, 0.0f);
-    }
-    if (c_state.size() != static_cast<size_t>(aligned_hidden_size)) {
-        std::cout << "Resizing c_state from " << c_state.size() 
-                  << " to " << aligned_hidden_size << std::endl;
-        c_state.resize(aligned_hidden_size, 0.0f);
-    }
-
-    // Verify weight matrix dimensions
-    if (layer.weight_ih.size() != 4 * hidden_size || 
-        layer.weight_ih[0].size() != expected_layer_input) {
+    // Remove the unaligned dimension check that was causing the error
+    // and replace with aligned dimension checks
+    if (layer.weight_ih.size() != 4 * aligned_hidden_size || 
+        layer.weight_ih[0].size() != aligned_input_size) {
         throw std::runtime_error("Weight ih dimension mismatch");
     }
-    if (layer.weight_hh.size() != 4 * hidden_size || 
-        layer.weight_hh[0].size() != hidden_size) {
+    if (layer.weight_hh.size() != 4 * aligned_hidden_size || 
+        layer.weight_hh[0].size() != aligned_hidden_size) {
         throw std::runtime_error("Weight hh dimension mismatch");
     }
     
