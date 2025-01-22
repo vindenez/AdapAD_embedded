@@ -30,7 +30,7 @@ inline float pow_float(float base, float exp) {
     return std::pow(base, exp);
 }
 
-// Custom implementations for missing NEON intrinsics
+// Custom implementations for missing NEON intrinsics 
 inline float32x4_t vdivq_f32(float32x4_t a, float32x4_t b) {
     float a_array[4], b_array[4];
     vst1q_f32(a_array, a);
