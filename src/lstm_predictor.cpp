@@ -172,25 +172,60 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     // Get the correct input size for this layer
     const int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
     const size_t aligned_input_size = (expected_layer_input + 3) & ~3;
+    const size_t aligned_hidden_size = (hidden_size + 3) & ~3;
 
-    // Verify weight dimensions
-    int weight_input_size = layer.weight_ih[0].size();
-    if (weight_input_size != expected_layer_input) {
-        throw std::runtime_error("Weight dimension mismatch in lstm_cell_forward");
-    }
+    // Debug output
+    std::cout << "\nLSTM Cell Forward Debug (Layer " << current_layer << "):" << std::endl;
+    std::cout << "Expected input size: " << expected_layer_input 
+              << " (aligned: " << aligned_input_size << ")" << std::endl;
+    std::cout << "Actual input size: " << input.size() << std::endl;
+    std::cout << "Hidden size: " << hidden_size 
+              << " (aligned: " << aligned_hidden_size << ")" << std::endl;
+    std::cout << "Weight ih dimensions: " << layer.weight_ih.size() 
+              << " x " << (layer.weight_ih.empty() ? 0 : layer.weight_ih[0].size()) << std::endl;
+    std::cout << "Weight hh dimensions: " << layer.weight_hh.size() 
+              << " x " << (layer.weight_hh.empty() ? 0 : layer.weight_hh[0].size()) << std::endl;
+    std::cout << "H state size: " << h_state.size() << std::endl;
+    std::cout << "C state size: " << c_state.size() << std::endl;
 
     // Verify input size
     if (input.size() != static_cast<size_t>(expected_layer_input)) {
-        throw std::runtime_error("Input size mismatch in lstm_cell_forward");
+        throw std::runtime_error(
+            "Input size mismatch in lstm_cell_forward. Expected: " + 
+            std::to_string(expected_layer_input) + ", Got: " + 
+            std::to_string(input.size()) + " at layer " + 
+            std::to_string(current_layer));
+    }
+
+    // Verify weight dimensions
+    if (layer.weight_ih.size() != 4 * aligned_hidden_size) {
+        throw std::runtime_error(
+            "Weight ih rows mismatch. Expected: " + 
+            std::to_string(4 * aligned_hidden_size) + ", Got: " + 
+            std::to_string(layer.weight_ih.size()) + " at layer " + 
+            std::to_string(current_layer));
+    }
+
+    if (!layer.weight_ih.empty() && layer.weight_ih[0].size() != aligned_input_size) {
+        throw std::runtime_error(
+            "Weight ih columns mismatch. Expected: " + 
+            std::to_string(aligned_input_size) + ", Got: " + 
+            std::to_string(layer.weight_ih[0].size()) + " at layer " + 
+            std::to_string(current_layer) + 
+            "\nInput size: " + std::to_string(input_size) + 
+            "\nHidden size: " + std::to_string(hidden_size));
     }
 
     // Verify state dimensions and ensure alignment
-    const size_t aligned_size = (hidden_size + 3) & ~3; // Round up to multiple of 4
-    if (h_state.size() != static_cast<size_t>(hidden_size)) {
-        h_state.resize(aligned_size, 0.0f);
+    if (h_state.size() != static_cast<size_t>(aligned_hidden_size)) {
+        std::cout << "Resizing h_state from " << h_state.size() 
+                  << " to " << aligned_hidden_size << std::endl;
+        h_state.resize(aligned_hidden_size, 0.0f);
     }
-    if (c_state.size() != static_cast<size_t>(hidden_size)) {
-        c_state.resize(aligned_size, 0.0f);
+    if (c_state.size() != static_cast<size_t>(aligned_hidden_size)) {
+        std::cout << "Resizing c_state from " << c_state.size() 
+                  << " to " << aligned_hidden_size << std::endl;
+        c_state.resize(aligned_hidden_size, 0.0f);
     }
 
     // Verify weight matrix dimensions
@@ -218,18 +253,18 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         cache_entry.input = input;
         
         // Initialize cache vectors with aligned size
-        cache_entry.input_gate.resize(aligned_size, 0.0f);
-        cache_entry.forget_gate.resize(aligned_size, 0.0f);
-        cache_entry.cell_gate.resize(aligned_size, 0.0f);
-        cache_entry.output_gate.resize(aligned_size, 0.0f);
-        cache_entry.cell_state.resize(aligned_size, 0.0f);
-        cache_entry.hidden_state.resize(aligned_size, 0.0f);
+        cache_entry.input_gate.resize(aligned_hidden_size, 0.0f);
+        cache_entry.forget_gate.resize(aligned_hidden_size, 0.0f);
+        cache_entry.cell_gate.resize(aligned_hidden_size, 0.0f);
+        cache_entry.output_gate.resize(aligned_hidden_size, 0.0f);
+        cache_entry.cell_state.resize(aligned_hidden_size, 0.0f);
+        cache_entry.hidden_state.resize(aligned_hidden_size, 0.0f);
         cache_entry.prev_hidden = h_state;
         cache_entry.prev_cell = c_state;
     }
     
     // Initialize gates with biases using NEON
-    std::vector<float> gates(4 * aligned_size, 0.0f);
+    std::vector<float> gates(4 * aligned_hidden_size, 0.0f);
     for (int h = 0; h < hidden_size; h += 4) {
         // Load bias vectors
         float32x4_t bias_ih_i = vld1q_f32(&layer.bias_ih[h]);
