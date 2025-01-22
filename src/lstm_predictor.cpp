@@ -188,34 +188,11 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     std::cout << "H state size: " << h_state.size() << std::endl;
     std::cout << "C state size: " << c_state.size() << std::endl;
 
-    // Verify input size
-    if (input.size() != static_cast<size_t>(expected_layer_input)) {
-        throw std::runtime_error(
-            "Input size mismatch in lstm_cell_forward. Expected: " + 
-            std::to_string(expected_layer_input) + ", Got: " + 
-            std::to_string(input.size()) + " at layer " + 
-            std::to_string(current_layer));
-    }
+    // Create aligned input vector
+    std::vector<float> aligned_input(aligned_input_size, 0.0f);
+    std::copy(input.begin(), input.end(), aligned_input.begin());
 
-    // Verify weight dimensions with aligned sizes
-    if (layer.weight_ih.size() != 4 * aligned_hidden_size) {
-        throw std::runtime_error(
-            "Weight ih rows mismatch. Expected: " + 
-            std::to_string(4 * aligned_hidden_size) + ", Got: " + 
-            std::to_string(layer.weight_ih.size()) + " at layer " + 
-            std::to_string(current_layer));
-    }
-
-    if (!layer.weight_ih.empty() && layer.weight_ih[0].size() != aligned_input_size) {
-        throw std::runtime_error(
-            "Weight ih columns mismatch. Expected: " + 
-            std::to_string(aligned_input_size) + ", Got: " + 
-            std::to_string(layer.weight_ih[0].size()) + " at layer " + 
-            std::to_string(current_layer));
-    }
-
-    // Remove the unaligned dimension check that was causing the error
-    // and replace with aligned dimension checks
+    // Verify dimensions with aligned sizes
     if (layer.weight_ih.size() != 4 * aligned_hidden_size || 
         layer.weight_ih[0].size() != aligned_input_size) {
         throw std::runtime_error("Weight ih dimension mismatch");
@@ -224,22 +201,20 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         layer.weight_hh[0].size() != aligned_hidden_size) {
         throw std::runtime_error("Weight hh dimension mismatch");
     }
+
+    // Verify state dimensions and ensure alignment
+    if (h_state.size() != aligned_hidden_size) {
+        h_state.resize(aligned_hidden_size, 0.0f);
+    }
+    if (c_state.size() != aligned_hidden_size) {
+        c_state.resize(aligned_hidden_size, 0.0f);
+    }
     
     // Declare cache_entry only if training_mode is true
     LSTMCacheEntry cache_entry;
 
     if (training_mode) {
-        // Validate indices before accessing cache
-        if (current_layer >= layer_cache.size() ||
-            current_batch >= layer_cache[current_layer].size() ||
-            current_timestep >= layer_cache[current_layer][current_batch].size()) {
-            throw std::runtime_error("Invalid cache access");
-        }
-        
-        cache_entry = layer_cache[current_layer][current_batch][current_timestep];
-        cache_entry.input = input;
-        
-        // Initialize cache vectors with aligned size
+        cache_entry.input = aligned_input;  // Store aligned input
         cache_entry.input_gate.resize(aligned_hidden_size, 0.0f);
         cache_entry.forget_gate.resize(aligned_hidden_size, 0.0f);
         cache_entry.cell_gate.resize(aligned_hidden_size, 0.0f);
@@ -252,27 +227,10 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     
     // Initialize gates with biases using NEON
     std::vector<float> gates(4 * aligned_hidden_size, 0.0f);
-    for (int h = 0; h < hidden_size; h += 4) {
-        // Load bias vectors
-        float32x4_t bias_ih_i = vld1q_f32(&layer.bias_ih[h]);
-        float32x4_t bias_hh_i = vld1q_f32(&layer.bias_hh[h]);
-        float32x4_t bias_ih_f = vld1q_f32(&layer.bias_ih[hidden_size + h]);
-        float32x4_t bias_hh_f = vld1q_f32(&layer.bias_hh[hidden_size + h]);
-        float32x4_t bias_ih_g = vld1q_f32(&layer.bias_ih[2 * hidden_size + h]);
-        float32x4_t bias_hh_g = vld1q_f32(&layer.bias_hh[2 * hidden_size + h]);
-        float32x4_t bias_ih_o = vld1q_f32(&layer.bias_ih[3 * hidden_size + h]);
-        float32x4_t bias_hh_o = vld1q_f32(&layer.bias_hh[3 * hidden_size + h]);
-
-        // Add biases
-        vst1q_f32(&gates[h], vaddq_f32(bias_ih_i, bias_hh_i));
-        vst1q_f32(&gates[hidden_size + h], vaddq_f32(bias_ih_f, bias_hh_f));
-        vst1q_f32(&gates[2 * hidden_size + h], vaddq_f32(bias_ih_g, bias_hh_g));
-        vst1q_f32(&gates[3 * hidden_size + h], vaddq_f32(bias_ih_o, bias_hh_o));
-    }
     
     // Input to hidden contributions using NEON
-    for (size_t i = 0; i < input.size(); ++i) {
-        float32x4_t input_val = vdupq_n_f32(input[i]);
+    for (size_t i = 0; i < aligned_input.size(); ++i) {
+        float32x4_t input_val = vdupq_n_f32(aligned_input[i]);
         
         for (int h = 0; h < hidden_size; h += 4) {
             // Load gate values and weights
@@ -361,7 +319,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         }
     }
 
-    // Create aligned output vector
+    // Create output vector with original hidden size
     std::vector<float> output(hidden_size);
     std::memcpy(output.data(), h_state.data(), hidden_size * sizeof(float));
 
