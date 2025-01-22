@@ -2,6 +2,8 @@
 #include "matrix_utils.hpp"
 #include "activation_functions.hpp"
 #include <arm_neon.h>
+#include <cmath>
+#include <cstring>
 
 #include <random>
 #include <algorithm>
@@ -18,6 +20,48 @@ inline float32x4_t pow_float_neon(float32x4_t base, float32x4_t exp) {
 // Scalar pow function for remaining elements
 inline float pow_float(float base, float exp) {
     return std::pow(base, exp);
+}
+
+// Custom implementations for missing NEON intrinsics
+inline float32x4_t vdivq_f32(float32x4_t a, float32x4_t b) {
+    float32x4_t result;
+    float a_array[4], b_array[4];
+    vst1q_f32(a_array, a);
+    vst1q_f32(b_array, b);
+    for (int i = 0; i < 4; i++) {
+        a_array[i] = a_array[i] / b_array[i];
+    }
+    return vld1q_f32(a_array);
+}
+
+inline float32x4_t vexpq_f32(float32x4_t x) {
+    float32x4_t result;
+    float x_array[4];
+    vst1q_f32(x_array, x);
+    for (int i = 0; i < 4; i++) {
+        x_array[i] = std::exp(x_array[i]);
+    }
+    return vld1q_f32(x_array);
+}
+
+inline float32x4_t vlogq_f32(float32x4_t x) {
+    float32x4_t result;
+    float x_array[4];
+    vst1q_f32(x_array, x);
+    for (int i = 0; i < 4; i++) {
+        x_array[i] = std::log(x_array[i]);
+    }
+    return vld1q_f32(x_array);
+}
+
+inline float32x4_t vsqrtq_f32(float32x4_t x) {
+    float32x4_t result;
+    float x_array[4];
+    vst1q_f32(x_array, x);
+    for (int i = 0; i < 4; i++) {
+        x_array[i] = std::sqrt(x_array[i]);
+    }
+    return vld1q_f32(x_array);
 }
 
 LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, 
@@ -42,8 +86,8 @@ void LSTMPredictor::reset_states() {
     h_state.clear();
     c_state.clear();
     
-    // Align vectors for NEON operations
-    const size_t alignment = 16; // 128-bit alignment for NEON
+    // Align vectors for NEON
+    const size_t alignment __attribute__((unused)) = 16; // 128-bit alignment for NEON
     const size_t padded_size = (hidden_size + 3) & ~3; // Round up to multiple of 4
     
     h_state.resize(num_layers);
@@ -103,11 +147,9 @@ void process_vector_neon(float* data, size_t size, float (*scalar_func)(float)) 
         float32x4_t vec = vld1q_f32(data + i);
         float32x4_t result;
         
-        if (scalar_func == &LSTMPredictor::sigmoid) {
-            result = sigmoid_neon(vec);
-        } else {
-            result = tanh_neon(vec);
-        }
+        // Use a different approach to identify the function
+        bool is_sigmoid = (scalar_func == static_cast<float(*)(float)>(std::sigmoid));
+        result = is_sigmoid ? sigmoid_neon(vec) : tanh_neon(vec);
         
         vst1q_f32(data + i, result);
     }
@@ -125,7 +167,8 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     const LSTMLayer& layer) {
 
     // Get the correct input size for this layer
-    int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
+    const int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
+    const size_t aligned_input_size = (expected_layer_input + 3) & ~3;
 
     // Verify weight dimensions
     int weight_input_size = layer.weight_ih[0].size();
@@ -204,7 +247,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     
     // Input to hidden contributions using NEON
     for (size_t i = 0; i < input.size(); ++i) {
-        float32x4_t input_val = vdupq_f32(input[i]);
+        float32x4_t input_val = vdupq_n_f32(input[i]);
         
         for (int h = 0; h < hidden_size; h += 4) {
             // Load gate values and weights
@@ -1249,7 +1292,7 @@ void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
         // Copy weights using NEON
         for (size_t i = 0; i < 4 * hidden_size; i += 4) {
             // Copy weight_ih
-            for (size_t j = 0; j < input_size_layer; j += 4) {
+            for (size_t j = 0; j < aligned_input_size_layer; j += 4) {
                 float32x4_t weight_vec = vld1q_f32(&weights[layer].weight_ih[i][j]);
                 vst1q_f32(&lstm_layers[layer].weight_ih[i][j], weight_vec);
             }
