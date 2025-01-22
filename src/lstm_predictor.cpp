@@ -1348,12 +1348,68 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
 }
 
 LSTMPredictor::~LSTMPredictor() {
-    // Clear vectors explicitly
-    lstm_layers.clear();
-    last_gradients.clear();
-    h_state.clear();
-    c_state.clear();
-    layer_cache.clear();
-    fc_weight.clear();
-    fc_bias.clear();
+    try {
+        // Add debug output
+        std::cout << "Starting LSTMPredictor cleanup..." << std::endl;
+        
+        // Clear vectors safely with size checks
+        if (!lstm_layers.empty()) {
+            std::cout << "Clearing lstm_layers..." << std::endl;
+            lstm_layers.clear();
+        }
+        
+        if (!last_gradients.empty()) {
+            std::cout << "Clearing last_gradients..." << std::endl;
+            last_gradients.clear();
+        }
+        
+        if (!h_state.empty()) {
+            std::cout << "Clearing h_state..." << std::endl;
+            h_state.clear();
+        }
+        
+        if (!c_state.empty()) {
+            std::cout << "Clearing c_state..." << std::endl;
+            c_state.clear();
+        }
+        
+        if (!layer_cache.empty()) {
+            std::cout << "Clearing layer_cache..." << std::endl;
+            layer_cache.clear();
+        }
+        
+        if (!fc_weight.empty()) {
+            std::cout << "Clearing fc_weight..." << std::endl;
+            fc_weight.clear();
+        }
+        
+        if (!fc_bias.empty()) {
+            std::cout << "Clearing fc_bias..." << std::endl;
+            fc_bias.clear();
+        }
+        
+        // Clear Adam states if they exist
+        if (!m_fc_weight.empty()) {
+            std::cout << "Clearing Adam states..." << std::endl;
+            m_fc_weight.clear();
+            v_fc_weight.clear();
+            m_fc_bias.clear();
+            v_fc_bias.clear();
+            m_weight_ih.clear();
+            v_weight_ih.clear();
+            m_weight_hh.clear();
+            v_weight_hh.clear();
+            m_bias_ih.clear();
+            v_bias_ih.clear();
+            m_bias_hh.clear();
+            v_bias_hh.clear();
+        }
+        
+        std::cout << "LSTMPredictor cleanup completed." << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error during LSTMPredictor cleanup: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Unknown error during LSTMPredictor cleanup" << std::endl;
+    }
 }

@@ -38,6 +38,8 @@ public:
         random_seed = seed;
         initialize_weights();
     }
+
+    ~LSTMPredictor();
     
     LSTMOutput forward(const std::vector<std::vector<std::vector<float>>>& x,
                       const std::vector<std::vector<float>>* initial_hidden = nullptr,
