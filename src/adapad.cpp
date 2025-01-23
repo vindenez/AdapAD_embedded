@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <chrono>
+#include <fstream>
 
 AdapAD::AdapAD(const PredictorConfig& predictor_config,
                const ValueRangeConfig& value_range_config,
@@ -45,28 +46,63 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 }
 
 bool AdapAD::is_anomalous(float observed_val) {
+    std::ofstream perf_log("performance_metrics_detailed.csv", std::ios_base::app);
     bool is_anomalous_ret = false;
     float normalized = normalize_data(observed_val);
     
     observed_vals.push_back(normalized);
     
     try {
+        // Monitor prediction phase
+        auto pred_start = std::chrono::high_resolution_clock::now();
+        float cpu_before = get_cpu_usage();
+        float power_before = get_power_usage();
+        
+        auto past_observations = prepare_data_for_prediction(observed_vals.size());
+        data_predictor->eval();
+        auto predicted_val = data_predictor->predict(past_observations);
+        
+        auto pred_end = std::chrono::high_resolution_clock::now();
+        float cpu_after = get_cpu_usage();
+        float power_after = get_power_usage();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(pred_end - pred_start);
+        
+        perf_log << "prediction,"
+                 << (cpu_after + cpu_before)/2 << ","
+                 << (power_after + power_before)/2 << ","
+                 << duration.count() << "\n";
+        
+        // Monitor model update phase
+        if (static_cast<int>(predictive_errors.size()) >= predictor_config.lookback_len) {
+            auto update_start = std::chrono::high_resolution_clock::now();
+            cpu_before = get_cpu_usage();
+            power_before = get_power_usage();
+            
+            data_predictor->update(config::epoch_update, config::lr_update,
+                                 past_observations, {normalized});
+            
+            auto update_end = std::chrono::high_resolution_clock::now();
+            cpu_after = get_cpu_usage();
+            power_after = get_power_usage();
+            duration = std::chrono::duration_cast<std::chrono::milliseconds>(update_end - update_start);
+            
+            perf_log << "model_update,"
+                     << (cpu_after + cpu_before)/2 << ","
+                     << (power_after + power_before)/2 << ","
+                     << duration.count() << "\n";
+        }
+        
         // Validate vector sizes before operations
         if (observed_vals.size() < predictor_config.lookback_len + 1) {
             throw std::runtime_error("Not enough observed values");
         }
 
         // Validate past_observations dimensions
-        auto past_observations = prepare_data_for_prediction(observed_vals.size());
         if (past_observations.empty() || past_observations[0].empty() || 
             past_observations[0][0].size() != predictor_config.lookback_len) {
             throw std::runtime_error("Invalid past_observations dimensions");
         }
 
-        // Make prediction
-        data_predictor->eval();
-        auto predicted_val = data_predictor->predict(past_observations);
-        
         // Validate vector sizes before push_back
         if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
             predicted_vals.erase(predicted_vals.begin());
@@ -126,6 +162,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         throw;
     }
     
+    perf_log.close();
     return is_anomalous_ret;
 }
 

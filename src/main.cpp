@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <chrono>
+#include <thread>
 
 struct DataPoint {
     float value;
@@ -39,6 +40,9 @@ std::vector<DataPoint> read_csv(const std::string& filename) {
     return data;
 }
 
+float get_cpu_usage() { /* ... */ }
+float get_power_usage() { /* ... */ }
+
 int main() {
     // Initialize configurations
     float minimal_threshold;
@@ -60,36 +64,64 @@ int main() {
     std::vector<float> observed_data;
     size_t total_decisions = 0;
     
-    // Add timing variables
-    auto total_start_time = std::chrono::high_resolution_clock::now();
+    // Open performance log file
+    std::ofstream perf_log("performance_metrics.csv");
+    perf_log << "timestamp,phase,cpu_usage,power_watts,processing_time_ms\n";
     
-    // Process all data points like Python version
     for (size_t i = 0; i < all_data.size(); ++i) {
         float measured_value = all_data[i].value;
         observed_data.push_back(measured_value);
         
         if (observed_data.size() == predictor_config.train_size) {
+            // Monitor initial training phase
+            auto phase_start = std::chrono::high_resolution_clock::now();
+            float cpu_before = get_cpu_usage();
+            float power_before = get_power_usage();
+            
             adapad.set_training_data(observed_data);
             adapad.train();
-            std::cout << "\n------------STARTING ONLINE LEARNING PHASE------------" << std::endl;
             
-            // Start timing the decision phase
-            total_start_time = std::chrono::high_resolution_clock::now();
+            auto phase_end = std::chrono::high_resolution_clock::now();
+            float cpu_after = get_cpu_usage();
+            float power_after = get_power_usage();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start);
+            
+            perf_log << i << ",initial_training,"
+                    << (cpu_after + cpu_before)/2 << ","
+                    << (power_after + power_before)/2 << ","
+                    << duration.count() << "\n";
+            perf_log.flush();
+            
+            std::cout << "\n------------STARTING ONLINE LEARNING PHASE------------" << std::endl;
         }
         else if (observed_data.size() > predictor_config.train_size) {
             try {
-                // Add size validation
                 if (observed_data.size() < predictor_config.lookback_len + 1) {
-                    std::cerr << "Not enough data for prediction" << std::endl;
                     continue;
                 }
                 
+                // Monitor online learning phase
+                auto phase_start = std::chrono::high_resolution_clock::now();
+                float cpu_before = get_cpu_usage();
+                float power_before = get_power_usage();
+                
                 bool is_anomalous = adapad.is_anomalous(measured_value);
                 adapad.clean();
+                
+                auto phase_end = std::chrono::high_resolution_clock::now();
+                float cpu_after = get_cpu_usage();
+                float power_after = get_power_usage();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start);
+                
+                perf_log << i << ",online_learning,"
+                        << (cpu_after + cpu_before)/2 << ","
+                        << (power_after + power_before)/2 << ","
+                        << duration.count() << "\n";
+                perf_log.flush();
+                
                 total_decisions++;
             } catch (const std::exception& e) {
                 std::cerr << "Error in online learning phase: " << e.what() << std::endl;
-                // Consider whether to continue or break based on error
                 continue;
             }
         }
@@ -98,15 +130,6 @@ int main() {
                       << " to warmup training" << std::endl;
         }
     }
-    
-    // Calculate total time for all decisions
-    auto total_end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> total_elapsed = total_end_time - total_start_time;
-    
-    std::cout << "Processed " << total_decisions << " points in " 
-              << total_elapsed.count() << " seconds" << std::endl;
-    std::cout << "Average time per decision: " 
-              << (total_elapsed.count() / total_decisions) << " seconds" << std::endl;
     
     std::cout << "Done! Check result at " << adapad.get_log_filename() << std::endl;
     return 0;
