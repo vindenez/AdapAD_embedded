@@ -1,0 +1,56 @@
+data:
+  source: "Tide_pressure"
+  paths:
+    training: "data/Tide_pressure.csv"
+    validation: "data/Tide_pressure.validation_stage.csv"
+    log: "adapad_log.csv"
+  sources:
+    Tide_pressure:
+      epochs:
+        train: 40
+        update: 40
+        update_generator: 5
+      learning_rates:
+        update: 0.0002
+        update_generator: 0.0002
+      bounds:
+        lower: 713.0
+        upper: 763.0
+      minimal_threshold: 0.0038
+    Wave_height:
+      bounds:
+        lower: 0
+        upper: 15.2
+      minimal_threshold: 0.3
+    Seawater_temperature:
+      bounds:
+        lower: 9
+        upper: 33
+      minimal_threshold: 0.02
+
+training:
+  epochs:
+    train: 50
+    update: 40
+    update_generator: 40
+  learning_rates:
+    train: 0.0002
+    update: 0.00005
+    update_generator: 0.00005
+
+model:
+  save_enabled: false
+  save_interval: 48
+  save_path: "model_states/" 
+  lstm:
+    size: 100
+    layers: 2
+    lookback: 3
+    prediction_len: 1
+  
+anomaly_detection:
+  threshold_multiplier: 1.0
+
+system:
+  random_seed: 42
+  verbose_output: true

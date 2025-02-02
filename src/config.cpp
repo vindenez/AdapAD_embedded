@@ -1,103 +1,125 @@
 #include "config.hpp"
+#include "simple_yaml.hpp"
 #include <iostream>
+#include <sstream>
 
-namespace config {
-    // Located in /data
-    std::string data_source_path = "data/Tide_pressure.csv";
-    std::string data_val_path = "data/Tide_pressure.validation_stage.csv";
-    std::string data_source = "Tide_pressure";
-
-    // Located on SD Card on the module /mnt/data
-    // mount -t vfat /dev/mmcblk1p1 /mnt/sdcard
-    // std::string data_source_path = "/mnt/sdcard/data/Tide_pressure.csv";
-    // std::string data_val_path = "/mnt/sdcard/data/Tide_pressure.validation_stage.csv";
-    // std::string data_source = "Tide_pressure";
-
-    // Training parameters
-    int epoch_train = 500;              
-    float lr_train = 0.0002f;           
-    int epoch_update = 100;              
-    float lr_update = 0.00005f;          
-    int update_G_epoch = 100;            
-    float update_G_lr = 0.00005f;        
-
-    // Model architecture
-    int LSTM_size = 100;                 
-    int LSTM_size_layer = 2;            
-    int lookback_len = 3;                
-    int prediction_len = 1;              
-
-    int train_size = 2 * lookback_len + prediction_len;
-    int num_classes = 1;
-    int input_size = lookback_len;
-
-    // Anomaly detection
-    float minimal_threshold = 0.0038f;   
-    float threshold_multiplier = 1.0f;
-
-    // Data preprocessing
-    float lower_bound = 713.0f;          
-    float upper_bound = 763.0f;          
-
-    // Random seed for reproducibility
-    unsigned int random_seed = 42;
-
-    // Logging and debugging
-    bool verbose_output = true;
-    std::string log_file_path;
+float Config::get_float(const std::string& key, float default_value) {
+    auto it = config_map.find(key);
+    return it != config_map.end() ? std::stof(it->second) : default_value;
 }
 
-// Initialize predictor configuration
+int Config::get_int(const std::string& key, int default_value) {
+    auto it = config_map.find(key);
+    return it != config_map.end() ? std::stoi(it->second) : default_value;
+}
+
+std::string Config::get_string(const std::string& key, const std::string& default_value) {
+    auto it = config_map.find(key);
+    return it != config_map.end() ? it->second : default_value;
+}
+
+bool Config::get_bool(const std::string& key, bool default_value) {
+    auto it = config_map.find(key);
+    return it != config_map.end() ? (it->second == "true") : default_value;
+}
+
+bool Config::load(const std::string& yaml_path) {
+    try {
+        config_map = SimpleYAML::parse(yaml_path);
+        
+        // Load data paths
+        data_source = get_string("data.source");
+        data_source_path = get_string("data.paths.training");
+        data_val_path = get_string("data.paths.validation");
+        log_file_path = get_string("data.paths.log");
+
+        // Load model architecture
+        LSTM_size = get_int("model.lstm.size", 100);
+        LSTM_size_layer = get_int("model.lstm.layers", 2);
+        lookback_len = get_int("model.lstm.lookback", 3);
+        prediction_len = get_int("model.lstm.prediction_len", 1);
+
+        // Load default training parameters
+        epoch_train = get_int("training.epochs.train", 50);
+        epoch_update = get_int("training.epochs.update", 40);
+        update_G_epoch = get_int("training.epochs.update_generator", 40);
+        lr_train = get_float("training.learning_rates.train", 0.0002f);
+        lr_update = get_float("training.learning_rates.update", 0.00005f);
+        update_G_lr = get_float("training.learning_rates.update_generator", 0.00005f);
+
+        // Load system settings
+        random_seed = get_int("system.random_seed", 42);
+        verbose_output = get_bool("system.verbose_output", true);
+
+        // Load anomaly detection parameters
+        threshold_multiplier = get_float("anomaly_detection.threshold_multiplier", 1.0f);
+
+        // Apply data source specific configuration
+        apply_data_source_config();
+
+        // Derived values
+        train_size = 2 * lookback_len + prediction_len;
+        num_classes = 1;
+        input_size = lookback_len;
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading config: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+void Config::apply_data_source_config() {
+    std::string prefix = "data.sources." + data_source + ".";
+    
+    // Override bounds
+    lower_bound = get_float(prefix + "bounds.lower");
+    upper_bound = get_float(prefix + "bounds.upper");
+    minimal_threshold = get_float(prefix + "minimal_threshold");
+
+    // Override training parameters if they exist
+    if (config_map.find(prefix + "epochs.train") != config_map.end()) {
+        epoch_train = get_int(prefix + "epochs.train");
+        epoch_update = get_int(prefix + "epochs.update");
+        update_G_epoch = get_int(prefix + "epochs.update_generator");
+    }
+
+    if (config_map.find(prefix + "learning_rates.update") != config_map.end()) {
+        lr_update = get_float(prefix + "learning_rates.update");
+        update_G_lr = get_float(prefix + "learning_rates.update_generator");
+    }
+}
+
 PredictorConfig init_predictor_config() {
+    const auto& config = Config::getInstance();
+    
     PredictorConfig predictor_config;
-    predictor_config.lookback_len = config::lookback_len;
-    predictor_config.prediction_len = config::prediction_len;
-    predictor_config.train_size = config::train_size;
-    predictor_config.num_layers = config::LSTM_size_layer;
-    predictor_config.hidden_size = config::LSTM_size;
-    predictor_config.num_classes = config::num_classes;
-    predictor_config.input_size = config::input_size;
-    predictor_config.epoch_train = config::epoch_train;
-    predictor_config.lr_train = config::lr_train;
-    predictor_config.epoch_update = config::epoch_update;
-    predictor_config.lr_update = config::lr_update;
+    predictor_config.lookback_len = config.lookback_len;
+    predictor_config.prediction_len = config.prediction_len;
+    predictor_config.train_size = config.train_size;
+    predictor_config.num_layers = config.LSTM_size_layer;
+    predictor_config.hidden_size = config.LSTM_size;
+    predictor_config.num_classes = config.num_classes;
+    predictor_config.input_size = config.input_size;
+    predictor_config.epoch_train = config.epoch_train;
+    predictor_config.lr_train = config.lr_train;
+    predictor_config.epoch_update = config.epoch_update;
+    predictor_config.lr_update = config.lr_update;
 
     return predictor_config;
 }
 
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold) {
+    const auto& config = Config::getInstance();
     ValueRangeConfig value_range_config;
 
     if (data_source == "Tide_pressure") {
-        value_range_config.lower_bound = config::lower_bound;
-        value_range_config.upper_bound = config::upper_bound;
-        minimal_threshold = config::minimal_threshold;
-        config::epoch_train = 40;
-        config::epoch_update = 40;
-        config::update_G_epoch = 5;
-        config::update_G_lr = 0.0002f;
-        config::lr_update = 0.0002f;
-    } else if (data_source == "Wave_height") {
-        value_range_config.lower_bound = 0;
-        value_range_config.upper_bound = 15.2;
-        minimal_threshold = 0.3;
-    } else if (data_source == "Seawater_temperature") {
-        value_range_config.lower_bound = 9;
-        value_range_config.upper_bound = 33;
-        minimal_threshold = 0.02;
+        value_range_config.lower_bound = config.lower_bound;
+        value_range_config.upper_bound = config.upper_bound;
+        minimal_threshold = config.minimal_threshold;
     } else {
         std::cerr << "Unsupported data source! You need to set the hyperparameters manually." << std::endl;
     }
-
-    // Logging
-    config::log_file_path = "adapad_log_" + 
-                               std::to_string(config::epoch_train) + "_" +
-                               std::to_string(config::train_size) + "_" +
-                               std::to_string(config::LSTM_size_layer) + "_" +
-                               std::to_string(config::epoch_update) + "_" +
-                               std::to_string(config::update_G_epoch) + "_" +
-                               std::to_string(config::update_G_lr) + "lrG_" + 
-                               std::to_string(config::lr_update) + "lr_" + ".csv";
 
     return value_range_config;
 }

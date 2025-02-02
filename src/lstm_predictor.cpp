@@ -1,6 +1,8 @@
 #include "lstm_predictor.hpp"
 #include "matrix_utils.hpp"
 #include "activation_functions.hpp"
+#include "config.hpp"
+#include "model_state.hpp"
 
 #include <random>
 #include <algorithm>
@@ -24,9 +26,7 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
     last_gradients.resize(num_layers);
     
     initialize_weights();
-    
     reset_states();
-    
 }
 
 void LSTMPredictor::reset_states() {
@@ -125,18 +125,18 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     // Input to hidden contributions
     for (size_t i = 0; i < input.size(); ++i) {
         for (int h = 0; h < hidden_size; ++h) {
-            gates[h] += layer.weight_ih[h][i] * input[i];                     // input gate
-            gates[hidden_size + h] += layer.weight_ih[hidden_size + h][i] * input[i];   // forget gate
-            gates[2 * hidden_size + h] += layer.weight_ih[2 * hidden_size + h][i] * input[i]; // cell gate
-            gates[3 * hidden_size + h] += layer.weight_ih[3 * hidden_size + h][i] * input[i]; // output gate
+            gates[h] += layer.weight_ih[h][i] * input[i];                                       // input gate
+            gates[hidden_size + h] += layer.weight_ih[hidden_size + h][i] * input[i];           // forget gate
+            gates[2 * hidden_size + h] += layer.weight_ih[2 * hidden_size + h][i] * input[i];   // cell gate
+            gates[3 * hidden_size + h] += layer.weight_ih[3 * hidden_size + h][i] * input[i];   // output gate
         }
     }
     
     // Hidden to hidden contributions
     for (int h = 0; h < hidden_size; ++h) {
         for (size_t i = 0; i < hidden_size; ++i) {
-            gates[h] += layer.weight_hh[h][i] * h_state[i];                     // input gate
-            gates[hidden_size + h] += layer.weight_hh[hidden_size + h][i] * h_state[i];   // forget gate
+            gates[h] += layer.weight_hh[h][i] * h_state[i];                                     // input gate
+            gates[hidden_size + h] += layer.weight_hh[hidden_size + h][i] * h_state[i];         // forget gate
             gates[2 * hidden_size + h] += layer.weight_hh[2 * hidden_size + h][i] * h_state[i]; // cell gate
             gates[3 * hidden_size + h] += layer.weight_hh[3 * hidden_size + h][i] * h_state[i]; // output gate
         }
@@ -144,10 +144,10 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
 
     // Apply activations and update states
     for (int h = 0; h < hidden_size; ++h) {
-        float i_t = sigmoid(gates[h]);                    // input gate
-        float f_t = sigmoid(gates[hidden_size + h]);      // forget gate
-        float g_t = tanh_custom(gates[2 * hidden_size + h]); // cell gate
-        float o_t = sigmoid(gates[3 * hidden_size + h]);  // output gate
+        float i_t = sigmoid(gates[h]);                          // input gate
+        float f_t = sigmoid(gates[hidden_size + h]);            // forget gate
+        float g_t = tanh_custom(gates[2 * hidden_size + h]);    // cell gate
+        float o_t = sigmoid(gates[3 * hidden_size + h]);        // output gate
 
         // Update cell state
         float new_cell = f_t * c_state[h] + i_t * g_t;
@@ -157,7 +157,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         float new_hidden = o_t * tanh_custom(new_cell);
         h_state[h] = new_hidden;
 
-        // **Change 4: Store values in cache only if training_mode is true**
+        // Store values in cache only if training_mode is true
         if (training_mode) {
             cache_entry.input_gate[h] = i_t;
             cache_entry.forget_gate[h] = f_t;
@@ -181,7 +181,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         throw std::runtime_error("Output size mismatch in lstm_cell_forward");
     }
 
-    // If training_mode, store cache_entry back to layer_cache**
+    // If training_mode, store cache_entry back to layer_cache
     if (training_mode) {
         layer_cache[current_layer][current_batch][current_timestep] = cache_entry;
     }
@@ -784,7 +784,7 @@ void LSTMPredictor::apply_adam_update(
         throw std::runtime_error("Empty inner vectors in Adam update");
     }
 
-    // Existing dimension checks...
+    // Existing dimension checks
     if (weights.size() != grads.size() || 
         weights[0].size() != grads[0].size() ||
         weights.size() != m_t.size() ||
@@ -899,5 +899,17 @@ void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
         lstm_layers[layer].bias_hh = weights[layer].bias_hh;
         
     }
+}
+
+void LSTMPredictor::save_model(const std::string& filename) {
+    auto weights = get_weights();
+    auto state = get_state();
+    ModelState::save_state(filename, "lstm_predictor", weights, state);
+}
+
+void LSTMPredictor::load_model(const std::string& filename) {
+    auto result = ModelState::load_state(filename, "lstm_predictor");
+    set_weights(result.first);
+    set_state(result.second);
 }
 

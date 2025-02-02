@@ -3,6 +3,7 @@
 #include <cmath>
 #include <tuple>
 #include <random>
+#include <string>
 
 class LSTMPredictor {
 public:
@@ -103,6 +104,22 @@ public:
     void eval() { training_mode = false; }
     void train() { training_mode = true; }
     bool is_training() const { return training_mode; }
+
+    // Add new model state methods
+    void save_model(const std::string& filename);
+    void load_model(const std::string& filename);
+
+    // Fix the state getters/setters
+    std::pair<std::vector<float>, std::vector<float>> get_state() const {
+        return {h_state[0], c_state[0]};  // Return first layer's states
+    }
+    
+    void set_state(const std::pair<std::vector<float>, std::vector<float>>& state) {
+        if (h_state.size() > 0 && c_state.size() > 0) {
+            h_state[0] = state.first;
+            c_state[0] = state.second;
+        }
+    }
 
 private:
     unsigned random_seed;

@@ -39,11 +39,30 @@ std::vector<DataPoint> read_csv(const std::string& filename) {
     return data;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Load configuration
+    std::string config_path = "config.yaml";
+    if (argc > 1) {
+        config_path = argv[1];
+    }
+
+    if (!Config::getInstance().load(config_path)) {
+        std::cerr << "Failed to load configuration from " << config_path << std::endl;
+        return 1;
+    }
+
+    const auto& config = Config::getInstance();
+    if (config.verbose_output) {
+        std::cout << "Configuration loaded successfully" << std::endl;
+        std::cout << "Data source: " << config.data_source << std::endl;
+        std::cout << "Training epochs: " << config.epoch_train << std::endl;
+        std::cout << "LSTM size: " << config.LSTM_size << std::endl;
+    }
+
     // Initialize configurations
     float minimal_threshold;
     auto predictor_config = init_predictor_config();
-    auto value_range_config = init_value_range_config(config::data_source, minimal_threshold);
+    auto value_range_config = init_value_range_config(config.data_source, minimal_threshold);
     
     if (minimal_threshold == 0.0f) {
         std::cerr << "Error: It is mandatory to set a minimal threshold" << std::endl;
@@ -51,11 +70,14 @@ int main() {
     }
     
     // Read the complete dataset
-    std::vector<DataPoint> all_data = read_csv(config::data_source_path);
+    std::vector<DataPoint> all_data = read_csv(config.data_source_path);
     
     // Initialize AdapAD
     AdapAD adapad(predictor_config, value_range_config, minimal_threshold);
-    std::cout << "GATHERING DATA FOR TRAINING... " << predictor_config.train_size << std::endl;
+    
+    if (config.verbose_output) {
+        std::cout << "GATHERING DATA FOR TRAINING... " << predictor_config.train_size << std::endl;
+    }
     
     std::vector<float> observed_data;
     size_t total_decisions = 0;

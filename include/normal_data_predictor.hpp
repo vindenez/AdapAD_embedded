@@ -4,6 +4,7 @@
 #include "lstm_predictor.hpp"
 #include <vector>
 #include <memory>
+#include "lstm_predictor.hpp"
 
 class NormalDataPredictor {
 public:
@@ -39,6 +40,10 @@ public:
         return predictor->get_final_prediction(output);
     }
 
+    // Add model state methods
+    void save_model(const std::string& filename);
+    void load_model(const std::string& filename);
+
 private:
     int lookback_len;
     int prediction_len;
@@ -47,5 +52,4 @@ private:
     std::pair<std::vector<std::vector<float>>, std::vector<float>>
     create_sliding_windows(const std::vector<float>& data);
 };
-
 #endif // NORMAL_DATA_PREDICTOR_HPP

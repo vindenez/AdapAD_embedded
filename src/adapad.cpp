@@ -1,39 +1,48 @@
 #include "adapad.hpp"
 #include "matrix_utils.hpp"
 #include "normal_data_prediction_error_calculator.hpp"
+#include "config.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <chrono>
+#include <fstream>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
 
 AdapAD::AdapAD(const PredictorConfig& predictor_config,
                const ValueRangeConfig& value_range_config,
                float minimal_threshold)
     : value_range_config(value_range_config),
       predictor_config(predictor_config),
-      minimal_threshold(minimal_threshold) {
+      minimal_threshold(minimal_threshold),
+      config(Config::getInstance()),
+      update_count(0) {
     
-    // Initialize learning components
+    // Initialize AdapAD components
     data_predictor.reset(new NormalDataPredictor(
-        config::LSTM_size_layer,
-        config::LSTM_size,
+        config.LSTM_size_layer,
+        config.LSTM_size,
         predictor_config.lookback_len,
         predictor_config.prediction_len
     ));
     
     generator.reset(new AnomalousThresholdGenerator(
-        config::LSTM_size_layer,
-        config::LSTM_size,
+        config.LSTM_size_layer,
+        config.LSTM_size,
         predictor_config.lookback_len,
         predictor_config.prediction_len
     ));
     
     // Initialize logging with the specified filename
-    f_name = config::log_file_path;  // Use the path from config
+    f_name = config.log_file_path;
     f_log.open(f_name);
     f_log << "observed,predicted,low,high,anomalous,err,threshold\n";
     f_log.close();
-    
+
+    // Create save directory if it doesn't exist
+    mkdir(config.save_path.c_str(), 0777);  // UNIX-style directory creation
 }
 
 void AdapAD::set_training_data(const std::vector<float>& data) {
@@ -100,7 +109,7 @@ bool AdapAD::is_anomalous(float observed_val) {
                 }
                 
                 // Update models only for in-range values
-                data_predictor->update(config::epoch_update, config::lr_update,
+                data_predictor->update(config.epoch_update, config.lr_update,
                                     past_observations, {normalized});
                 
                 if (is_anomalous_ret || threshold > minimal_threshold) {
@@ -121,12 +130,29 @@ bool AdapAD::is_anomalous(float observed_val) {
               << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";
         f_log.close();
         
+        // Periodic state saving (only if enabled)
+        update_count++;
+        if (config.save_enabled && update_count >= config.save_interval) {
+            try {
+                // Save models
+                std::string filename = get_state_filename();
+                save_models(filename);
+                
+                // Reset counter
+                update_count = 0;
+                
+                // Keep only N most recent saves
+                clean_old_saves(10);
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to save model state: " << e.what() << std::endl;
+            }
+        }
+        
+        return is_anomalous_ret;
     } catch (const std::exception& e) {
         std::cerr << "Error in is_anomalous: " << e.what() << std::endl;
-        throw;
+        return false;
     }
-    
-    return is_anomalous_ret;
 }
 
 void AdapAD::update_generator(
@@ -136,7 +162,7 @@ void AdapAD::update_generator(
     generator->train();
     
     // Single update with early stopping
-    for (int e = 0; e < config::update_G_epoch; ++e) {
+    for (int e = 0; e < config.update_G_epoch; ++e) {
         // Reshape past_errors to match PyTorch's reshape(1, -1)
         std::vector<std::vector<std::vector<float>>> reshaped_input(1);
         reshaped_input[0].resize(1);
@@ -156,7 +182,7 @@ void AdapAD::update_generator(
         }
         loss_history.push_back(current_loss);
         
-        generator->train_step(reshaped_input, {recent_error}, config::update_G_lr);
+        generator->train_step(reshaped_input, {recent_error}, config.update_G_lr);
     }
 }
 
@@ -282,15 +308,15 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
 }
 
 void AdapAD::train() {
-    std::cout << "Starting predictor training with epochs=" << config::epoch_train 
-              << ", lr=" << config::lr_train << std::endl;
+    std::cout << "Starting predictor training with epochs=" << config.epoch_train 
+              << ", lr=" << config.lr_train << std::endl;
     
     // Start timing
     auto start_time = std::chrono::high_resolution_clock::now();
     
     // Train data predictor and get training data
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> 
-        training_data = data_predictor->train(config::epoch_train, config::lr_train, observed_vals);
+        training_data = data_predictor->train(config.epoch_train, config.lr_train, observed_vals);
     auto& trainX = training_data.first;
     auto& trainY = training_data.second;
     
@@ -320,7 +346,7 @@ void AdapAD::train() {
     
     // Train generator
     generator->reset_states();
-    generator->train(config::epoch_train, config::lr_train, predictive_errors);
+    generator->train(config.epoch_train, config.lr_train, predictive_errors);
     
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -363,13 +389,13 @@ void AdapAD::learn_error_pattern(
     auto& batch_y = batch_data.second;
     
     generator->reset_states();
-    for (int epoch = 0; epoch < config::epoch_train; epoch++) {
+    for (int epoch = 0; epoch < config.epoch_train; epoch++) {
         for (size_t i = 0; i < batch_x.size(); i++) {
             auto input = std::vector<std::vector<std::vector<float>>>(1);
             input[0].push_back(batch_x[i]);
             auto target = std::vector<float>{batch_y[i]};
             
-            generator->train_step(input, target, config::lr_train);
+            generator->train_step(input, target, config.lr_train);
         }
     }
 
@@ -401,4 +427,57 @@ float AdapAD::simplify_error(const std::vector<float>& errors, float N_sigma) {
     float std_dev = std::sqrt(sq_sum / errors.size() - mean * mean);
 
     return mean + N_sigma * std_dev;
+}
+
+void AdapAD::save_models(const std::string& model_file) {
+    // Save both models to the same file
+    data_predictor->save_model(model_file);
+    generator->save_model(model_file);
+}
+
+void AdapAD::load_models(const std::string& model_file) {
+    // Load both models from the same file
+    data_predictor->load_model(model_file);
+    generator->load_model(model_file);
+}
+
+std::string AdapAD::get_state_filename() const {
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << config.save_path << "model_state_" 
+       << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S") 
+       << ".bin";
+    return ss.str();
+}
+
+void AdapAD::clean_old_saves(size_t keep_count) {
+    try {
+        std::vector<std::string> files;
+        DIR* dir = opendir(config.save_path.c_str());
+        if (dir != nullptr) {
+            struct dirent* entry;
+            while ((entry = readdir(dir)) != nullptr) {
+                std::string filename = entry->d_name;
+                if (filename.size() > 4 && 
+                    filename.substr(filename.size() - 4) == ".bin") {
+                    files.push_back(config.save_path + filename);
+                }
+            }
+            closedir(dir);
+            
+            // Sort by filename (which includes timestamp)
+            std::sort(files.begin(), files.end());
+            
+            // Remove older files, keeping only the most recent ones
+            while (files.size() > keep_count) {
+                if (remove(files.front().c_str()) != 0) {
+                    std::cerr << "Error deleting file: " << files.front() << std::endl;
+                }
+                files.erase(files.begin());
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to clean old saves: " << e.what() << std::endl;
+    }
 }

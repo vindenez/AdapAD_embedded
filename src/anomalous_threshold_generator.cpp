@@ -38,7 +38,8 @@ float AnomalousThresholdGenerator::generate(
     auto pred = generator->get_final_prediction(output);
     
     // Clamp to minimal_threshold
-    return std::max(minimal_threshold, pred[0] * config::threshold_multiplier);
+    const auto& config = Config::getInstance();
+    return std::max(minimal_threshold, pred[0] * config.threshold_multiplier);
 }
 
 void AnomalousThresholdGenerator::update(
@@ -113,4 +114,16 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
     }
     
     return {x3d, windows.second};
+}
+
+void AnomalousThresholdGenerator::save_model(const std::string& filename) {
+    if (generator) {
+        generator->save_model(filename);
+    }
+}
+
+void AnomalousThresholdGenerator::load_model(const std::string& filename) {
+    if (generator) {
+        generator->load_model(filename);
+    }
 }

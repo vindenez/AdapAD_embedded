@@ -7,6 +7,8 @@
 #include <vector>
 #include <memory>
 #include <fstream>
+#include <sstream>
+#include <iomanip>
 
 class AdapAD {
 public:
@@ -20,6 +22,10 @@ public:
     void clean();
 
     std::string get_log_filename() const { return f_name; }
+
+    // Add model state methods
+    void save_models(const std::string& model_file);
+    void load_models(const std::string& model_file);
 
 private:
     // Configuration
@@ -53,6 +59,10 @@ private:
     bool is_inside_range(float val);
     bool is_default_normal();
     float simplify_error(const std::vector<float>& errors, float N_sigma = 0);
-};
 
+    const Config& config;  // Reference to config instance
+    int update_count;  // Track number of updates
+    std::string get_state_filename() const;
+    void clean_old_saves(size_t keep_count);
+};
 #endif // ADAPAD_HPP

@@ -1,6 +1,7 @@
 #include "normal_data_predictor.hpp"
 #include "normal_data_prediction_error_calculator.hpp"
 #include "matrix_utils.hpp"
+#include "config.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -138,5 +139,17 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         loss_history.push_back(current_loss);
         
         predictor->train_step(past_observations, recent_observation, lr_update);
+    }
+}
+
+void NormalDataPredictor::save_model(const std::string& filename) {
+    if (predictor) {
+        predictor->save_model(filename);
+    }
+}
+
+void NormalDataPredictor::load_model(const std::string& filename) {
+    if (predictor) {
+        predictor->load_model(filename);
     }
 }
