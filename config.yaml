@@ -1,10 +1,8 @@
 data:
-  source: "Tide_pressure"
   paths:
-    training: "data/Tide_pressure.csv"
-    validation: "data/Tide_pressure.validation_stage.csv"
-    log: "adapad_log.csv"
-  sources:
+    training: "Austevoll_nord_2023-2024/continuous_data/data_549_20230520_0030_to_20230531_1000.csv"
+    log: "adapad_logs"
+  parameters:
     Tide_pressure:
       epochs:
         train: 40
@@ -27,6 +25,83 @@ data:
         lower: 9
         upper: 33
       minimal_threshold: 0.02
+    Austevoll_nord:
+      conductivity_conductivity:
+        bounds:
+          lower: 0
+          upper: 40
+        minimal_threshold: 0.02
+      conductivity_temperature:
+        bounds:
+          lower: 0
+          upper: 30
+        minimal_threshold: 0.05
+      conductivity_salinity:
+        bounds:
+          lower: 0
+          upper: 1600
+        minimal_threshold: 0.005
+      conductivity_density:
+        bounds:
+          lower: 1000
+          upper: 1040
+        minimal_threshold: 0.05
+      conductivity_soundspeed:
+        bounds:
+          lower: 1450
+          upper: 1500
+        minimal_threshold: 0.02
+      pressure_pressure:
+        bounds:
+          lower: 0
+          upper: 260
+        minimal_threshold: 0.05
+      pressure_temperature:
+        bounds:
+          lower: 15
+          upper: 16
+        minimal_threshold: 0.05
+      dcps_current_speed:
+        bounds:
+          lower: 0
+          upper: 100
+        minimal_threshold: 0.05
+      dcps_current_direction:
+        bounds:
+          lower: 0
+          upper: 400
+        minimal_threshold: 0.05
+      dcps_current_speed_north:
+        bounds:
+          lower: -100
+          upper: 100
+        minimal_threshold: 0.05
+      dcps_current_speed_east:
+        bounds:
+          lower: -100
+          upper: 100
+        minimal_threshold: 0.05
+      dcps_current_speed_vertical:
+        bounds:
+          lower: -10
+          upper: 10
+        minimal_threshold: 0.05
+      dcps_current_speed_std:
+        bounds:
+          lower: 0
+          upper: 160
+        minimal_threshold: 0.05
+      dcps_signal_strength:
+        bounds:
+          lower: -20
+          upper: 0
+        minimal_threshold: 0.05
+      dcps_cross_difference:
+        bounds:
+          lower: -20
+          upper: 20
+        minimal_threshold: 0.05
+      
 
 training:
   epochs:

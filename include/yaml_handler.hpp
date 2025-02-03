@@ -1,13 +1,14 @@
-#ifndef SIMPLE_YAML_HPP
-#define SIMPLE_YAML_HPP
+#ifndef YAML_HANDLER_HPP
+#define YAML_HANDLER_HPP
 
 #include <string>
 #include <map>
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 
-class SimpleYAML {
+class YAMLHandler {
 public:
     static std::map<std::string, std::string> parse(const std::string& filename) {
         std::map<std::string, std::string> config;
@@ -15,6 +16,9 @@ public:
         std::string line;
         std::vector<std::string> path;
         int current_indent = 0;
+        
+        // Debug output
+        std::cout << "Parsing YAML file: " << filename << std::endl;
         
         while (std::getline(file, line)) {
             // Skip empty lines and comments
@@ -42,15 +46,33 @@ public:
                 std::string key = trim(line.substr(0, pos));
                 std::string value = trim(line.substr(pos + 1));
                 
+                // Debug output
+                std::cout << "Processing line: '" << line << "'" << std::endl;
+                std::cout << "Current path: ";
+                for (const auto& p : path) {
+                    std::cout << p << ".";
+                }
+                std::cout << std::endl;
+                
                 // If value is empty, this is a new section
                 if (value.empty()) {
                     path.push_back(key);
+                    
+                    // Add an entry for the section itself
+                    std::string full_key;
+                    for (const auto& p : path) {
+                        if (!full_key.empty()) full_key += ".";
+                        full_key += p;
+                    }
+                    config[full_key] = "";
                 } else {
                     // Build full key path
                     std::string full_key;
                     for (const auto& p : path) {
-                        full_key += p + ".";
+                        if (!full_key.empty()) full_key += ".";
+                        full_key += p;
                     }
+                    if (!full_key.empty()) full_key += ".";
                     full_key += key;
                     
                     // Remove quotes if present
@@ -59,6 +81,9 @@ public:
                     }
                     
                     config[full_key] = value;
+                    
+                    // Debug output
+                    std::cout << "Added key-value: " << full_key << " = " << value << std::endl;
                 }
             }
         }
@@ -75,4 +100,4 @@ private:
     }
 };
 
-#endif // SIMPLE_YAML_HPP 
+#endif // YAML_HANDLER_HPP 

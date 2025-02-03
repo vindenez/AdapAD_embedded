@@ -4,6 +4,7 @@
 #include "normal_data_predictor.hpp"
 #include "anomalous_threshold_generator.hpp"
 #include "config.hpp"
+
 #include <vector>
 #include <memory>
 #include <fstream>
@@ -14,7 +15,8 @@ class AdapAD {
 public:
     AdapAD(const PredictorConfig& predictor_config, 
            const ValueRangeConfig& value_range_config,
-           float minimal_threshold);
+           float minimal_threshold,
+           const std::string& parameter_name);
     
     void set_training_data(const std::vector<float>& data);
     void train();

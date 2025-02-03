@@ -13,7 +13,8 @@
 
 AdapAD::AdapAD(const PredictorConfig& predictor_config,
                const ValueRangeConfig& value_range_config,
-               float minimal_threshold)
+               float minimal_threshold,
+               const std::string& parameter_name)
     : value_range_config(value_range_config),
       predictor_config(predictor_config),
       minimal_threshold(minimal_threshold),
@@ -35,8 +36,13 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
         predictor_config.prediction_len
     ));
     
-    // Initialize logging with the specified filename
-    f_name = config.log_file_path;
+    // Create parameter-specific log file name
+    f_name = config.log_file_path + "/" + parameter_name + "_log.csv";
+    
+    // Ensure log directory exists
+    mkdir(config.log_file_path.c_str(), 0777);
+    
+    // Initialize logging with the parameter-specific filename
     f_log.open(f_name);
     f_log << "observed,predicted,low,high,anomalous,err,threshold\n";
     f_log.close();

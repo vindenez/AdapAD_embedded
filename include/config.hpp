@@ -3,7 +3,8 @@
 
 #include <string>
 #include <map>
-
+#include <vector>
+#include "yaml_handler.hpp"
 // Configuration structure for predictor settings
 struct PredictorConfig {
     int lookback_len;      // Lookback length for LSTM
@@ -26,6 +27,22 @@ struct ValueRangeConfig {
 };
 
 class Config {
+private:
+    Config() {
+        save_enabled = false;    // default value
+        save_interval = 48;     // default value
+        save_path = "model_states/";
+    }
+    std::map<std::string, std::string> config_map; // Store the parsed YAML configuration
+    Config(const Config&) = delete;
+    Config& operator=(const Config&) = delete;
+
+    // Helper methods for accessing config values
+    float get_float(const std::string& key, float default_value = 0.0f);
+    int get_int(const std::string& key, int default_value = 0);
+    std::string get_string(const std::string& key, const std::string& default_value = "");
+    bool get_bool(const std::string& key, bool default_value = false);
+
 public:
     static Config& getInstance() {
         static Config instance;
@@ -34,6 +51,32 @@ public:
 
     bool load(const std::string& yaml_path);
     void apply_data_source_config();
+
+    // Get list of parameters for a given source
+    std::vector<std::string> get_parameters(const std::string& source) const {
+        std::vector<std::string> params;
+        std::string base_key = "data.parameters." + source;
+        
+        // Iterate through config_map to find matching parameters
+        for (const auto& pair : config_map) {
+            const std::string& key = pair.first;
+            // Check if key starts with the base_key
+            if (key.compare(0, base_key.length(), base_key) == 0) {
+                // Extract parameter name
+                size_t pos = key.find('.', base_key.length() + 1);
+                if (pos != std::string::npos) {
+                    std::string param = key.substr(base_key.length() + 1, 
+                                                 pos - base_key.length() - 1);
+                    // Add parameter if not already in list
+                    if (std::find(params.begin(), params.end(), param) == params.end()) {
+                        params.push_back(param);
+                    }
+                }
+            }
+        }
+        
+        return params;
+    }
 
     // Data paths
     std::string data_source;
@@ -75,21 +118,10 @@ public:
     int save_interval;
     std::string save_path;
 
-private:
-    Config() {
-        save_enabled = true;    // default value
-        save_interval = 48;     // default value
-        save_path = "model_states/";
-    } // Private constructor for singleton
-    std::map<std::string, std::string> config_map; // Store the parsed YAML configuration
-    Config(const Config&) = delete;
-    Config& operator=(const Config&) = delete;
-
-    // Helper methods for accessing config values
-    float get_float(const std::string& key, float default_value = 0.0f);
-    int get_int(const std::string& key, int default_value = 0);
-    std::string get_string(const std::string& key, const std::string& default_value = "");
-    bool get_bool(const std::string& key, bool default_value = false);
+    // Add public method to access config map
+    const std::map<std::string, std::string>& get_config_map() const {
+        return config_map;
+    }
 };
 
 // Declare the configuration functions

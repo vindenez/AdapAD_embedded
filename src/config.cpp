@@ -1,5 +1,5 @@
 #include "config.hpp"
-#include "simple_yaml.hpp"
+#include "yaml_handler.hpp"
 #include <iostream>
 #include <sstream>
 
@@ -25,7 +25,7 @@ bool Config::get_bool(const std::string& key, bool default_value) {
 
 bool Config::load(const std::string& yaml_path) {
     try {
-        config_map = SimpleYAML::parse(yaml_path);
+        config_map = YAMLHandler::parse(yaml_path);
         
         // Load data paths
         data_source = get_string("data.source");
@@ -110,16 +110,33 @@ PredictorConfig init_predictor_config() {
 }
 
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold) {
-    const auto& config = Config::getInstance();
-    ValueRangeConfig value_range_config;
-
-    if (data_source == "Tide_pressure") {
-        value_range_config.lower_bound = config.lower_bound;
-        value_range_config.upper_bound = config.upper_bound;
-        minimal_threshold = config.minimal_threshold;
-    } else {
-        std::cerr << "Unsupported data source! You need to set the hyperparameters manually." << std::endl;
+    ValueRangeConfig config;
+    const Config& cfg = Config::getInstance();
+    
+    // Debug output
+    std::cout << "Initializing value range config for: " << data_source << std::endl;
+    
+    // Get bounds
+    std::string lower_key = data_source + ".bounds.lower";
+    std::string upper_key = data_source + ".bounds.upper";
+    std::string threshold_key = data_source + ".minimal_threshold";
+    
+    // Debug: print the keys we're looking for
+    std::cout << "Looking for keys:" << std::endl;
+    std::cout << "- " << lower_key << std::endl;
+    std::cout << "- " << upper_key << std::endl;
+    std::cout << "- " << threshold_key << std::endl;
+    
+    // Print the actual values found
+    for (const auto& pair : cfg.get_config_map()) {
+        if (pair.first == lower_key || pair.first == upper_key || pair.first == threshold_key) {
+            std::cout << "Found: " << pair.first << " = " << pair.second << std::endl;
+        }
     }
-
-    return value_range_config;
+    
+    config.lower_bound = std::stof(cfg.get_config_map().at(lower_key));
+    config.upper_bound = std::stof(cfg.get_config_map().at(upper_key));
+    minimal_threshold = std::stof(cfg.get_config_map().at(threshold_key));
+    
+    return config;
 }
