@@ -30,7 +30,7 @@ data:
         bounds:
           lower: 0
           upper: 40
-        minimal_threshold: 0.02
+        minimal_threshold: 0.03
       conductivity_temperature:
         bounds:
           lower: 0
@@ -53,13 +53,13 @@ data:
         minimal_threshold: 0.02
       pressure_pressure:
         bounds:
-          lower: 0
-          upper: 260
-        minimal_threshold: 0.05
+          lower: 320
+          upper: 370
+        minimal_threshold: 0.003
       pressure_temperature:
         bounds:
-          lower: 15
-          upper: 16
+          lower: 0
+          upper: 23
         minimal_threshold: 0.05
       dcps_current_speed:
         bounds:
