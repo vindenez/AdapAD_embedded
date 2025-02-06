@@ -98,9 +98,10 @@ int main() {
     // Initialize models and measure memory usage
     std::vector<std::unique_ptr<AdapAD>> models;
     size_t initial_memory = get_memory_usage();
-    
+
     auto predictor_config = init_predictor_config();  // Get predictor config once
-    
+
+    std::cout << "\nInitializing models..." << std::endl;
     for (size_t i = 0; i < csv_parameters.size(); ++i) {
         const std::string& param_name = csv_parameters[i];
         
@@ -130,16 +131,10 @@ int main() {
             continue;
         }
         
-        // Create model and measure memory impact
-        size_t before_model = get_memory_usage();
         models.push_back(std::unique_ptr<AdapAD>(new AdapAD(
             predictor_config, value_range_config, minimal_threshold, param_name)));
-        size_t after_model = get_memory_usage();
-        
-        std::cout << "Memory usage for " << param_name << " model: " 
-                  << (after_model - before_model) / 1024.0 << " MB" << std::endl;
     }
-    
+
     size_t total_memory = get_memory_usage() - initial_memory;
     std::cout << "Total memory usage for all models: " << total_memory / 1024.0 << " MB" << std::endl;
     
@@ -170,49 +165,64 @@ int main() {
     // Online learning phase
     std::cout << "\nStarting online learning phase..." << std::endl;
     size_t total_predictions = 0;
-    double total_prediction_time = 0;
-    double total_update_time = 0;
+    double total_processing_time = 0.0;
     
     // Process each time step
+    double window_total_time = 0.0;  // Total time for current window of 5 points
+    size_t window_count = 0;         // Counter for points in current window
+    const size_t WINDOW_SIZE = 5;    // Size of averaging window
+
     for (size_t t = predictor_config.train_size; t < all_data[0].size(); ++t) {
-        // Measure prediction time
-        auto pred_start = std::chrono::high_resolution_clock::now();
+        double timestep_total = 0.0;  // Total time for all models at this timestep
         
         // Process all models for this time step
         for (size_t i = 0; i < models.size(); ++i) {
+            auto model_start = std::chrono::high_resolution_clock::now();
+            
             try {
                 float measured_value = all_data[i][t].value;
                 bool is_anomalous = models[i]->is_anomalous(measured_value);
+                models[i]->clean();
                 all_data[i][t].is_anomaly = is_anomalous;
             } catch (const std::exception& e) {
-                std::cerr << "Error in prediction for " << csv_parameters[i] 
+                std::cerr << "Error processing " << csv_parameters[i] 
                           << ": " << e.what() << std::endl;
             }
+            
+            auto model_end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> model_time = model_end - model_start;
+            timestep_total += model_time.count();
         }
-        
-        auto pred_end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> pred_time = pred_end - pred_start;
-        
-        // Measure update time
-        auto update_start = std::chrono::high_resolution_clock::now();
-        
-        for (auto& model : models) {
-            model->clean();
-        }
-        
-        auto update_end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> update_time = update_end - update_start;
         
         total_predictions++;
-        total_prediction_time += pred_time.count();
-        total_update_time += update_time.count();
+        total_processing_time += timestep_total;
+        window_total_time += timestep_total;
+        window_count++;
         
+        // Calculate and print average when window is full
+        if (window_count == WINDOW_SIZE) {
+            double window_average = window_total_time / WINDOW_SIZE;
+            std::cout << "Average processing time for last " << WINDOW_SIZE 
+                      << " points (all models): " << window_average 
+                      << " seconds" << std::endl;
+            std::cout << "Average time per model: " 
+                      << (window_average / models.size()) 
+                      << " seconds" << std::endl;
+            
+            // Reset window counters
+            window_total_time = 0.0;
+            window_count = 0;
+        }
+        
+        // Still keep the 1000-point progress updates
         if (t % 1000 == 0) {
-            std::cout << "Processed " << t << " time steps" << std::endl;
-            std::cout << "Average prediction time: " << (total_prediction_time / total_predictions) 
+            std::cout << "\nProcessed " << t << " time steps" << std::endl;
+            std::cout << "Overall average processing time per time step (all models): " 
+                      << (total_processing_time / total_predictions) 
                       << " seconds" << std::endl;
-            std::cout << "Average update time: " << (total_update_time / total_predictions) 
-                      << " seconds" << std::endl;
+            std::cout << "Overall average time per model: " 
+                      << (total_processing_time / total_predictions / models.size()) 
+                      << " seconds\n" << std::endl;
         }
     }
     
@@ -222,10 +232,11 @@ int main() {
     // Print final statistics
     std::cout << "\nFinal Statistics:" << std::endl;
     std::cout << "Total processing time: " << total_elapsed.count() << " seconds" << std::endl;
-    std::cout << "Average prediction time per time step: " 
-              << (total_prediction_time / total_predictions) << " seconds" << std::endl;
-    std::cout << "Average update time per time step: " 
-              << (total_update_time / total_predictions) << " seconds" << std::endl;
+    std::cout << "Overall average processing time per time step (all models): " 
+              << (total_processing_time / total_predictions) << " seconds" << std::endl;
+    std::cout << "Overall average time per model: " 
+              << (total_processing_time / total_predictions / models.size()) 
+              << " seconds" << std::endl;
     std::cout << "Memory usage: " << get_memory_usage() / 1024.0 << " MB" << std::endl;
     
     return 0;

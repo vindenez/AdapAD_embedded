@@ -13,6 +13,9 @@
 
 class AdapAD {
 public:
+    std::unique_ptr<NormalDataPredictor> data_predictor;
+    std::vector<std::vector<std::vector<float>>> prepare_data_for_prediction(size_t supposed_anomalous_pos);
+    
     AdapAD(const PredictorConfig& predictor_config, 
            const ValueRangeConfig& value_range_config,
            float minimal_threshold,
@@ -36,7 +39,6 @@ private:
     float minimal_threshold;
     
     // Learning components
-    std::unique_ptr<NormalDataPredictor> data_predictor;
     std::unique_ptr<AnomalousThresholdGenerator> generator;
     
     // Data storage
@@ -54,7 +56,6 @@ private:
     void learn_error_pattern(const std::vector<std::vector<std::vector<float>>>& trainX,
                            const std::vector<float>& trainY);
     void update_generator(const std::vector<float>& past_errors, float recent_error);
-    std::vector<std::vector<std::vector<float>>> prepare_data_for_prediction(size_t supposed_anomalous_pos);
     void logging(bool is_anomalous_ret);
     float normalize_data(float val);
     float reverse_normalized_data(float val);

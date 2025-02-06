@@ -46,14 +46,6 @@ public:
                 std::string key = trim(line.substr(0, pos));
                 std::string value = trim(line.substr(pos + 1));
                 
-                // Debug output
-                std::cout << "Processing line: '" << line << "'" << std::endl;
-                std::cout << "Current path: ";
-                for (const auto& p : path) {
-                    std::cout << p << ".";
-                }
-                std::cout << std::endl;
-                
                 // If value is empty, this is a new section
                 if (value.empty()) {
                     path.push_back(key);
@@ -82,8 +74,6 @@ public:
                     
                     config[full_key] = value;
                     
-                    // Debug output
-                    std::cout << "Added key-value: " << full_key << " = " << value << std::endl;
                 }
             }
         }

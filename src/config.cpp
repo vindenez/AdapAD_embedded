@@ -113,26 +113,10 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
     ValueRangeConfig config;
     const Config& cfg = Config::getInstance();
     
-    // Debug output
-    std::cout << "Initializing value range config for: " << data_source << std::endl;
-    
     // Get bounds
     std::string lower_key = data_source + ".bounds.lower";
     std::string upper_key = data_source + ".bounds.upper";
     std::string threshold_key = data_source + ".minimal_threshold";
-    
-    // Debug: print the keys we're looking for
-    std::cout << "Looking for keys:" << std::endl;
-    std::cout << "- " << lower_key << std::endl;
-    std::cout << "- " << upper_key << std::endl;
-    std::cout << "- " << threshold_key << std::endl;
-    
-    // Print the actual values found
-    for (const auto& pair : cfg.get_config_map()) {
-        if (pair.first == lower_key || pair.first == upper_key || pair.first == threshold_key) {
-            std::cout << "Found: " << pair.first << " = " << pair.second << std::endl;
-        }
-    }
     
     config.lower_bound = std::stof(cfg.get_config_map().at(lower_key));
     config.upper_bound = std::stof(cfg.get_config_map().at(upper_key));

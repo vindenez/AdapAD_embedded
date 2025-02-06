@@ -1,0 +1,131 @@
+data:
+  paths:
+    training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_16_20240615.csv"
+    log: "/mnt/sdcard/adapad/adapad_logs"
+  parameters:
+    Tide_pressure:
+      epochs:
+        train: 40
+        update: 40
+        update_generator: 5
+      learning_rates:
+        update: 0.0002
+        update_generator: 0.0002
+      bounds:
+        lower: 713.0
+        upper: 763.0
+      minimal_threshold: 0.0038
+    Wave_height:
+      bounds:
+        lower: 0
+        upper: 15.2
+      minimal_threshold: 0.3
+    Seawater_temperature:
+      bounds:
+        lower: 9
+        upper: 33
+      minimal_threshold: 0.02
+    Austevoll_nord:
+      conductivity_conductivity:
+        bounds:
+          lower: 0
+          upper: 40
+        minimal_threshold: 0.03
+      conductivity_temperature:
+        bounds:
+          lower: 0
+          upper: 30
+        minimal_threshold: 0.05
+      conductivity_salinity:
+        bounds:
+          lower: 0
+          upper: 1600
+        minimal_threshold: 0.005
+      conductivity_density:
+        bounds:
+          lower: 1000
+          upper: 1040
+        minimal_threshold: 0.05
+      conductivity_soundspeed:
+        bounds:
+          lower: 1450
+          upper: 1500
+        minimal_threshold: 0.02
+      pressure_pressure:
+        bounds:
+          lower: 320
+          upper: 370
+        minimal_threshold: 0.003
+      pressure_temperature:
+        bounds:
+          lower: 0
+          upper: 23
+        minimal_threshold: 0.05
+      dcps_current_speed:
+        bounds:
+          lower: 0
+          upper: 100
+        minimal_threshold: 0.05
+      dcps_current_direction:
+        bounds:
+          lower: 0
+          upper: 400
+        minimal_threshold: 0.05
+      dcps_current_speed_north:
+        bounds:
+          lower: -100
+          upper: 100
+        minimal_threshold: 0.05
+      dcps_current_speed_east:
+        bounds:
+          lower: -100
+          upper: 100
+        minimal_threshold: 0.05
+      dcps_current_speed_vertical:
+        bounds:
+          lower: -10
+          upper: 10
+        minimal_threshold: 0.05
+      dcps_current_speed_std:
+        bounds:
+          lower: 0
+          upper: 160
+        minimal_threshold: 0.05
+      dcps_signal_strength:
+        bounds:
+          lower: -20
+          upper: 0
+        minimal_threshold: 0.05
+      dcps_cross_difference:
+        bounds:
+          lower: -20
+          upper: 20
+        minimal_threshold: 0.05
+      
+
+training:
+  epochs:
+    train: 50
+    update: 40
+    update_generator: 40
+  learning_rates:
+    train: 0.0002
+    update: 0.00005
+    update_generator: 0.00005
+
+model:
+  save_enabled: false
+  save_interval: 48
+  save_path: "/mnt/sdcard/adapad/model_states/" 
+  lstm:
+    size: 100
+    layers: 2
+    lookback: 3
+    prediction_len: 1
+  
+anomaly_detection:
+  threshold_multiplier: 1.0
+
+system:
+  random_seed: 42
+  verbose_output: true

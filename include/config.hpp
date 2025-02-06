@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include "yaml_handler.hpp"
+#include <algorithm> 
 // Configuration structure for predictor settings
 struct PredictorConfig {
     int lookback_len;      // Lookback length for LSTM
