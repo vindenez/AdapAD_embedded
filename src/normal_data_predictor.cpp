@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 
 NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, 
                                        int lookback_len, int prediction_len)
@@ -142,14 +143,52 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
     }
 }
 
-void NormalDataPredictor::save_model(const std::string& filename) {
+void NormalDataPredictor::save_weights(std::ofstream& file) {
     if (predictor) {
-        predictor->save_model(filename);
+        predictor->save_weights(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
     }
 }
 
-void NormalDataPredictor::load_model(const std::string& filename) {
+void NormalDataPredictor::save_biases(std::ofstream& file) {
     if (predictor) {
-        predictor->load_model(filename);
+        predictor->save_biases(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::load_weights(std::ifstream& file) {
+    if (predictor) {
+        predictor->load_weights(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::load_biases(std::ifstream& file) {
+    if (predictor) {
+        predictor->load_biases(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::save_layer_cache(std::ofstream& file) const {
+    // Delegate to LSTM layer's save functionality
+    predictor->save_layer_cache(file);
+}
+
+void NormalDataPredictor::load_layer_cache(std::ifstream& file) {
+    // Delegate to LSTM layer's load functionality
+    predictor->load_layer_cache(file);
+}
+
+void NormalDataPredictor::initialize_layer_cache() {
+    if (predictor) {
+        predictor->initialize_layer_cache();
+    } else {
+        throw std::runtime_error("Predictor not initialized");
     }
 }

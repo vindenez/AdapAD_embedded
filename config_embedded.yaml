@@ -114,7 +114,7 @@ training:
     update_generator: 0.00005
 
 model:
-  save_enabled: false
+  save_enabled: true
   save_interval: 48
   save_path: "/mnt/sdcard/adapad/model_states/" 
   lstm:

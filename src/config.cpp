@@ -39,6 +39,11 @@ bool Config::load(const std::string& yaml_path) {
         lookback_len = get_int("model.lstm.lookback", 3);
         prediction_len = get_int("model.lstm.prediction_len", 1);
 
+        // Load save settings
+        save_enabled = get_bool("model.save_enabled", false);
+        save_interval = get_int("model.save_interval", 48);
+        save_path = get_string("model.save_path", "model_states/");
+
         // Load default training parameters
         epoch_train = get_int("training.epochs.train", 50);
         epoch_update = get_int("training.epochs.update", 40);

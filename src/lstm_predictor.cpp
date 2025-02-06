@@ -7,6 +7,7 @@
 #include <random>
 #include <algorithm>
 #include <iostream>
+#include <fstream>
 
 inline float pow_float(float base, float exp) {
     return std::pow(base, exp);
@@ -901,15 +902,277 @@ void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
     }
 }
 
-void LSTMPredictor::save_model(const std::string& filename) {
-    auto weights = get_weights();
-    auto state = get_state();
-    ModelState::save_state(filename, "lstm_predictor", weights, state);
+void LSTMPredictor::save_weights(std::ofstream& file) {
+    try {
+        // Save LSTM layer weights
+        for (int layer = 0; layer < num_layers; ++layer) {
+            // Save weight_ih dimensions and data
+            size_t ih_rows = lstm_layers[layer].weight_ih.size();
+            size_t ih_cols = lstm_layers[layer].weight_ih[0].size();
+            file.write(reinterpret_cast<const char*>(&ih_rows), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(&ih_cols), sizeof(size_t));
+            
+            for (const auto& row : lstm_layers[layer].weight_ih) {
+                file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
+            }
+
+            // Save weight_hh dimensions and data
+            size_t hh_rows = lstm_layers[layer].weight_hh.size();
+            size_t hh_cols = lstm_layers[layer].weight_hh[0].size();
+            file.write(reinterpret_cast<const char*>(&hh_rows), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(&hh_cols), sizeof(size_t));
+            
+            for (const auto& row : lstm_layers[layer].weight_hh) {
+                file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
+            }
+        }
+
+        // Save FC layer weights
+        size_t fc_rows = fc_weight.size();
+        size_t fc_cols = fc_weight[0].size();
+        file.write(reinterpret_cast<const char*>(&fc_rows), sizeof(size_t));
+        file.write(reinterpret_cast<const char*>(&fc_cols), sizeof(size_t));
+        
+        for (const auto& row : fc_weight) {
+            file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
+        }
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error saving weights: " + std::string(e.what()));
+    }
 }
 
-void LSTMPredictor::load_model(const std::string& filename) {
-    auto result = ModelState::load_state(filename, "lstm_predictor");
-    set_weights(result.first);
-    set_state(result.second);
+void LSTMPredictor::save_biases(std::ofstream& file) {
+    try {
+        // Save LSTM layer biases
+        for (int layer = 0; layer < num_layers; ++layer) {
+            // Save bias_ih
+            size_t ih_size = lstm_layers[layer].bias_ih.size();
+            file.write(reinterpret_cast<const char*>(&ih_size), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(lstm_layers[layer].bias_ih.data()), 
+                      ih_size * sizeof(float));
+
+            // Save bias_hh
+            size_t hh_size = lstm_layers[layer].bias_hh.size();
+            file.write(reinterpret_cast<const char*>(&hh_size), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(lstm_layers[layer].bias_hh.data()), 
+                      hh_size * sizeof(float));
+        }
+
+        // Save FC layer bias
+        size_t fc_size = fc_bias.size();
+        file.write(reinterpret_cast<const char*>(&fc_size), sizeof(size_t));
+        file.write(reinterpret_cast<const char*>(fc_bias.data()), fc_size * sizeof(float));
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error saving biases: " + std::string(e.what()));
+    }
+}
+
+void LSTMPredictor::load_weights(std::ifstream& file) {
+    try {
+        // Load LSTM layer weights
+        for (int layer = 0; layer < num_layers; ++layer) {
+            // Load weight_ih
+            size_t ih_rows, ih_cols;
+            file.read(reinterpret_cast<char*>(&ih_rows), sizeof(size_t));
+            file.read(reinterpret_cast<char*>(&ih_cols), sizeof(size_t));
+            
+            lstm_layers[layer].weight_ih.resize(ih_rows, std::vector<float>(ih_cols));
+            for (auto& row : lstm_layers[layer].weight_ih) {
+                file.read(reinterpret_cast<char*>(row.data()), ih_cols * sizeof(float));
+            }
+
+            // Load weight_hh
+            size_t hh_rows, hh_cols;
+            file.read(reinterpret_cast<char*>(&hh_rows), sizeof(size_t));
+            file.read(reinterpret_cast<char*>(&hh_cols), sizeof(size_t));
+            
+            lstm_layers[layer].weight_hh.resize(hh_rows, std::vector<float>(hh_cols));
+            for (auto& row : lstm_layers[layer].weight_hh) {
+                file.read(reinterpret_cast<char*>(row.data()), hh_cols * sizeof(float));
+            }
+        }
+
+        // Load FC layer weights
+        size_t fc_rows, fc_cols;
+        file.read(reinterpret_cast<char*>(&fc_rows), sizeof(size_t));
+        file.read(reinterpret_cast<char*>(&fc_cols), sizeof(size_t));
+        
+        fc_weight.resize(fc_rows, std::vector<float>(fc_cols));
+        for (auto& row : fc_weight) {
+            file.read(reinterpret_cast<char*>(row.data()), fc_cols * sizeof(float));
+        }
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error loading weights: " + std::string(e.what()));
+    }
+}
+
+void LSTMPredictor::load_biases(std::ifstream& file) {
+    try {
+        // Load LSTM layer biases
+        for (int layer = 0; layer < num_layers; ++layer) {
+            // Load bias_ih
+            size_t ih_size;
+            file.read(reinterpret_cast<char*>(&ih_size), sizeof(size_t));
+            lstm_layers[layer].bias_ih.resize(ih_size);
+            file.read(reinterpret_cast<char*>(lstm_layers[layer].bias_ih.data()), 
+                     ih_size * sizeof(float));
+
+            // Load bias_hh
+            size_t hh_size;
+            file.read(reinterpret_cast<char*>(&hh_size), sizeof(size_t));
+            lstm_layers[layer].bias_hh.resize(hh_size);
+            file.read(reinterpret_cast<char*>(lstm_layers[layer].bias_hh.data()), 
+                     hh_size * sizeof(float));
+        }
+
+        // Load FC layer bias
+        size_t fc_size;
+        file.read(reinterpret_cast<char*>(&fc_size), sizeof(size_t));
+        fc_bias.resize(fc_size);
+        file.read(reinterpret_cast<char*>(fc_bias.data()), fc_size * sizeof(float));
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error loading biases: " + std::string(e.what()));
+    }
+}
+
+void LSTMPredictor::initialize_layer_cache() {
+    // Initialize layer cache with appropriate dimensions
+    layer_cache.clear();
+    layer_cache.resize(num_layers);
+    
+    // Initialize h_state and c_state
+    h_state.clear();
+    c_state.clear();
+    h_state.resize(num_layers);
+    c_state.resize(num_layers);
+    
+    for (int i = 0; i < num_layers; ++i) {
+        h_state[i].resize(hidden_size, 0.0f);
+        c_state[i].resize(hidden_size, 0.0f);
+    }
+}
+
+void LSTMPredictor::save_layer_cache(std::ofstream& file) const {
+    try {
+        // Save layer cache dimensions
+        size_t num_batches = layer_cache.empty() ? 0 : layer_cache[0].size();
+        file.write(reinterpret_cast<const char*>(&num_batches), sizeof(size_t));
+        
+        if (num_batches > 0) {
+            size_t num_timesteps = layer_cache[0][0].size();
+            file.write(reinterpret_cast<const char*>(&num_timesteps), sizeof(size_t));
+            
+            // Save each cache entry
+            for (const auto& layer : layer_cache) {
+                for (const auto& batch : layer) {
+                    for (const auto& entry : batch) {
+                        // Save vectors from LSTMCacheEntry
+                        auto save_vector = [&file](const std::vector<float>& vec) {
+                            size_t size = vec.size();
+                            file.write(reinterpret_cast<const char*>(&size), sizeof(size_t));
+                            if (size > 0) {
+                                file.write(reinterpret_cast<const char*>(vec.data()), 
+                                         size * sizeof(float));
+                            }
+                        };
+                        
+                        save_vector(entry.input);
+                        save_vector(entry.prev_hidden);
+                        save_vector(entry.prev_cell);
+                        save_vector(entry.cell_state);
+                        save_vector(entry.input_gate);
+                        save_vector(entry.forget_gate);
+                        save_vector(entry.cell_gate);
+                        save_vector(entry.output_gate);
+                        save_vector(entry.hidden_state);
+                    }
+                }
+            }
+        }
+        
+        // Save h_state and c_state
+        size_t state_layers = h_state.size();
+        file.write(reinterpret_cast<const char*>(&state_layers), sizeof(size_t));
+        for (size_t i = 0; i < state_layers; ++i) {
+            size_t state_size = h_state[i].size();
+            file.write(reinterpret_cast<const char*>(&state_size), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(h_state[i].data()), 
+                      state_size * sizeof(float));
+            file.write(reinterpret_cast<const char*>(c_state[i].data()), 
+                      state_size * sizeof(float));
+        }
+        
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error saving layer cache: " + std::string(e.what()));
+    }
+}
+
+void LSTMPredictor::load_layer_cache(std::ifstream& file) {
+    try {
+        // Load layer cache dimensions
+        size_t num_batches;
+        file.read(reinterpret_cast<char*>(&num_batches), sizeof(size_t));
+        
+        if (num_batches > 0) {
+            size_t num_timesteps;
+            file.read(reinterpret_cast<char*>(&num_timesteps), sizeof(size_t));
+            
+            // Resize layer cache
+            layer_cache.resize(num_layers);
+            for (auto& layer : layer_cache) {
+                layer.resize(num_batches);
+                for (auto& batch : layer) {
+                    batch.resize(num_timesteps);
+                }
+            }
+            
+            // Load each cache entry
+            for (auto& layer : layer_cache) {
+                for (auto& batch : layer) {
+                    for (auto& entry : batch) {
+                        // Load vectors into LSTMCacheEntry
+                        auto load_vector = [&file](std::vector<float>& vec) {
+                            size_t size;
+                            file.read(reinterpret_cast<char*>(&size), sizeof(size_t));
+                            vec.resize(size);
+                            if (size > 0) {
+                                file.read(reinterpret_cast<char*>(vec.data()), 
+                                        size * sizeof(float));
+                            }
+                        };
+                        
+                        load_vector(entry.input);
+                        load_vector(entry.prev_hidden);
+                        load_vector(entry.prev_cell);
+                        load_vector(entry.cell_state);
+                        load_vector(entry.input_gate);
+                        load_vector(entry.forget_gate);
+                        load_vector(entry.cell_gate);
+                        load_vector(entry.output_gate);
+                        load_vector(entry.hidden_state);
+                    }
+                }
+            }
+        }
+        
+        // Load h_state and c_state
+        size_t state_layers;
+        file.read(reinterpret_cast<char*>(&state_layers), sizeof(size_t));
+        h_state.resize(state_layers);
+        c_state.resize(state_layers);
+        for (size_t i = 0; i < state_layers; ++i) {
+            size_t state_size;
+            file.read(reinterpret_cast<char*>(&state_size), sizeof(size_t));
+            h_state[i].resize(state_size);
+            c_state[i].resize(state_size);
+            file.read(reinterpret_cast<char*>(h_state[i].data()), 
+                     state_size * sizeof(float));
+            file.read(reinterpret_cast<char*>(c_state[i].data()), 
+                     state_size * sizeof(float));
+        }
+        
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error loading layer cache: " + std::string(e.what()));
+    }
 }
 

@@ -116,14 +116,58 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
     return {x3d, windows.second};
 }
 
-void AnomalousThresholdGenerator::save_model(const std::string& filename) {
+void AnomalousThresholdGenerator::save_weights(std::ofstream& file) {
     if (generator) {
-        generator->save_model(filename);
+        generator->save_weights(file);
+    } else {
+        throw std::runtime_error("Generator not initialized");
     }
 }
 
-void AnomalousThresholdGenerator::load_model(const std::string& filename) {
+void AnomalousThresholdGenerator::save_biases(std::ofstream& file) {
     if (generator) {
-        generator->load_model(filename);
+        generator->save_biases(file);
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::load_weights(std::ifstream& file) {
+    if (generator) {
+        generator->load_weights(file);
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::load_biases(std::ifstream& file) {
+    if (generator) {
+        generator->load_biases(file);
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::save_layer_cache(std::ofstream& file) const {
+    if (generator) {
+        generator->save_layer_cache(file);
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::load_layer_cache(std::ifstream& file) {
+    if (generator) {
+        generator->load_layer_cache(file);
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::initialize_layer_cache() {
+    if (generator) {
+        generator->initialize_layer_cache();
+    } else {
+        throw std::runtime_error("Generator not initialized");
     }
 }

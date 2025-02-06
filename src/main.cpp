@@ -101,6 +101,12 @@ int main() {
 
     auto predictor_config = init_predictor_config();  // Get predictor config once
 
+        // Debug print save settings
+    std::cout << "\nModel save settings:" << std::endl;
+    std::cout << "Save enabled: " << config.save_enabled << std::endl;
+    std::cout << "Save interval: " << config.save_interval << std::endl;
+    std::cout << "Save path: " << config.save_path << std::endl;
+
     std::cout << "\nInitializing models..." << std::endl;
     for (size_t i = 0; i < csv_parameters.size(); ++i) {
         const std::string& param_name = csv_parameters[i];
@@ -149,13 +155,30 @@ int main() {
     auto train_start = std::chrono::high_resolution_clock::now();
     
     for (size_t i = 0; i < models.size(); ++i) {
-        std::vector<float> training_data;
-        for (size_t j = 0; j < predictor_config.train_size && j < all_data[i].size(); ++j) {
-            training_data.push_back(all_data[i][j].value);
+        // Get initial data points for lookback
+        std::vector<float> initial_data;
+        for (size_t j = 0; j < predictor_config.lookback_len && j < all_data[i].size(); ++j) {
+            initial_data.push_back(all_data[i][j].value);
         }
-        
-        models[i]->set_training_data(training_data);
-        models[i]->train();
+
+        if (models[i]->has_saved_model()) {
+            std::cout << "Found saved model for " << csv_parameters[i] << ", loading..." << std::endl;
+            try {
+                models[i]->load_latest_model(initial_data);
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to load model for " << csv_parameters[i] << ": " << e.what() << std::endl;
+                std::cout << "Falling back to training new model..." << std::endl;
+                goto train_new_model;
+            }
+        } else {
+            train_new_model:
+            std::vector<float> training_data;
+            for (size_t j = 0; j < predictor_config.train_size && j < all_data[i].size(); ++j) {
+                training_data.push_back(all_data[i][j].value);
+            }
+            models[i]->set_training_data(training_data);
+            models[i]->train();
+        }
     }
     
     auto train_end = std::chrono::high_resolution_clock::now();
@@ -168,25 +191,50 @@ int main() {
     double total_processing_time = 0.0;
     
     // Process each time step
-    double window_total_time = 0.0;  // Total time for current window of 5 points
-    size_t window_count = 0;         // Counter for points in current window
-    const size_t WINDOW_SIZE = 5;    // Size of averaging window
+    double window_total_time = 0.0;
+    size_t window_count = 0;
+    const size_t WINDOW_SIZE = 5;
+
+    // Initialize buffers for each model to accumulate initial data points
+    std::vector<std::vector<float>> data_buffers(models.size());
 
     for (size_t t = predictor_config.train_size; t < all_data[0].size(); ++t) {
-        double timestep_total = 0.0;  // Total time for all models at this timestep
+        std::cout << "Processing time step " << t << std::endl;
+        double timestep_total = 0.0;
         
         // Process all models for this time step
         for (size_t i = 0; i < models.size(); ++i) {
+            std::cout << "Processing model " << i << " (" << csv_parameters[i] << ")" << std::endl;
             auto model_start = std::chrono::high_resolution_clock::now();
             
             try {
                 float measured_value = all_data[i][t].value;
-                bool is_anomalous = models[i]->is_anomalous(measured_value);
-                models[i]->clean();
-                all_data[i][t].is_anomaly = is_anomalous;
+                data_buffers[i].push_back(measured_value);
+                
+                // Only process if we have enough data points (lookback_len + 1)
+                if (data_buffers[i].size() >= predictor_config.lookback_len + 1) {
+                    std::cout << "Processing " << csv_parameters[i] 
+                              << " with " << data_buffers[i].size() 
+                              << " data points" << std::endl;
+                    
+                    bool is_anomalous = models[i]->is_anomalous(measured_value);
+                    std::cout << "Anomaly check completed" << std::endl;
+                    models[i]->clean();
+                    all_data[i][t].is_anomaly = is_anomalous;
+                    
+                    // Keep only the most recent lookback_len + 1 points
+                    if (data_buffers[i].size() > predictor_config.lookback_len + 1) {
+                        data_buffers[i].erase(data_buffers[i].begin());
+                    }
+                } else {
+                    std::cout << "Accumulating data for " << csv_parameters[i] 
+                              << " (" << data_buffers[i].size() << "/"
+                              << (predictor_config.lookback_len + 1) << " points)" << std::endl;
+                }
+                
             } catch (const std::exception& e) {
                 std::cerr << "Error processing " << csv_parameters[i] 
-                          << ": " << e.what() << std::endl;
+                          << " at time " << t << ": " << e.what() << std::endl;
             }
             
             auto model_end = std::chrono::high_resolution_clock::now();
@@ -238,6 +286,7 @@ int main() {
               << (total_processing_time / total_predictions / models.size()) 
               << " seconds" << std::endl;
     std::cout << "Memory usage: " << get_memory_usage() / 1024.0 << " MB" << std::endl;
+    
     
     return 0;
 } 

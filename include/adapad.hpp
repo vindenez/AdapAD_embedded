@@ -14,6 +14,7 @@
 class AdapAD {
 public:
     std::unique_ptr<NormalDataPredictor> data_predictor;
+    std::unique_ptr<AnomalousThresholdGenerator> generator;
     std::vector<std::vector<std::vector<float>>> prepare_data_for_prediction(size_t supposed_anomalous_pos);
     
     AdapAD(const PredictorConfig& predictor_config, 
@@ -29,17 +30,21 @@ public:
     std::string get_log_filename() const { return f_name; }
 
     // Add model state methods
-    void save_models(const std::string& model_file);
-    void load_models(const std::string& model_file);
+    void save_models();
+    void load_models(const std::string& timestamp, 
+                    const std::vector<float>& initial_data);
+
+
+    bool has_saved_model() const;
+    void load_latest_model(const std::vector<float>& initial_data);
+
+    void reset_model_states();
 
 private:
     // Configuration
     ValueRangeConfig value_range_config;
     PredictorConfig predictor_config;
     float minimal_threshold;
-    
-    // Learning components
-    std::unique_ptr<AnomalousThresholdGenerator> generator;
     
     // Data storage
     std::vector<float> observed_vals;
@@ -64,8 +69,12 @@ private:
     float simplify_error(const std::vector<float>& errors, float N_sigma = 0);
 
     const Config& config;  // Reference to config instance
-    int update_count;  // Track number of updates
+    size_t update_count;  // Counter for tracking updates between saves
     std::string get_state_filename() const;
     void clean_old_saves(size_t keep_count);
+
+    void save_if_needed(size_t data_point_count);
+
+    std::string parameter_name;
 };
 #endif // ADAPAD_HPP

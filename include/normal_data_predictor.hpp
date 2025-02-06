@@ -10,19 +10,15 @@ class NormalDataPredictor {
 public:
     NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
     
-    // Train the predictor on a dataset
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
     train(int epoch, float lr, const std::vector<float>& data2learn);
     
-    // Make a single prediction
     float predict(const std::vector<std::vector<std::vector<float>>>& observed);
     
-    // Update the model with new observations
     void update(int epoch_update, float lr_update,
                 const std::vector<std::vector<std::vector<float>>>& past_observations,
                 const std::vector<float>& recent_observation);
 
-    // Add these delegate methods to match AnomalousThresholdGenerator
     void reset_states() { predictor->reset_states(); }
     void train_step(const std::vector<std::vector<std::vector<float>>>& x,
                    const std::vector<float>& target,
@@ -40,9 +36,14 @@ public:
         return predictor->get_final_prediction(output);
     }
 
-    // Add model state methods
-    void save_model(const std::string& filename);
-    void load_model(const std::string& filename);
+    // Model save/load methods
+    void save_weights(std::ofstream& file);
+    void save_biases(std::ofstream& file);
+    void load_weights(std::ifstream& file);
+    void load_biases(std::ifstream& file);
+    void save_layer_cache(std::ofstream& file) const;
+    void load_layer_cache(std::ifstream& file);
+    void initialize_layer_cache();
 
 private:
     int lookback_len;

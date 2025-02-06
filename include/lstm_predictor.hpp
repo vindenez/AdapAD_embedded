@@ -4,12 +4,11 @@
 #include <tuple>
 #include <random>
 #include <string>
+#include <fstream>
 
 class LSTMPredictor {
 public:
-    // Define all structs first
     struct LSTMLayer {
-        // Change weight matrix organization to match PyTorch
         // [i,f,g,o] gates stacked vertically: (4*hidden_size, input_size)
         std::vector<std::vector<float>> weight_ih;  // (4*hidden_size, input_size)
         std::vector<std::vector<float>> weight_hh;  // (4*hidden_size, hidden_size)
@@ -64,7 +63,6 @@ public:
 
     std::vector<float> get_final_prediction(const LSTMOutput& lstm_output);
 
-    // Add these testing methods
     #ifdef TESTING
     float get_weight(int layer, int gate, int input_idx) const {
         // Convert from gate index to PyTorch's layout [i,f,g,o]
@@ -88,7 +86,6 @@ public:
     }
     #endif
 
-    // Add these methods for gradient checking
     std::vector<LSTMLayer> get_weights() const {
         return lstm_layers;
     }
@@ -105,11 +102,15 @@ public:
     void train() { training_mode = true; }
     bool is_training() const { return training_mode; }
 
-    // Add new model state methods
-    void save_model(const std::string& filename);
-    void load_model(const std::string& filename);
+    // Model save/load methods
+    void save_weights(std::ofstream& file);
+    void save_biases(std::ofstream& file);
+    void load_weights(std::ifstream& file);
+    void load_biases(std::ifstream& file);
+    void save_layer_cache(std::ofstream& file) const;
+    void load_layer_cache(std::ifstream& file);
+    void initialize_layer_cache();
 
-    // Fix the state getters/setters
     std::pair<std::vector<float>, std::vector<float>> get_state() const {
         return {h_state[0], c_state[0]};  // Return first layer's states
     }
@@ -152,18 +153,11 @@ private:
         std::vector<float> output_gate;
         std::vector<float> hidden_state;
         
-        // Add constructor to properly initialize vectors
         LSTMCacheEntry() = default;
-        
-        // Add copy constructor to ensure proper deep copying
         LSTMCacheEntry(const LSTMCacheEntry& other) = default;
-        
-        // Add assignment operator
         LSTMCacheEntry& operator=(const LSTMCacheEntry& other) = default;
     };
     std::vector<std::vector<std::vector<LSTMCacheEntry>>> layer_cache;
-
-
 
     // Store last gradients for testing
     std::vector<LSTMGradients> last_gradients;
@@ -230,6 +224,5 @@ private:
                         std::vector<float>& v_t,
                         float learning_rate, float beta1, float beta2, float epsilon, int t);
 
-    bool training_mode = true;  // Add this member variable
-
+    bool training_mode = true;
 };

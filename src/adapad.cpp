@@ -18,6 +18,7 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
     : value_range_config(value_range_config),
       predictor_config(predictor_config),
       minimal_threshold(minimal_threshold),
+      parameter_name(parameter_name),
       config(Config::getInstance()),
       update_count(0) {
     
@@ -60,37 +61,54 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 }
 
 bool AdapAD::is_anomalous(float observed_val) {
+    std::cout << "Starting is_anomalous for " << parameter_name << std::endl;
     bool is_anomalous_ret = false;
-    float normalized = normalize_data(observed_val);
-    
-    observed_vals.push_back(normalized);
     
     try {
-        // Validate vector sizes before operations
+        std::cout << "Normalizing data..." << std::endl;
+        float normalized = normalize_data(observed_val);
+        
+        std::cout << "Current observed_vals size: " << observed_vals.size() << std::endl;
+        std::cout << "Adding normalized value: " << normalized << std::endl;
+        observed_vals.push_back(normalized);
+        
+        // We need lookback_len + 1 points: lookback_len for the window and 1 for prediction
         if (observed_vals.size() < predictor_config.lookback_len + 1) {
+            std::cout << "Not enough data points yet. Have " << observed_vals.size() 
+                      << ", need " << (predictor_config.lookback_len + 1) << std::endl;
             throw std::runtime_error("Not enough observed values");
         }
-
-        // Validate past_observations dimensions
-        auto past_observations = prepare_data_for_prediction(observed_vals.size());
-        if (past_observations.empty() || past_observations[0].empty() || 
-            past_observations[0][0].size() != predictor_config.lookback_len) {
-            throw std::runtime_error("Invalid past_observations dimensions");
+        
+        std::cout << "Preparing data for prediction..." << std::endl;
+        auto input_data = prepare_data_for_prediction(observed_vals.size() - 1);
+        
+        std::cout << "Making prediction..." << std::endl;
+        reset_model_states();  // Reset states before each prediction
+        auto prediction = data_predictor->predict(input_data);
+        
+        std::cout << "Getting threshold..." << std::endl;
+        float threshold;
+        if (predictive_errors.size() >= predictor_config.lookback_len) {
+            // Create vector of past errors for threshold generation
+            std::vector<float> past_errors(
+                predictive_errors.end() - predictor_config.lookback_len,
+                predictive_errors.end()
+            );
+            threshold = generator->generate(past_errors, minimal_threshold);
+        } else {
+            // Use minimal threshold for initial predictions
+            threshold = minimal_threshold;
         }
-
-        // Make prediction
-        data_predictor->eval();
-        auto predicted_val = data_predictor->predict(past_observations);
         
         // Validate vector sizes before push_back
         if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
             predicted_vals.erase(predicted_vals.begin());
         }
-        predicted_vals.push_back(predicted_val);
+        predicted_vals.push_back(prediction);
         
         // Calculate error in normalized space to match thresholds
         float prediction_error = NormalDataPredictionErrorCalculator::calc_error(
-            predicted_val, normalized);  
+            prediction, normalized);  
         
         predictive_errors.push_back(prediction_error);
         
@@ -100,64 +118,62 @@ bool AdapAD::is_anomalous(float observed_val) {
             anomalies.push_back(observed_vals.size());
         } else {
             // Only process thresholds and errors for in-range values
-            float threshold = minimal_threshold;
+            if (prediction_error > threshold && !is_default_normal()) {
+                is_anomalous_ret = true;
+                anomalies.push_back(observed_vals.size());
+            }
             
-            if (static_cast<int>(predictive_errors.size()) >= predictor_config.lookback_len) {
-                auto past_errors = std::vector<float>(
-                    predictive_errors.end() - predictor_config.lookback_len,
-                    predictive_errors.end());
-                
-                threshold = generator->generate(past_errors, minimal_threshold);
-                
-                if (prediction_error > threshold && !is_default_normal()) {
-                    is_anomalous_ret = true;
-                    anomalies.push_back(observed_vals.size());
-                }
-                
-                // Update models only for in-range values
-                data_predictor->update(config.epoch_update, config.lr_update,
-                                    past_observations, {normalized});
-                
-                if (is_anomalous_ret || threshold > minimal_threshold) {
+            // Update models only for in-range values
+            data_predictor->update(config.epoch_update, config.lr_update,
+                                input_data, {normalized});
+            
+            if (is_anomalous_ret || threshold > minimal_threshold) {
+                // Only update generator if we have enough errors
+                if (predictive_errors.size() >= predictor_config.lookback_len) {
+                    std::vector<float> past_errors(
+                        predictive_errors.end() - predictor_config.lookback_len,
+                        predictive_errors.end()
+                    );
                     update_generator(past_errors, prediction_error);
                 }
             }
-            thresholds.push_back(threshold);
         }
         
         // Log results
         f_log.open(f_name, std::ios_base::app);
         f_log << observed_val << ","
-              << reverse_normalized_data(predicted_val) << ","
-              << reverse_normalized_data(predicted_val - (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
-              << reverse_normalized_data(predicted_val + (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
+              << reverse_normalized_data(prediction) << ","
+              << reverse_normalized_data(prediction - threshold) << ","
+              << reverse_normalized_data(prediction + threshold) << ","
               << (is_anomalous_ret ? "True" : "False") << ","
               << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << ","
-              << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";
+              << threshold << "\n";
         f_log.close();
         
         // Periodic state saving (only if enabled)
-        update_count++;
-        if (config.save_enabled && update_count >= config.save_interval) {
-            try {
-                // Save models
-                std::string filename = get_state_filename();
-                save_models(filename);
-                
-                // Reset counter
-                update_count = 0;
-                
-                // Keep only N most recent saves
-                clean_old_saves(10);
-            } catch (const std::exception& e) {
-                std::cerr << "Failed to save model state: " << e.what() << std::endl;
+        if (config.save_enabled) {
+            update_count++;
+            if (update_count >= config.save_interval) {
+                try {
+                    save_models();
+                    update_count = 0;  // Reset counter after saving
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to save model state: " << e.what() << std::endl;
+                }
             }
         }
         
+        // Debug print for save counter
+        if (config.save_enabled) {
+            std::cout << "Update count: " << update_count 
+                      << " (will save at " << config.save_interval << ")" << std::endl;
+        }
+        
+        std::cout << "is_anomalous completed successfully" << std::endl;
         return is_anomalous_ret;
     } catch (const std::exception& e) {
-        std::cerr << "Error in is_anomalous: " << e.what() << std::endl;
-        return false;
+        std::cerr << "Error in is_anomalous for " << parameter_name << ": " << e.what() << std::endl;
+        throw;
     }
 }
 
@@ -286,22 +302,29 @@ void AdapAD::logging(bool is_anomalous_ret) {
 
 std::vector<std::vector<std::vector<float>>> 
 AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
+    std::cout << "prepare_data_for_prediction - Start" << std::endl;
+    std::cout << "observed_vals size: " << observed_vals.size() << std::endl;
+    std::cout << "supposed_anomalous_pos: " << supposed_anomalous_pos << std::endl;
+    
     // Get lookback window 
     std::vector<float> x_temp(
         observed_vals.end() - predictor_config.lookback_len - 1,
         observed_vals.end() - 1
     );
     
-    // Get predicted values 
-    std::vector<float> predicted(
-        predicted_vals.end() - predictor_config.lookback_len,
-        predicted_vals.end()
-    );
-    
-    // Replace out-of-range values 
-    for (int i = 0; i < predictor_config.lookback_len; ++i) {
-        if (!is_inside_range(x_temp[x_temp.size() - i - 1])) {
-            x_temp[x_temp.size() - i - 1] = predicted[predicted.size() - i - 1];
+    // Only try to use predicted values if we have them
+    if (!predicted_vals.empty() && predicted_vals.size() >= predictor_config.lookback_len) {
+        // Get predicted values 
+        std::vector<float> predicted(
+            predicted_vals.end() - predictor_config.lookback_len,
+            predicted_vals.end()
+        );
+        
+        // Replace out-of-range values 
+        for (int i = 0; i < predictor_config.lookback_len; ++i) {
+            if (!is_inside_range(x_temp[x_temp.size() - i - 1])) {
+                x_temp[x_temp.size() - i - 1] = predicted[predicted.size() - i - 1];
+            }
         }
     }
     
@@ -310,6 +333,7 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
     input_tensor[0].resize(1);
     input_tensor[0][0] = x_temp;
     
+    std::cout << "prepare_data_for_prediction - End" << std::endl;
     return input_tensor;
 }
 
@@ -357,6 +381,16 @@ void AdapAD::train() {
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end_time - start_time;
+    
+    // Save after initial training if enabled
+    if (config.save_enabled) {
+        try {
+            save_models();
+            update_count = 0;  // Reset counter after saving
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to save initial model state: " << e.what() << std::endl;
+        }
+    }
     
     std::cout << "Training complete in " << elapsed.count() << " seconds" << std::endl;
 }
@@ -435,16 +469,151 @@ float AdapAD::simplify_error(const std::vector<float>& errors, float N_sigma) {
     return mean + N_sigma * std_dev;
 }
 
-void AdapAD::save_models(const std::string& model_file) {
-    // Save both models to the same file
-    data_predictor->save_model(model_file);
-    generator->save_model(model_file);
+void AdapAD::save_models() {
+    try {
+        // Create directory if it doesn't exist
+        if (mkdir(config.save_path.c_str(), 0777) == -1) {
+            if (errno != EEXIST) {
+                throw std::runtime_error("Failed to create directory: " + std::string(strerror(errno)));
+            }
+        }
+        
+        // Get current timestamp
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::stringstream timestamp;
+        timestamp << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
+        
+        // Remove previous model file for this parameter if it exists
+        DIR* dir = opendir(config.save_path.c_str());
+        if (dir != nullptr) {
+            struct dirent* entry;
+            while ((entry = readdir(dir)) != nullptr) {
+                std::string filename = entry->d_name;
+                // Check if file is a previous save for this parameter
+                if (filename.find(parameter_name + "_model_") == 0 && 
+                    filename.find(".bin") != std::string::npos) {
+                    std::string old_file = config.save_path + "/" + filename;
+                    if (remove(old_file.c_str()) != 0) {
+                        std::cerr << "Warning: Could not remove old model file: " << old_file << std::endl;
+                    } else {
+                        std::cout << "Removed previous model file: " << old_file << std::endl;
+                    }
+                }
+            }
+            closedir(dir);
+        }
+        
+        // Create new file path with parameter name and timestamp
+        std::string save_file = config.save_path + "/" + 
+                               parameter_name + 
+                               "_model_" + 
+                               timestamp.str() + 
+                               ".bin";
+        
+        std::cout << "Attempting to save models for " << parameter_name << std::endl;
+        
+        std::ofstream file(save_file, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Could not open file for writing: " + save_file);
+        }
+
+        // Save metadata
+        file.write(reinterpret_cast<const char*>(&minimal_threshold), sizeof(float));
+        file.write(reinterpret_cast<const char*>(&value_range_config.lower_bound), sizeof(float));
+        file.write(reinterpret_cast<const char*>(&value_range_config.upper_bound), sizeof(float));
+
+        // Save layer cache states
+        data_predictor->save_layer_cache(file);
+        generator->save_layer_cache(file);
+
+        // Save predictor weights and biases directly to file
+        data_predictor->save_weights(file);
+        data_predictor->save_biases(file);
+        
+        // Save generator weights and biases directly to file
+        generator->save_weights(file);
+        generator->save_biases(file);
+        
+        std::cout << "Successfully saved model to " << save_file << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error saving model state: " << e.what() << std::endl;
+        throw;
+    }
 }
 
-void AdapAD::load_models(const std::string& model_file) {
-    // Load both models from the same file
-    data_predictor->load_model(model_file);
-    generator->load_model(model_file);
+void AdapAD::reset_model_states() {
+    if (data_predictor) {
+        data_predictor->reset_states();
+    }
+    if (generator) {
+        generator->reset_states();
+    }
+}
+
+void AdapAD::load_models(const std::string& timestamp, const std::vector<float>& initial_data) {
+    try {
+        if (initial_data.size() < predictor_config.lookback_len) {
+            throw std::runtime_error("Not enough initial data points provided. Need at least " + 
+                                   std::to_string(predictor_config.lookback_len) + " points.");
+        }
+
+        std::string load_file = config.save_path + "/" + parameter_name + "_model_" + timestamp + ".bin";
+        
+        if (access(load_file.c_str(), F_OK) == -1) {
+            throw std::runtime_error("Model file does not exist: " + load_file);
+        }
+
+        std::ifstream file(load_file, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Could not open file for reading: " + load_file);
+        }
+
+        // Load metadata
+        file.read(reinterpret_cast<char*>(&minimal_threshold), sizeof(float));
+        file.read(reinterpret_cast<char*>(&value_range_config.lower_bound), sizeof(float));
+        file.read(reinterpret_cast<char*>(&value_range_config.upper_bound), sizeof(float));
+
+        // Initialize layer caches
+        data_predictor->initialize_layer_cache();
+        generator->initialize_layer_cache();
+
+        // Load layer cache states
+        data_predictor->load_layer_cache(file);
+        generator->load_layer_cache(file);
+
+        // Load predictor weights and biases
+        data_predictor->load_weights(file);
+        data_predictor->load_biases(file);
+        
+        // Load generator weights and biases
+        generator->load_weights(file);
+        generator->load_biases(file);
+
+        // Reset states after loading
+        reset_model_states();
+        
+        // Initialize observed_vals with exactly lookback_len points
+        observed_vals.clear();
+        for (size_t i = 0; i < predictor_config.lookback_len; i++) {
+            float normalized = normalize_data(initial_data[i]);
+            observed_vals.push_back(normalized);
+        }
+        
+        // Initialize other vectors
+        predicted_vals.clear();
+        predictive_errors.clear();
+        thresholds.clear();
+        
+        std::cout << "Loaded model state for " << parameter_name 
+                  << " from " << load_file 
+                  << " with " << observed_vals.size() << " initial values" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading model state: " << e.what() << std::endl;
+        throw;
+    }
 }
 
 std::string AdapAD::get_state_filename() const {
@@ -485,5 +654,52 @@ void AdapAD::clean_old_saves(size_t keep_count) {
         }
     } catch (const std::exception& e) {
         std::cerr << "Failed to clean old saves: " << e.what() << std::endl;
+    }
+}
+
+bool AdapAD::has_saved_model() const {
+    DIR* dir = opendir(config.save_path.c_str());
+    if (dir == nullptr) {
+        return false;
+    }
+
+    bool found = false;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string filename = entry->d_name;
+        // Check if file is a save for this parameter
+        if (filename.find(parameter_name + "_model_") == 0 && 
+            filename.find(".bin") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    closedir(dir);
+    return found;
+}
+
+void AdapAD::load_latest_model(const std::vector<float>& initial_data) {
+    DIR* dir = opendir(config.save_path.c_str());
+    if (dir == nullptr) {
+        throw std::runtime_error("Could not open save directory");
+    }
+
+    std::string latest_file;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string filename = entry->d_name;
+        if (filename.find(parameter_name + "_model_") == 0 && 
+            filename.find(".bin") != std::string::npos) {
+            latest_file = filename;
+        }
+    }
+    closedir(dir);
+
+    if (!latest_file.empty()) {
+        std::cout << "Loading saved model for " << parameter_name << " from " << latest_file << std::endl;
+        std::string timestamp = latest_file.substr(parameter_name.length() + 7, 15);
+        load_models(timestamp, initial_data);
+    } else {
+        throw std::runtime_error("No saved model found for " + parameter_name);
     }
 }
