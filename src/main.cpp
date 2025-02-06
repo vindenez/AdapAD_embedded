@@ -9,6 +9,7 @@
 #include <string>
 #include <memory>
 #include <sys/resource.h>
+#include <numeric>
 
 struct DataPoint {
     float value;
@@ -191,20 +192,18 @@ int main() {
     double total_processing_time = 0.0;
     
     // Process each time step
-    double window_total_time = 0.0;
-    size_t window_count = 0;
+    std::vector<double> processing_times;  // Store processing times for windowed average
     const size_t WINDOW_SIZE = 5;
+    size_t window_start = predictor_config.train_size;
 
     // Initialize buffers for each model to accumulate initial data points
     std::vector<std::vector<float>> data_buffers(models.size());
 
     for (size_t t = predictor_config.train_size; t < all_data[0].size(); ++t) {
-        std::cout << "Processing time step " << t << std::endl;
         double timestep_total = 0.0;
         
         // Process all models for this time step
         for (size_t i = 0; i < models.size(); ++i) {
-            std::cout << "Processing model " << i << " (" << csv_parameters[i] << ")" << std::endl;
             auto model_start = std::chrono::high_resolution_clock::now();
             
             try {
@@ -213,12 +212,8 @@ int main() {
                 
                 // Only process if we have enough data points (lookback_len + 1)
                 if (data_buffers[i].size() >= predictor_config.lookback_len + 1) {
-                    std::cout << "Processing " << csv_parameters[i] 
-                              << " with " << data_buffers[i].size() 
-                              << " data points" << std::endl;
                     
                     bool is_anomalous = models[i]->is_anomalous(measured_value);
-                    std::cout << "Anomaly check completed" << std::endl;
                     models[i]->clean();
                     all_data[i][t].is_anomaly = is_anomalous;
                     
@@ -227,9 +222,6 @@ int main() {
                         data_buffers[i].erase(data_buffers[i].begin());
                     }
                 } else {
-                    std::cout << "Accumulating data for " << csv_parameters[i] 
-                              << " (" << data_buffers[i].size() << "/"
-                              << (predictor_config.lookback_len + 1) << " points)" << std::endl;
                 }
                 
             } catch (const std::exception& e) {
@@ -242,36 +234,29 @@ int main() {
             timestep_total += model_time.count();
         }
         
-        total_predictions++;
-        total_processing_time += timestep_total;
-        window_total_time += timestep_total;
-        window_count++;
+        // Store the total processing time for this timestep
+        processing_times.push_back(timestep_total);
         
-        // Calculate and print average when window is full
-        if (window_count == WINDOW_SIZE) {
-            double window_average = window_total_time / WINDOW_SIZE;
-            std::cout << "Average processing time for last " << WINDOW_SIZE 
-                      << " points (all models): " << window_average 
+        // When we've collected WINDOW_SIZE points, calculate and print averages
+        if (processing_times.size() == WINDOW_SIZE) {
+            double window_sum = std::accumulate(processing_times.begin(), 
+                                              processing_times.end(), 0.0);
+            double window_avg = window_sum / WINDOW_SIZE;
+            
+            std::cout << "Average process time for the last " << window_start 
+                      << " and " << t << " (For all models): " << window_avg 
                       << " seconds" << std::endl;
-            std::cout << "Average time per model: " 
-                      << (window_average / models.size()) 
+            std::cout << "Average process time for the last " << window_start 
+                      << " and " << t << " (For each model): " << window_avg / models.size() 
                       << " seconds" << std::endl;
             
-            // Reset window counters
-            window_total_time = 0.0;
-            window_count = 0;
+            // Reset for next window
+            processing_times.clear();
+            window_start = t + 1;
         }
         
-        // Still keep the 1000-point progress updates
-        if (t % 1000 == 0) {
-            std::cout << "\nProcessed " << t << " time steps" << std::endl;
-            std::cout << "Overall average processing time per time step (all models): " 
-                      << (total_processing_time / total_predictions) 
-                      << " seconds" << std::endl;
-            std::cout << "Overall average time per model: " 
-                      << (total_processing_time / total_predictions / models.size()) 
-                      << " seconds\n" << std::endl;
-        }
+        total_predictions++;
+        total_processing_time += timestep_total;
     }
     
     auto total_end_time = std::chrono::high_resolution_clock::now();

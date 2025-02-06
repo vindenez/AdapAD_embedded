@@ -61,15 +61,11 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 }
 
 bool AdapAD::is_anomalous(float observed_val) {
-    std::cout << "Starting is_anomalous for " << parameter_name << std::endl;
     bool is_anomalous_ret = false;
     
     try {
-        std::cout << "Normalizing data..." << std::endl;
         float normalized = normalize_data(observed_val);
         
-        std::cout << "Current observed_vals size: " << observed_vals.size() << std::endl;
-        std::cout << "Adding normalized value: " << normalized << std::endl;
         observed_vals.push_back(normalized);
         
         // We need lookback_len + 1 points: lookback_len for the window and 1 for prediction
@@ -79,14 +75,11 @@ bool AdapAD::is_anomalous(float observed_val) {
             throw std::runtime_error("Not enough observed values");
         }
         
-        std::cout << "Preparing data for prediction..." << std::endl;
         auto input_data = prepare_data_for_prediction(observed_vals.size() - 1);
         
-        std::cout << "Making prediction..." << std::endl;
         reset_model_states();  // Reset states before each prediction
         auto prediction = data_predictor->predict(input_data);
         
-        std::cout << "Getting threshold..." << std::endl;
         float threshold;
         if (predictive_errors.size() >= predictor_config.lookback_len) {
             // Create vector of past errors for threshold generation
@@ -162,14 +155,7 @@ bool AdapAD::is_anomalous(float observed_val) {
                 }
             }
         }
-        
-        // Debug print for save counter
-        if (config.save_enabled) {
-            std::cout << "Update count: " << update_count 
-                      << " (will save at " << config.save_interval << ")" << std::endl;
-        }
-        
-        std::cout << "is_anomalous completed successfully" << std::endl;
+                
         return is_anomalous_ret;
     } catch (const std::exception& e) {
         std::cerr << "Error in is_anomalous for " << parameter_name << ": " << e.what() << std::endl;
@@ -302,10 +288,6 @@ void AdapAD::logging(bool is_anomalous_ret) {
 
 std::vector<std::vector<std::vector<float>>> 
 AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
-    std::cout << "prepare_data_for_prediction - Start" << std::endl;
-    std::cout << "observed_vals size: " << observed_vals.size() << std::endl;
-    std::cout << "supposed_anomalous_pos: " << supposed_anomalous_pos << std::endl;
-    
     // Get lookback window 
     std::vector<float> x_temp(
         observed_vals.end() - predictor_config.lookback_len - 1,
@@ -333,14 +315,10 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
     input_tensor[0].resize(1);
     input_tensor[0][0] = x_temp;
     
-    std::cout << "prepare_data_for_prediction - End" << std::endl;
     return input_tensor;
 }
 
 void AdapAD::train() {
-    std::cout << "Starting predictor training with epochs=" << config.epoch_train 
-              << ", lr=" << config.lr_train << std::endl;
-    
     // Start timing
     auto start_time = std::chrono::high_resolution_clock::now();
     
@@ -391,8 +369,6 @@ void AdapAD::train() {
             std::cerr << "Failed to save initial model state: " << e.what() << std::endl;
         }
     }
-    
-    std::cout << "Training complete in " << elapsed.count() << " seconds" << std::endl;
 }
 
 void AdapAD::learn_error_pattern(
@@ -497,7 +473,7 @@ void AdapAD::save_models() {
                     if (remove(old_file.c_str()) != 0) {
                         std::cerr << "Warning: Could not remove old model file: " << old_file << std::endl;
                     } else {
-                        std::cout << "Removed previous model file: " << old_file << std::endl;
+                        std::cout << "Updated model save file for parameter: " << parameter_name << std::endl;
                     }
                 }
             }
@@ -510,8 +486,6 @@ void AdapAD::save_models() {
                                "_model_" + 
                                timestamp.str() + 
                                ".bin";
-        
-        std::cout << "Attempting to save models for " << parameter_name << std::endl;
         
         std::ofstream file(save_file, std::ios::binary);
         if (!file.is_open()) {
@@ -534,8 +508,6 @@ void AdapAD::save_models() {
         // Save generator weights and biases directly to file
         generator->save_weights(file);
         generator->save_biases(file);
-        
-        std::cout << "Successfully saved model to " << save_file << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "Error saving model state: " << e.what() << std::endl;
@@ -606,9 +578,7 @@ void AdapAD::load_models(const std::string& timestamp, const std::vector<float>&
         predictive_errors.clear();
         thresholds.clear();
         
-        std::cout << "Loaded model state for " << parameter_name 
-                  << " from " << load_file 
-                  << " with " << observed_vals.size() << " initial values" << std::endl;
+        std::cout << "Loaded model state for " << parameter_name << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "Error loading model state: " << e.what() << std::endl;
@@ -696,7 +666,6 @@ void AdapAD::load_latest_model(const std::vector<float>& initial_data) {
     closedir(dir);
 
     if (!latest_file.empty()) {
-        std::cout << "Loading saved model for " << parameter_name << " from " << latest_file << std::endl;
         std::string timestamp = latest_file.substr(parameter_name.length() + 7, 15);
         load_models(timestamp, initial_data);
     } else {

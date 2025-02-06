@@ -1,6 +1,6 @@
 data:
   paths:
-    training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_16_20240615.csv"
+    training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_100_20240905.csv"
     log: "/mnt/sdcard/adapad/adapad_logs"
   parameters:
     Tide_pressure:
