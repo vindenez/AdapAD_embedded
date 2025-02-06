@@ -116,7 +116,7 @@ training:
 model:
   save_enabled: true
   save_interval: 48
-  save_path: "/mnt/sdcard/adapad/model_states/" 
+  save_path: "/mnt/sdcard/adapad/model_states" 
   lstm:
     size: 100
     layers: 2

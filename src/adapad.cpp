@@ -450,7 +450,7 @@ void AdapAD::save_models() {
         // Create directory if it doesn't exist
         if (mkdir(config.save_path.c_str(), 0777) == -1) {
             if (errno != EEXIST) {
-                throw std::runtime_error("Failed to create directory: " + std::string(strerror(errno)));
+                throw std::runtime_error("Failed to create save directory");
             }
         }
         
@@ -542,43 +542,79 @@ void AdapAD::load_models(const std::string& timestamp, const std::vector<float>&
             throw std::runtime_error("Could not open file for reading: " + load_file);
         }
 
-        // Load metadata
-        file.read(reinterpret_cast<char*>(&minimal_threshold), sizeof(float));
-        file.read(reinterpret_cast<char*>(&value_range_config.lower_bound), sizeof(float));
-        file.read(reinterpret_cast<char*>(&value_range_config.upper_bound), sizeof(float));
+        try {
+            std::cout << "Loading metadata..." << std::endl;
+            // Load metadata first
+            float temp_minimal_threshold;
+            float temp_lower_bound;
+            float temp_upper_bound;
+            
+            file.read(reinterpret_cast<char*>(&temp_minimal_threshold), sizeof(float));
+            file.read(reinterpret_cast<char*>(&temp_lower_bound), sizeof(float));
+            file.read(reinterpret_cast<char*>(&temp_upper_bound), sizeof(float));
 
-        // Initialize layer caches
-        data_predictor->initialize_layer_cache();
-        generator->initialize_layer_cache();
+            if (!file.good()) {
+                throw std::runtime_error("Failed to read metadata");
+            }
 
-        // Load layer cache states
-        data_predictor->load_layer_cache(file);
-        generator->load_layer_cache(file);
+            std::cout << "Updating configuration values..." << std::endl;
+            // Only update values after successful read
+            minimal_threshold = temp_minimal_threshold;
+            value_range_config.lower_bound = temp_lower_bound;
+            value_range_config.upper_bound = temp_upper_bound;
 
-        // Load predictor weights and biases
-        data_predictor->load_weights(file);
-        data_predictor->load_biases(file);
-        
-        // Load generator weights and biases
-        generator->load_weights(file);
-        generator->load_biases(file);
+            std::cout << "Initializing layer caches..." << std::endl;
+            // Initialize layer caches
+            data_predictor->initialize_layer_cache();
+            generator->initialize_layer_cache();
 
-        // Reset states after loading
-        reset_model_states();
-        
-        // Initialize observed_vals with exactly lookback_len points
-        observed_vals.clear();
-        for (size_t i = 0; i < predictor_config.lookback_len; i++) {
-            float normalized = normalize_data(initial_data[i]);
-            observed_vals.push_back(normalized);
+            std::cout << "Loading layer cache states..." << std::endl;
+            // Load layer cache states
+            try {
+                data_predictor->load_layer_cache(file);
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Failed to load data predictor cache: " + std::string(e.what()));
+            }
+
+            try {
+                generator->load_layer_cache(file);
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Failed to load generator cache: " + std::string(e.what()));
+            }
+
+            std::cout << "Loading weights and biases..." << std::endl;
+            // Load weights and biases
+            try {
+                data_predictor->load_weights(file);
+                data_predictor->load_biases(file);
+                generator->load_weights(file);
+                generator->load_biases(file);
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Failed to load weights/biases: " + std::string(e.what()));
+            }
+
+            std::cout << "Resetting model states..." << std::endl;
+            // Reset states after loading
+            reset_model_states();
+            
+            std::cout << "Initializing observed values..." << std::endl;
+            // Initialize observed_vals with exactly lookback_len points
+            observed_vals.clear();
+            for (size_t i = 0; i < predictor_config.lookback_len; i++) {
+                float normalized = normalize_data(initial_data[i]);
+                observed_vals.push_back(normalized);
+            }
+            
+            // Initialize other vectors
+            predicted_vals.clear();
+            predictive_errors.clear();
+            thresholds.clear();
+            
+            std::cout << "Successfully loaded model state for " << parameter_name << std::endl;
+            
+        } catch (const std::runtime_error& e) {
+            throw std::runtime_error("Error during model loading: " + std::string(e.what()));
         }
-        
-        // Initialize other vectors
-        predicted_vals.clear();
-        predictive_errors.clear();
-        thresholds.clear();
-        
-        std::cout << "Loaded model state for " << parameter_name << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "Error loading model state: " << e.what() << std::endl;
