@@ -72,6 +72,9 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
         }
     }
     
+    predictor->reset_adam_state();  // Reset Adam state after training
+    predictor->clear_training_state();
+    
     // Convert windows to 3D format for return
     std::vector<std::vector<std::vector<float>>> x3d;
     for (const auto& window : windows.first) {
@@ -116,8 +119,7 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         throw std::runtime_error("Empty recent_observation in update");
     }
 
-    static int update_count = 0;
-    update_count++;
+    predictor->train();
     
     std::vector<float> loss_history;
     

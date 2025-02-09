@@ -369,6 +369,19 @@ void AdapAD::train() {
             std::cerr << "Failed to save initial model state: " << e.what() << std::endl;
         }
     }
+
+    // After training is complete, reset states like we do in load_models
+    std::cout << "Resetting model states after training..." << std::endl;
+    reset_model_states();
+    
+    // Clear and reinitialize caches
+    data_predictor->initialize_layer_cache();
+    generator->initialize_layer_cache();
+    
+    // Clear history vectors
+    predicted_vals.clear();
+    predictive_errors.clear();
+    thresholds.clear();
 }
 
 void AdapAD::learn_error_pattern(

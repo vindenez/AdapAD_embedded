@@ -535,8 +535,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         float beta1 = 0.9f;
         float beta2 = 0.999f;
         float epsilon = 1e-8f;
-        static int timestep = 0;
-        timestep++;
+        adam_timestep++;  
 
         // Forward pass
         auto lstm_output = forward(x);
@@ -566,10 +565,10 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         // Apply Adam updates to FC layer
         try {
             apply_adam_update(fc_weight, fc_weight_grad, m_fc_weight, v_fc_weight,
-                            learning_rate, beta1, beta2, epsilon, timestep);
+                            learning_rate, beta1, beta2, epsilon, adam_timestep);
             
             apply_adam_update(fc_bias, fc_bias_grad, m_fc_bias, v_fc_bias,
-                            learning_rate, beta1, beta2, epsilon, timestep);
+                            learning_rate, beta1, beta2, epsilon, adam_timestep);
         } catch (const std::exception& e) {
             throw;
         }
@@ -598,22 +597,22 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                 
                 apply_adam_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad,
                                  m_weight_ih[layer], v_weight_ih[layer],
-                                 learning_rate, beta1, beta2, epsilon, timestep);
+                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
 
 
                 apply_adam_update(lstm_layers[layer].weight_hh, lstm_grads[layer].weight_hh_grad,
                                  m_weight_hh[layer], v_weight_hh[layer],
-                                 learning_rate, beta1, beta2, epsilon, timestep);
+                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
 
                 
                 apply_adam_update(lstm_layers[layer].bias_ih, lstm_grads[layer].bias_ih_grad,
                                  m_bias_ih[layer], v_bias_ih[layer],
-                                 learning_rate, beta1, beta2, epsilon, timestep);
+                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
 
 
                 apply_adam_update(lstm_layers[layer].bias_hh, lstm_grads[layer].bias_hh_grad,
                                  m_bias_hh[layer], v_bias_hh[layer],
-                                 learning_rate, beta1, beta2, epsilon, timestep);
+                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
 
 
             } catch (const std::exception& e) {
@@ -703,6 +702,7 @@ void LSTMPredictor::initialize_weights() {
 
 void LSTMPredictor::initialize_adam_states() {
     float k = 0.0f;
+    adam_timestep = 0;  // Reset timestep when initializing states
     
     try {
         // Create new FC layer vectors
@@ -1176,3 +1176,41 @@ void LSTMPredictor::load_layer_cache(std::ifstream& file) {
     }
 }
 
+void LSTMPredictor::reset_adam_state() {
+    // Reset Adam timestep and initialization flag
+    adam_timestep = 0;
+    adam_initialized = false;
+    
+    // Clear FC layer Adam states
+    m_fc_weight.clear();
+    v_fc_weight.clear();
+    m_fc_bias.clear();
+    v_fc_bias.clear();
+    
+    // Clear LSTM layer Adam states
+    m_weight_ih.clear();
+    v_weight_ih.clear();
+    m_weight_hh.clear();
+    v_weight_hh.clear();
+    m_bias_ih.clear();
+    v_bias_ih.clear();
+    m_bias_hh.clear();
+    v_bias_hh.clear();
+}
+
+void LSTMPredictor::clear_training_state() {
+    // Reset Adam optimizer states
+    reset_adam_state();  // This resets adam_timestep, adam_initialized, and all m_*/v_* vectors
+    
+    // Clear layer cache (intermediate computations)
+    layer_cache.clear();
+    layer_cache.resize(num_layers);
+    
+    // Clear gradients used for testing
+    last_gradients.clear();
+    
+    // Reset current position trackers
+    current_layer = 0;
+    current_timestep = 0;
+    
+}

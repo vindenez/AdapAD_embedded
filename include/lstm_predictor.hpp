@@ -5,6 +5,7 @@
 #include <random>
 #include <string>
 #include <fstream>
+#include <iostream>
 
 class LSTMPredictor {
 public:
@@ -98,9 +99,15 @@ public:
 
     int get_num_layers() const { return num_layers; }
 
-    void eval() { training_mode = false; }
-    void train() { training_mode = true; }
+    void eval() { 
+        training_mode = false; 
+    }
+    
+    void train() { 
+        training_mode = true; 
+    }
     bool is_training() const { return training_mode; }
+    void reset_adam_timestep() { adam_timestep = 0; }
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -121,6 +128,10 @@ public:
             c_state[0] = state.second;
         }
     }
+
+    void reset_adam_state();
+
+    void clear_training_state();
 
 private:
     unsigned random_seed;
@@ -191,6 +202,7 @@ private:
 
     // Adam optimizer state variables
     bool adam_initialized = false;
+    int adam_timestep = 0;  // Add timestep as member variable
     
     // For LSTM layers
     std::vector<std::vector<std::vector<float>>> m_weight_ih;

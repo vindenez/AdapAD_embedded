@@ -103,6 +103,10 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
                      << ", Average Loss: " << avg_loss << std::endl;
         }
     }
+
+    generator->reset_adam_state();
+    generator->clear_training_state();
+
     
     // Return processed windows in the expected format
     std::vector<std::vector<std::vector<float>>> x3d;
