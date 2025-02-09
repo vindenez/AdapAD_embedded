@@ -107,7 +107,7 @@ public:
         training_mode = true; 
     }
     bool is_training() const { return training_mode; }
-    void reset_adam_timestep() { adam_timestep = 0; }
+    void reset_sgd_state();
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -129,9 +129,9 @@ public:
         }
     }
 
-    void reset_adam_state();
-
     void clear_training_state();
+
+    ~LSTMPredictor();  // Add destructor declaration
 
 private:
     unsigned random_seed;
@@ -200,41 +200,34 @@ private:
 
     void initialize_weights();
 
-    // Adam optimizer state variables
-    bool adam_initialized = false;
-    int adam_timestep = 0;  // Add timestep as member variable
+    // Replace Adam state variables with SGD momentum
+    bool sgd_initialized = false;
+    int sgd_timestep = 0;
     
     // For LSTM layers
-    std::vector<std::vector<std::vector<float>>> m_weight_ih;
-    std::vector<std::vector<std::vector<float>>> v_weight_ih;
-    std::vector<std::vector<std::vector<float>>> m_weight_hh;
-    std::vector<std::vector<std::vector<float>>> v_weight_hh;
-    std::vector<std::vector<float>> m_bias_ih;
-    std::vector<std::vector<float>> v_bias_ih;
-    std::vector<std::vector<float>> m_bias_hh;
-    std::vector<std::vector<float>> v_bias_hh;
+    std::vector<std::vector<std::vector<float>>> m_weight_ih;  // momentum for weight_ih
+    std::vector<std::vector<std::vector<float>>> m_weight_hh;  // momentum for weight_hh
+    std::vector<std::vector<float>> m_bias_ih;                 // momentum for bias_ih
+    std::vector<std::vector<float>> m_bias_hh;                 // momentum for bias_hh
 
     // For FC layer
-    std::vector<std::vector<float>> m_fc_weight;
-    std::vector<std::vector<float>> v_fc_weight;
-    std::vector<float> m_fc_bias;
-    std::vector<float> v_fc_bias;
+    std::vector<std::vector<float>> m_fc_weight;              // momentum for fc_weight
+    std::vector<float> m_fc_bias;                             // momentum for fc_bias
 
-    // Adam initialization methods
-    void initialize_adam_states();
-    bool are_adam_states_initialized() const;
+    // SGD initialization methods
+    void initialize_sgd_states();
+    bool are_sgd_states_initialized() const;
 
-    void apply_adam_update(std::vector<std::vector<float>>& weights, 
-                        std::vector<std::vector<float>>& grads,
-                        std::vector<std::vector<float>>& m_t, 
-                        std::vector<std::vector<float>>& v_t,
-                        float learning_rate, float beta1, float beta2, float epsilon, int t);
+    // SGD update methods
+    void apply_sgd_update(std::vector<std::vector<float>>& weights,
+                         std::vector<std::vector<float>>& grads,
+                         std::vector<std::vector<float>>& momentum,
+                         float learning_rate, float beta);
     
-    void apply_adam_update(std::vector<float>& biases, 
-                        std::vector<float>& grads,
-                        std::vector<float>& m_t, 
-                        std::vector<float>& v_t,
-                        float learning_rate, float beta1, float beta2, float epsilon, int t);
+    void apply_sgd_update(std::vector<float>& weights,
+                         std::vector<float>& grads,
+                         std::vector<float>& momentum,
+                         float learning_rate, float beta);
 
     bool training_mode = true;
 };

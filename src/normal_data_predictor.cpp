@@ -72,7 +72,7 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
         }
     }
     
-    predictor->reset_adam_state();  // Reset Adam state after training
+    predictor->reset_sgd_state();  // Reset Adam state after training
     predictor->clear_training_state();
     
     // Convert windows to 3D format for return

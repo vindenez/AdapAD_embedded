@@ -190,11 +190,55 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
     return output;
 }
 
+void LSTMPredictor::initialize_layer_cache() {
+    layer_cache.clear();
+    layer_cache.resize(num_layers);
+}
 
 LSTMPredictor::LSTMOutput LSTMPredictor::forward(
     const std::vector<std::vector<std::vector<float>>>& x,
     const std::vector<std::vector<float>>* initial_hidden,
     const std::vector<std::vector<float>>* initial_cell) {
+    
+    // Initialize and resize layer cache based on input dimensions
+    layer_cache.clear();
+    layer_cache.resize(num_layers);
+    
+    // For each layer, resize cache to match batch size and sequence length
+    for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+        layer_cache[layer_idx].resize(x.size());  // batch size
+        for (auto& batch : layer_cache[layer_idx]) {
+            batch.resize(x[0].size());  // sequence length
+            // Pre-initialize all vectors in each cache entry
+            for (auto& entry : batch) {
+                entry.input.resize(layer_idx == 0 ? input_size : hidden_size);
+                entry.hidden_state.resize(hidden_size);
+                entry.cell_state.resize(hidden_size);
+                entry.prev_hidden.resize(hidden_size);
+                entry.prev_cell.resize(hidden_size);
+                entry.input_gate.resize(hidden_size);
+                entry.forget_gate.resize(hidden_size);
+                entry.cell_gate.resize(hidden_size);
+                entry.output_gate.resize(hidden_size);
+            }
+        }
+    }
+    
+    LSTMOutput output;
+    output.sequence_output.resize(x.size());
+    for (auto& seq : output.sequence_output) {
+        seq.resize(x[0].size());
+        for (auto& h : seq) {
+            h.resize(hidden_size);
+        }
+    }
+    
+    output.final_hidden.resize(num_layers);
+    output.final_cell.resize(num_layers);
+    for (int layer = 0; layer < num_layers; ++layer) {
+        output.final_hidden[layer].resize(hidden_size);
+        output.final_cell[layer].resize(hidden_size);
+    }
     
     for (size_t batch = 0; batch < x.size(); ++batch) {
         
@@ -211,30 +255,25 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         size_t batch_size = x.size();
         size_t seq_len = x[0].size();
         
-        // Initialize layer cache for training
+        // Only allocate cache when in training mode and needed
         if (training_mode) {
-            if (layer_cache.empty() || 
-                layer_cache.size() != num_layers ||
-                layer_cache[0].size() != batch_size ||
-                layer_cache[0][0].size() != seq_len) {
-                
+            if (layer_cache.size() != num_layers) {
                 layer_cache.clear();
                 layer_cache.resize(num_layers);
-                
-                for (int layer = 0; layer < num_layers; ++layer) {
+            }
+            
+            // Resize only if dimensions don't match
+            for (int layer = 0; layer < num_layers; ++layer) {
+                if (layer_cache[layer].size() != batch_size) {
                     layer_cache[layer].resize(batch_size);
-                    for (size_t batch = 0; batch < batch_size; ++batch) {
+                }
+                for (size_t batch = 0; batch < batch_size; ++batch) {
+                    if (layer_cache[layer][batch].size() != seq_len) {
                         layer_cache[layer][batch].resize(seq_len);
                     }
                 }
             }
         }
-        
-        // Initialize output structure
-        LSTMOutput output;
-        output.sequence_output.resize(batch_size, 
-            std::vector<std::vector<float>>(seq_len, 
-                std::vector<float>(hidden_size)));
         
         // Initialize or use provided states
         if (!initial_hidden || !initial_cell) {
@@ -374,12 +413,11 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
     const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
     float learning_rate) {
     
-    // Add dimension validation
+    // Validate dimensions
     if (grad_output.size() != hidden_size) {
         throw std::runtime_error("grad_output size mismatch in backward_lstm_layer");
     }
     
-    // Add cache validation
     if (cache.size() != num_layers) {
         throw std::runtime_error("cache layer count mismatch in backward_lstm_layer");
     }
@@ -395,37 +433,53 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
             std::vector<float>(hidden_size, 0.0f));
         layer_grads[layer].bias_ih_grad.resize(4 * hidden_size, 0.0f);
         layer_grads[layer].bias_hh_grad.resize(4 * hidden_size, 0.0f);
-
     }
     
     // Initialize dh_next and dc_next for each layer
     std::vector<std::vector<float>> dh_next(num_layers, std::vector<float>(hidden_size, 0.0f));
     std::vector<std::vector<float>> dc_next(num_layers, std::vector<float>(hidden_size, 0.0f));
     
-    // Start from the last layer and move backward
+    // Process each layer
     for (int layer = num_layers - 1; layer >= 0; --layer) {
-
         std::vector<float> dh = dh_next[layer];
         std::vector<float> dc = dc_next[layer];
         
-        // Add bounds checking before accessing cache
         if (current_batch >= cache[layer].size()) {
             throw std::runtime_error("Cache batch index out of bounds");
         }
         
         const auto& layer_cache = cache[layer][current_batch];
         
-        // If this is the last layer, add grad_output (like dy @ Wy.T in Python)
+        // If this is the last layer, add grad_output
         if (layer == num_layers - 1) {
             for (int h = 0; h < hidden_size; ++h) {
                 dh[h] += grad_output[h];
             }
         }
-
+        
         // Process each time step in reverse order
-        for (int t = layer_cache.size() - 1; t >= 0; --t) {
-
+        for (int t = static_cast<int>(layer_cache.size()) - 1; t >= 0; --t) {
+            // Validate cache entry
             const auto& cache_entry = layer_cache[t];
+            if (cache_entry.input.size() != input_size && layer == 0) {
+                throw std::runtime_error("Invalid input size in cache at layer " + 
+                    std::to_string(layer) + ", timestep " + std::to_string(t));
+            }
+            
+            if (cache_entry.hidden_state.size() != hidden_size ||
+                cache_entry.cell_state.size() != hidden_size) {
+                throw std::runtime_error("Invalid state size in cache at layer " + 
+                    std::to_string(layer) + ", timestep " + std::to_string(t));
+            }
+            
+            // Process gates with validation
+            if (cache_entry.input_gate.size() != hidden_size ||
+                cache_entry.forget_gate.size() != hidden_size ||
+                cache_entry.cell_gate.size() != hidden_size ||
+                cache_entry.output_gate.size() != hidden_size) {
+                throw std::runtime_error("Invalid gate size in cache at layer " + 
+                    std::to_string(layer) + ", timestep " + std::to_string(t));
+            }
             
             std::vector<float> dh_prev(hidden_size, 0.0f);
             std::vector<float> dc_prev(hidden_size, 0.0f);
@@ -502,126 +556,64 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                               const std::vector<float>& target,
                               float learning_rate) {
     try {
-        // Add detailed dimension checking for each sequence step
-        for (size_t batch = 0; batch < x.size(); ++batch) {
-            for (size_t seq = 0; seq < x[batch].size(); ++seq) {
-                if (x[batch][seq].size() != input_size) {
-                    throw std::runtime_error(
-                        "Input sequence dimension mismatch in train_step: batch " + 
-                        std::to_string(batch) + ", seq " + std::to_string(seq));
-                }
-            }
-        }
-        
-        // Initialize Adam states if needed
-        if (!are_adam_states_initialized()) {
-            initialize_adam_states();
-        }
-        
-        // Verify input dimensions
+        // Input validation
         if (x.empty() || x[0].empty() || x[0][0].empty()) {
-            throw std::runtime_error("Empty input tensor");
-        }
-        if (x[0][0].size() != input_size) {
-            throw std::runtime_error("Input feature size mismatch");
+            throw std::runtime_error("Empty input tensor in train_step");
         }
         
-        // Verify target dimensions
-        if (target.size() != num_classes) {
-            throw std::invalid_argument("Target size mismatch");
+        if (target.empty() || target.size() != num_classes) {
+            throw std::runtime_error("Invalid target size in train_step");
         }
-        
-        // Adam hyperparameters
-        float beta1 = 0.9f;
-        float beta2 = 0.999f;
-        float epsilon = 1e-8f;
-        adam_timestep++;  
 
+        // Initialize SGD if needed
+        if (!sgd_initialized) {
+            initialize_sgd_states();
+        }
+        
         // Forward pass
-        auto lstm_output = forward(x);
-        auto output = get_final_prediction(lstm_output);
-
-        // Compute gradients
-        auto grad_output = compute_mse_loss_gradient(output, target);
-
-        // Extract final hidden state
-        const auto& last_hidden = lstm_output.final_hidden.back();
-
-        // Backward pass through linear layer
-        std::vector<std::vector<float>> fc_weight_grad;
-        std::vector<float> fc_bias_grad;
-        std::vector<float> lstm_grad;
-        backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
-
-        // Verify FC layer dimensions before Adam updates
-        if (fc_weight.size() != fc_weight_grad.size() || 
-            fc_weight[0].size() != fc_weight_grad[0].size() ||
-            fc_weight.size() != m_fc_weight.size() ||
-            fc_weight[0].size() != m_fc_weight[0].size()) {
-            
-            throw std::runtime_error("Dimension mismatch in FC layer Adam update");
+        auto output = forward(x);
+        auto prediction = get_final_prediction(output);
+        
+        // Compute loss gradient
+        std::vector<float> grad_output(prediction.size());
+        for (size_t i = 0; i < prediction.size(); ++i) {
+            grad_output[i] = prediction[i] - target[i];
         }
 
-        // Apply Adam updates to FC layer
-        try {
-            apply_adam_update(fc_weight, fc_weight_grad, m_fc_weight, v_fc_weight,
-                            learning_rate, beta1, beta2, epsilon, adam_timestep);
-            
-            apply_adam_update(fc_bias, fc_bias_grad, m_fc_bias, v_fc_bias,
-                            learning_rate, beta1, beta2, epsilon, adam_timestep);
-        } catch (const std::exception& e) {
-            throw;
-        }
+        // Backward pass through FC layer
+        std::vector<std::vector<float>> fc_weight_grad(fc_weight.size(), 
+            std::vector<float>(fc_weight[0].size(), 0.0f));
+        std::vector<float> fc_bias_grad(fc_bias.size(), 0.0f);
+        std::vector<float> input_grad(hidden_size, 0.0f);
+        
+        backward_linear_layer(grad_output, output.final_hidden[num_layers-1],
+                            fc_weight_grad, fc_bias_grad, input_grad);
 
-        // Validate cache before LSTM backward pass
-        if (layer_cache.empty()) {
-            throw std::runtime_error("Empty layer cache");
-        }
+        // Update FC layer with SGD
+        const float momentum_beta = 0.9f;
+        
+        apply_sgd_update(fc_weight, fc_weight_grad, m_fc_weight, 
+                        learning_rate, momentum_beta);
+        apply_sgd_update(fc_bias, fc_bias_grad, m_fc_bias, 
+                        learning_rate, momentum_beta);
 
-        // Verify lstm_grad dimensions
-        if (lstm_grad.size() != hidden_size) {
-            throw std::runtime_error("Invalid lstm_grad dimensions");
-        }
+        // Backward pass through LSTM layers
+        auto lstm_gradients = backward_lstm_layer(input_grad, layer_cache, learning_rate);
 
-        // LSTM backward pass
-        auto lstm_grads = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
-
-        // Apply Adam updates to LSTM layers
+        // Update LSTM layers with SGD
         for (int layer = 0; layer < num_layers; ++layer) {
-            try {
-                // Verify LSTM layer dimensions before updates
-                if (lstm_layers[layer].weight_ih.size() != lstm_grads[layer].weight_ih_grad.size()) {
-                    throw std::runtime_error("LSTM weight_ih dimension mismatch at layer " + 
-                                           std::to_string(layer));
-                }
-                
-                apply_adam_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad,
-                                 m_weight_ih[layer], v_weight_ih[layer],
-                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
-
-
-                apply_adam_update(lstm_layers[layer].weight_hh, lstm_grads[layer].weight_hh_grad,
-                                 m_weight_hh[layer], v_weight_hh[layer],
-                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
-
-                
-                apply_adam_update(lstm_layers[layer].bias_ih, lstm_grads[layer].bias_ih_grad,
-                                 m_bias_ih[layer], v_bias_ih[layer],
-                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
-
-
-                apply_adam_update(lstm_layers[layer].bias_hh, lstm_grads[layer].bias_hh_grad,
-                                 m_bias_hh[layer], v_bias_hh[layer],
-                                 learning_rate, beta1, beta2, epsilon, adam_timestep);
-
-
-            } catch (const std::exception& e) {
-                throw;
-            }
+            apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad,
+                           m_weight_ih[layer], learning_rate, momentum_beta);
+            apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad,
+                           m_weight_hh[layer], learning_rate, momentum_beta);
+            apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad,
+                           m_bias_ih[layer], learning_rate, momentum_beta);
+            apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad,
+                           m_bias_hh[layer], learning_rate, momentum_beta);
         }
 
     } catch (const std::exception& e) {
-        throw;
+        throw std::runtime_error("Error in train_step: " + std::string(e.what()));
     }
 }
 
@@ -700,170 +692,31 @@ void LSTMPredictor::initialize_weights() {
 }
 
 
-void LSTMPredictor::initialize_adam_states() {
-    float k = 0.0f;
-    adam_timestep = 0;  // Reset timestep when initializing states
+void LSTMPredictor::initialize_sgd_states() {
+    // Initialize momentum tensors with proper sizes
+    m_weight_ih.resize(num_layers);
+    m_weight_hh.resize(num_layers);
+    m_bias_ih.resize(num_layers);
+    m_bias_hh.resize(num_layers);
     
-    try {
-        // Create new FC layer vectors
-        m_fc_weight = std::vector<std::vector<float>>(
-            num_classes, std::vector<float>(hidden_size, k));
-        v_fc_weight = std::vector<std::vector<float>>(
-            num_classes, std::vector<float>(hidden_size, k));
-        m_fc_bias = std::vector<float>(num_classes, k);
-        v_fc_bias = std::vector<float>(num_classes, k);
+    for (int layer = 0; layer < num_layers; ++layer) {
+        int input_size_layer = (layer == 0) ? input_size : hidden_size;
         
-        // Initialize LSTM layer states directly
-        std::vector<std::vector<std::vector<float>>> new_m_weight_ih(num_layers);
-        std::vector<std::vector<std::vector<float>>> new_v_weight_ih(num_layers);
-        std::vector<std::vector<std::vector<float>>> new_m_weight_hh(num_layers);
-        std::vector<std::vector<std::vector<float>>> new_v_weight_hh(num_layers);
-        std::vector<std::vector<float>> new_m_bias_ih(num_layers);
-        std::vector<std::vector<float>> new_v_bias_ih(num_layers);
-        std::vector<std::vector<float>> new_m_bias_hh(num_layers);
-        std::vector<std::vector<float>> new_v_bias_hh(num_layers);
-        
-        // Initialize each layer's states
-        for (int layer = 0; layer < num_layers; ++layer) {
-            int input_size_layer = (layer == 0) ? input_size : hidden_size;
-            
-            new_m_weight_ih[layer] = std::vector<std::vector<float>>(
-                4 * hidden_size, std::vector<float>(input_size_layer, k));
-            new_v_weight_ih[layer] = std::vector<std::vector<float>>(
-                4 * hidden_size, std::vector<float>(input_size_layer, k));
-            new_m_weight_hh[layer] = std::vector<std::vector<float>>(
-                4 * hidden_size, std::vector<float>(hidden_size, k));
-            new_v_weight_hh[layer] = std::vector<std::vector<float>>(
-                4 * hidden_size, std::vector<float>(hidden_size, k));
-            new_m_bias_ih[layer] = std::vector<float>(4 * hidden_size, k);
-            new_v_bias_ih[layer] = std::vector<float>(4 * hidden_size, k);
-            new_m_bias_hh[layer] = std::vector<float>(4 * hidden_size, k);
-            new_v_bias_hh[layer] = std::vector<float>(4 * hidden_size, k);
-            
-        }
-
-        // Assign new vectors to member variables
-        m_weight_ih = std::vector<std::vector<std::vector<float>>>();
-        m_weight_ih.swap(new_m_weight_ih);
-        v_weight_ih = std::vector<std::vector<std::vector<float>>>();
-        v_weight_ih.swap(new_v_weight_ih);
-        m_weight_hh = std::vector<std::vector<std::vector<float>>>();
-        m_weight_hh.swap(new_m_weight_hh);
-        v_weight_hh = std::vector<std::vector<std::vector<float>>>();
-        v_weight_hh.swap(new_v_weight_hh);
-        m_bias_ih = std::vector<std::vector<float>>();
-        m_bias_ih.swap(new_m_bias_ih);
-        v_bias_ih = std::vector<std::vector<float>>();
-        v_bias_ih.swap(new_v_bias_ih);
-        m_bias_hh = std::vector<std::vector<float>>();
-        m_bias_hh.swap(new_m_bias_hh);
-        v_bias_hh = std::vector<std::vector<float>>();
-        v_bias_hh.swap(new_v_bias_hh);
-
-        adam_initialized = true;
-        
-    } catch (const std::exception& e) {
-        throw;
+        m_weight_ih[layer].resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
+        m_weight_hh[layer].resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
+        m_bias_ih[layer].resize(4 * hidden_size, 0.0f);
+        m_bias_hh[layer].resize(4 * hidden_size, 0.0f);
     }
+    
+    m_fc_weight.resize(num_classes, std::vector<float>(hidden_size, 0.0f));
+    m_fc_bias.resize(num_classes, 0.0f);
+    
+    sgd_initialized = true;
 }
 
-
-void LSTMPredictor::apply_adam_update(
-    std::vector<std::vector<float>>& weights, 
-    std::vector<std::vector<float>>& grads,
-    std::vector<std::vector<float>>& m_t, 
-    std::vector<std::vector<float>>& v_t,
-    float learning_rate, float beta1, float beta2, float epsilon, int t) {
+bool LSTMPredictor::are_sgd_states_initialized() const {
+    if (!sgd_initialized) return false;
     
-    // Check for empty vectors
-    if (weights.empty() || grads.empty() || m_t.empty() || v_t.empty()) {
-        throw std::runtime_error("Empty vectors in Adam update");
-    }
-
-    // Check for empty inner vectors
-    if (weights[0].empty() || grads[0].empty() || m_t[0].empty() || v_t[0].empty()) {
-        throw std::runtime_error("Empty inner vectors in Adam update");
-    }
-
-    // Existing dimension checks
-    if (weights.size() != grads.size() || 
-        weights[0].size() != grads[0].size() ||
-        weights.size() != m_t.size() ||
-        weights[0].size() != m_t[0].size() ||
-        weights.size() != v_t.size() ||
-        weights[0].size() != v_t[0].size()) {
-        
-        throw std::runtime_error("Dimension mismatch in Adam update");
-    }
-    
-    if (t <= 0) {
-        throw std::invalid_argument("Adam timestep must be positive");
-    }
-    
-    for (size_t i = 0; i < weights.size(); ++i) {
-        for (size_t j = 0; j < weights[i].size(); ++j) {
-            // Update biased moments
-            m_t[i][j] = beta1 * m_t[i][j] + (1.0f - beta1) * grads[i][j];
-            v_t[i][j] = beta2 * v_t[i][j] + (1.0f - beta2) * grads[i][j] * grads[i][j];
-            
-            // Compute bias-corrected moments
-            float m_hat = m_t[i][j] / (1.0f - pow_float(beta1, static_cast<float>(t)));
-            float v_hat = v_t[i][j] / (1.0f - pow_float(beta2, static_cast<float>(t)));
-            
-            // Update weights
-            weights[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
-            
-        }
-    }
-}
-
-void LSTMPredictor::apply_adam_update(
-    std::vector<float>& biases, 
-    std::vector<float>& grads,
-    std::vector<float>& m_t, 
-    std::vector<float>& v_t,
-    float learning_rate, float beta1, float beta2, float epsilon, int t) {
-    
-    if (t <= 0) {
-        throw std::invalid_argument("Adam timestep must be positive");
-    }
-    
-    for (size_t i = 0; i < biases.size(); ++i) {
-        // Update biased moments
-        m_t[i] = beta1 * m_t[i] + (1.0f - beta1) * grads[i];
-        v_t[i] = beta2 * v_t[i] + (1.0f - beta2) * grads[i] * grads[i];
-        
-        // Compute bias-corrected moments
-        float m_hat = m_t[i] / (1.0f - pow_float(beta1, static_cast<float>(t)));
-        float v_hat = v_t[i] / (1.0f - pow_float(beta2, static_cast<float>(t)));
-        
-        // Update biases
-        biases[i] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
-        
-    }
-}
-
-bool LSTMPredictor::are_adam_states_initialized() const {
-    // Check FC layer Adam states
-    if (m_fc_weight.empty() || v_fc_weight.empty() || 
-        m_fc_bias.empty() || v_fc_bias.empty()) {
-        return false;
-    }
-
-    // Check LSTM layer Adam states
-    if (m_weight_ih.empty() || v_weight_ih.empty() ||
-        m_weight_hh.empty() || v_weight_hh.empty() ||
-        m_bias_ih.empty() || v_bias_ih.empty() ||
-        m_bias_hh.empty() || v_bias_hh.empty()) {
-        return false;
-    }
-
-    // Check dimensions
-    if (m_fc_weight.size() != num_classes || 
-        m_fc_weight[0].size() != hidden_size) {
-        return false;
-    }
-
     // Check LSTM layer dimensions
     for (int layer = 0; layer < num_layers; ++layer) {
         int input_size_layer = (layer == 0) ? input_size : hidden_size;
@@ -877,8 +730,121 @@ bool LSTMPredictor::are_adam_states_initialized() const {
             return false;
         }
     }
+    
+    return true;
+}
 
-    return adam_initialized;
+void LSTMPredictor::reset_sgd_state() {
+    // Clear momentum tensors safely
+    for (auto& layer_m : m_weight_ih) {
+        for (auto& row : layer_m) {
+            row.clear();
+            row.shrink_to_fit();
+        }
+        layer_m.clear();
+        layer_m.shrink_to_fit();
+    }
+    m_weight_ih.clear();
+    m_weight_ih.shrink_to_fit();
+    
+    // Repeat for other momentum tensors
+    // ... similar clear operations for m_weight_hh, m_bias_ih, m_bias_hh ...
+    
+    m_fc_weight.clear();
+    m_fc_weight.shrink_to_fit();
+    m_fc_bias.clear();
+    m_fc_bias.shrink_to_fit();
+    
+    sgd_timestep = 0;
+    sgd_initialized = false;
+}
+
+void LSTMPredictor::apply_sgd_update(std::vector<std::vector<float>>& weights,
+                                    std::vector<std::vector<float>>& grads,
+                                    std::vector<std::vector<float>>& momentum,
+                                    float learning_rate, float beta) {
+    for (size_t i = 0; i < weights.size(); ++i) {
+        float* w = weights[i].data();
+        float* g = grads[i].data();
+        float* m = momentum[i].data();
+        const size_t len = weights[i].size();
+        
+        for (size_t j = 0; j < len; ++j) {
+            m[j] = beta * m[j] + g[j];
+            w[j] -= learning_rate * m[j];
+        }
+    }
+}
+
+void LSTMPredictor::apply_sgd_update(std::vector<float>& weights,
+                                    std::vector<float>& grads,
+                                    std::vector<float>& momentum,
+                                    float learning_rate, float beta) {
+    float* w = weights.data();
+    float* g = grads.data();
+    float* m = momentum.data();
+    const size_t len = weights.size();
+    
+    for (size_t i = 0; i < len; ++i) {
+        m[i] = beta * m[i] + g[i];
+        w[i] -= learning_rate * m[i];
+    }
+}
+
+void LSTMPredictor::clear_training_state() {
+    // Clear layer cache safely
+    for (auto& layer : layer_cache) {
+        for (auto& batch : layer) {
+            batch.clear();
+        }
+        layer.clear();
+    }
+    layer_cache.clear();
+    
+    // Clear gradients
+    last_gradients.clear();
+    
+    // Reset position trackers
+    current_layer = 0;
+    current_timestep = 0;
+    
+    // Clear SGD states safely
+    if (sgd_initialized) {
+        // Clear FC layer momentum
+        for (auto& row : m_fc_weight) {
+            row.clear();
+        }
+        m_fc_weight.clear();
+        m_fc_bias.clear();
+        
+        // Clear LSTM layer momentum
+        for (int i = 0; i < num_layers; ++i) {
+            for (auto& row : m_weight_ih[i]) {
+                row.clear();
+            }
+            m_weight_ih[i].clear();
+            
+            for (auto& row : m_weight_hh[i]) {
+                row.clear();
+            }
+            m_weight_hh[i].clear();
+            
+            m_bias_ih[i].clear();
+            m_bias_hh[i].clear();
+        }
+        m_weight_ih.clear();
+        m_weight_hh.clear();
+        m_bias_ih.clear();
+        m_bias_hh.clear();
+    }
+    
+    sgd_initialized = false;
+    sgd_timestep = 0;
+}
+
+// Add destructor to ensure proper cleanup
+LSTMPredictor::~LSTMPredictor() {
+    clear_training_state();
 }
 
 void LSTMPredictor::set_weights(const std::vector<LSTMLayer>& weights) {
@@ -1035,23 +1001,6 @@ void LSTMPredictor::load_biases(std::ifstream& file) {
     }
 }
 
-void LSTMPredictor::initialize_layer_cache() {
-    // Initialize layer cache with appropriate dimensions
-    layer_cache.clear();
-    layer_cache.resize(num_layers);
-    
-    // Initialize h_state and c_state
-    h_state.clear();
-    c_state.clear();
-    h_state.resize(num_layers);
-    c_state.resize(num_layers);
-    
-    for (int i = 0; i < num_layers; ++i) {
-        h_state[i].resize(hidden_size, 0.0f);
-        c_state[i].resize(hidden_size, 0.0f);
-    }
-}
-
 void LSTMPredictor::save_layer_cache(std::ofstream& file) const {
     try {
         // Save layer cache dimensions
@@ -1174,43 +1123,4 @@ void LSTMPredictor::load_layer_cache(std::ifstream& file) {
     } catch (const std::exception& e) {
         throw std::runtime_error("Error loading layer cache: " + std::string(e.what()));
     }
-}
-
-void LSTMPredictor::reset_adam_state() {
-    // Reset Adam timestep and initialization flag
-    adam_timestep = 0;
-    adam_initialized = false;
-    
-    // Clear FC layer Adam states
-    m_fc_weight.clear();
-    v_fc_weight.clear();
-    m_fc_bias.clear();
-    v_fc_bias.clear();
-    
-    // Clear LSTM layer Adam states
-    m_weight_ih.clear();
-    v_weight_ih.clear();
-    m_weight_hh.clear();
-    v_weight_hh.clear();
-    m_bias_ih.clear();
-    v_bias_ih.clear();
-    m_bias_hh.clear();
-    v_bias_hh.clear();
-}
-
-void LSTMPredictor::clear_training_state() {
-    // Reset Adam optimizer states
-    reset_adam_state();  // This resets adam_timestep, adam_initialized, and all m_*/v_* vectors
-    
-    // Clear layer cache (intermediate computations)
-    layer_cache.clear();
-    layer_cache.resize(num_layers);
-    
-    // Clear gradients used for testing
-    last_gradients.clear();
-    
-    // Reset current position trackers
-    current_layer = 0;
-    current_timestep = 0;
-    
 }

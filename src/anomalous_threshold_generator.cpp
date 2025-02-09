@@ -104,7 +104,7 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
         }
     }
 
-    generator->reset_adam_state();
+    generator->reset_sgd_state();
     generator->clear_training_state();
 
     
