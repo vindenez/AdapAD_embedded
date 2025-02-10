@@ -6,6 +6,8 @@
 #include <string>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include "optimizers.hpp"
 
 class LSTMPredictor {
 public:
@@ -107,7 +109,6 @@ public:
         training_mode = true; 
     }
     bool is_training() const { return training_mode; }
-    void reset_sgd_state();
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -132,6 +133,16 @@ public:
     void clear_training_state();
 
     ~LSTMPredictor();  // Add destructor declaration
+
+    void set_optimizer(std::unique_ptr<Optimizer> new_optimizer) {
+        optimizer = std::move(new_optimizer);
+        if (optimizer) {
+            optimizer->initialize_state(num_layers, input_size, hidden_size, num_classes);
+        }
+    }
+
+    Optimizer* get_optimizer() { return optimizer.get(); }
+    void reset_optimizer_state();
 
 private:
     unsigned random_seed;
@@ -200,34 +211,7 @@ private:
 
     void initialize_weights();
 
-    // Replace Adam state variables with SGD momentum
-    bool sgd_initialized = false;
-    int sgd_timestep = 0;
-    
-    // For LSTM layers
-    std::vector<std::vector<std::vector<float>>> m_weight_ih;  // momentum for weight_ih
-    std::vector<std::vector<std::vector<float>>> m_weight_hh;  // momentum for weight_hh
-    std::vector<std::vector<float>> m_bias_ih;                 // momentum for bias_ih
-    std::vector<std::vector<float>> m_bias_hh;                 // momentum for bias_hh
-
-    // For FC layer
-    std::vector<std::vector<float>> m_fc_weight;              // momentum for fc_weight
-    std::vector<float> m_fc_bias;                             // momentum for fc_bias
-
-    // SGD initialization methods
-    void initialize_sgd_states();
-    bool are_sgd_states_initialized() const;
-
-    // SGD update methods
-    void apply_sgd_update(std::vector<std::vector<float>>& weights,
-                         std::vector<std::vector<float>>& grads,
-                         std::vector<std::vector<float>>& momentum,
-                         float learning_rate, float beta);
-    
-    void apply_sgd_update(std::vector<float>& weights,
-                         std::vector<float>& grads,
-                         std::vector<float>& momentum,
-                         float learning_rate, float beta);
-
     bool training_mode = true;
+
+    std::unique_ptr<Optimizer> optimizer;
 };

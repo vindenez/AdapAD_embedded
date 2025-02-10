@@ -1,20 +1,21 @@
 data:
   paths:
-    training: "Austevoll_nord_2023-2024/continuous_data/data_100_20240905.csv"
+    training: "Austevoll_nord_2023-2024/continuous_data/Tide_pressure_without_anomaly.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:
-      epochs:
-        train: 40
-        update: 40
-        update_generator: 5
-      learning_rates:
-        update: 0.0002
-        update_generator: 0.0002
-      bounds:
-        lower: 713.0
-        upper: 763.0
-      minimal_threshold: 0.0038
+      value:
+        epochs:
+          train: 40
+          update: 40
+          update_generator: 5
+        learning_rates:
+          update: 0.02
+          update_generator: 0.02
+        bounds:
+          lower: 713.0
+          upper: 763.0
+        minimal_threshold: 0.0038
     Wave_height:
       bounds:
         lower: 0
@@ -105,16 +106,16 @@ data:
 
 training:
   epochs:
-    train: 50
-    update: 40
-    update_generator: 40
+    train: 200
+    update: 50
+    update_generator: 50
   learning_rates:
-    train: 0.0002
-    update: 0.00005
-    update_generator: 0.00005
+    train: 0.01
+    update: 0.004
+    update_generator: 0.004
 
 model:
-  save_enabled: true
+  save_enabled: false
   save_interval: 48
   save_path: "model_states" 
   lstm:

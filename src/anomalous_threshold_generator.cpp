@@ -104,8 +104,9 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
         }
     }
 
-    generator->reset_sgd_state();
-    generator->clear_training_state();
+    // Properly reset states
+    generator->reset_optimizer_state();  // Reset optimizer first
+    generator->clear_training_state();   // Then clear training state
 
     
     // Return processed windows in the expected format

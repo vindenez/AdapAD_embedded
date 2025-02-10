@@ -556,20 +556,17 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                               const std::vector<float>& target,
                               float learning_rate) {
     try {
-        // Input validation
-        if (x.empty() || x[0].empty() || x[0][0].empty()) {
-            throw std::runtime_error("Empty input tensor in train_step");
-        }
-        
-        if (target.empty() || target.size() != num_classes) {
-            throw std::runtime_error("Invalid target size in train_step");
+        // Initialize optimizer if not exists
+        if (!optimizer) {
+            optimizer.reset(new SGD(learning_rate));
+            optimizer->initialize_state(num_layers, input_size, hidden_size, num_classes);
         }
 
-        // Initialize SGD if needed
-        if (!sgd_initialized) {
-            initialize_sgd_states();
+        // Ensure optimizer state is initialized
+        if (!optimizer->is_state_initialized()) {
+            optimizer->initialize_state(num_layers, input_size, hidden_size, num_classes);
         }
-        
+
         // Forward pass
         auto output = forward(x);
         auto prediction = get_final_prediction(output);
@@ -589,28 +586,32 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         backward_linear_layer(grad_output, output.final_hidden[num_layers-1],
                             fc_weight_grad, fc_bias_grad, input_grad);
 
-        // Update FC layer with SGD
-        const float momentum_beta = 0.9f;
-        
-        apply_sgd_update(fc_weight, fc_weight_grad, m_fc_weight, 
-                        learning_rate, momentum_beta);
-        apply_sgd_update(fc_bias, fc_bias_grad, m_fc_bias, 
-                        learning_rate, momentum_beta);
-
         // Backward pass through LSTM layers
         auto lstm_gradients = backward_lstm_layer(input_grad, layer_cache, learning_rate);
 
-        // Update LSTM layers with SGD
+        // Update weights using optimizer
+        auto& state = optimizer->get_state();
         for (int layer = 0; layer < num_layers; ++layer) {
-            apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad,
-                           m_weight_ih[layer], learning_rate, momentum_beta);
-            apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad,
-                           m_weight_hh[layer], learning_rate, momentum_beta);
-            apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad,
-                           m_bias_ih[layer], learning_rate, momentum_beta);
-            apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad,
-                           m_bias_hh[layer], learning_rate, momentum_beta);
+            optimizer->update_weights(lstm_layers[layer].weight_ih, 
+                                   lstm_gradients[layer].weight_ih_grad,
+                                   state.m_weight_ih[layer]);
+                                   
+            optimizer->update_weights(lstm_layers[layer].weight_hh, 
+                                   lstm_gradients[layer].weight_hh_grad,
+                                   state.m_weight_hh[layer]);
+                                   
+            optimizer->update_biases(lstm_layers[layer].bias_ih, 
+                                  lstm_gradients[layer].bias_ih_grad,
+                                  state.m_bias_ih[layer]);
+                                  
+            optimizer->update_biases(lstm_layers[layer].bias_hh, 
+                                  lstm_gradients[layer].bias_hh_grad,
+                                  state.m_bias_hh[layer]);
         }
+
+        // Update FC layer
+        optimizer->update_weights(fc_weight, fc_weight_grad, state.m_fc_weight);
+        optimizer->update_biases(fc_bias, fc_bias_grad, state.m_fc_bias);
 
     } catch (const std::exception& e) {
         throw std::runtime_error("Error in train_step: " + std::string(e.what()));
@@ -691,106 +692,6 @@ void LSTMPredictor::initialize_weights() {
     }
 }
 
-
-void LSTMPredictor::initialize_sgd_states() {
-    // Initialize momentum tensors with proper sizes
-    m_weight_ih.resize(num_layers);
-    m_weight_hh.resize(num_layers);
-    m_bias_ih.resize(num_layers);
-    m_bias_hh.resize(num_layers);
-    
-    for (int layer = 0; layer < num_layers; ++layer) {
-        int input_size_layer = (layer == 0) ? input_size : hidden_size;
-        
-        m_weight_ih[layer].resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
-        m_weight_hh[layer].resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
-        m_bias_ih[layer].resize(4 * hidden_size, 0.0f);
-        m_bias_hh[layer].resize(4 * hidden_size, 0.0f);
-    }
-    
-    m_fc_weight.resize(num_classes, std::vector<float>(hidden_size, 0.0f));
-    m_fc_bias.resize(num_classes, 0.0f);
-    
-    sgd_initialized = true;
-}
-
-bool LSTMPredictor::are_sgd_states_initialized() const {
-    if (!sgd_initialized) return false;
-    
-    // Check LSTM layer dimensions
-    for (int layer = 0; layer < num_layers; ++layer) {
-        int input_size_layer = (layer == 0) ? input_size : hidden_size;
-        
-        if (m_weight_ih[layer].size() != 4 * hidden_size ||
-            m_weight_ih[layer][0].size() != input_size_layer ||
-            m_weight_hh[layer].size() != 4 * hidden_size ||
-            m_weight_hh[layer][0].size() != hidden_size ||
-            m_bias_ih[layer].size() != 4 * hidden_size ||
-            m_bias_hh[layer].size() != 4 * hidden_size) {
-            return false;
-        }
-    }
-    
-    return true;
-}
-
-void LSTMPredictor::reset_sgd_state() {
-    // Clear momentum tensors safely
-    for (auto& layer_m : m_weight_ih) {
-        for (auto& row : layer_m) {
-            row.clear();
-            row.shrink_to_fit();
-        }
-        layer_m.clear();
-        layer_m.shrink_to_fit();
-    }
-    m_weight_ih.clear();
-    m_weight_ih.shrink_to_fit();
-    
-    // Repeat for other momentum tensors
-    // ... similar clear operations for m_weight_hh, m_bias_ih, m_bias_hh ...
-    
-    m_fc_weight.clear();
-    m_fc_weight.shrink_to_fit();
-    m_fc_bias.clear();
-    m_fc_bias.shrink_to_fit();
-    
-    sgd_timestep = 0;
-    sgd_initialized = false;
-}
-
-void LSTMPredictor::apply_sgd_update(std::vector<std::vector<float>>& weights,
-                                    std::vector<std::vector<float>>& grads,
-                                    std::vector<std::vector<float>>& momentum,
-                                    float learning_rate, float beta) {
-    for (size_t i = 0; i < weights.size(); ++i) {
-        float* w = weights[i].data();
-        float* g = grads[i].data();
-        float* m = momentum[i].data();
-        const size_t len = weights[i].size();
-        
-        for (size_t j = 0; j < len; ++j) {
-            m[j] = beta * m[j] + g[j];
-            w[j] -= learning_rate * m[j];
-        }
-    }
-}
-
-void LSTMPredictor::apply_sgd_update(std::vector<float>& weights,
-                                    std::vector<float>& grads,
-                                    std::vector<float>& momentum,
-                                    float learning_rate, float beta) {
-    float* w = weights.data();
-    float* g = grads.data();
-    float* m = momentum.data();
-    const size_t len = weights.size();
-    
-    for (size_t i = 0; i < len; ++i) {
-        m[i] = beta * m[i] + g[i];
-        w[i] -= learning_rate * m[i];
-    }
-}
-
 void LSTMPredictor::clear_training_state() {
     // Clear layer cache safely
     for (auto& layer : layer_cache) {
@@ -807,39 +708,17 @@ void LSTMPredictor::clear_training_state() {
     // Reset position trackers
     current_layer = 0;
     current_timestep = 0;
+    current_batch = 0;  // Add this if not already present
     
-    // Clear SGD states safely
-    if (sgd_initialized) {
-        // Clear FC layer momentum
-        for (auto& row : m_fc_weight) {
-            row.clear();
-        }
-        m_fc_weight.clear();
-        m_fc_bias.clear();
-        
-        // Clear LSTM layer momentum
-        for (int i = 0; i < num_layers; ++i) {
-            for (auto& row : m_weight_ih[i]) {
-                row.clear();
-            }
-            m_weight_ih[i].clear();
-            
-            for (auto& row : m_weight_hh[i]) {
-                row.clear();
-            }
-            m_weight_hh[i].clear();
-            
-            m_bias_ih[i].clear();
-            m_bias_hh[i].clear();
-        }
-        m_weight_ih.clear();
-        m_weight_hh.clear();
-        m_bias_ih.clear();
-        m_bias_hh.clear();
+    // Reset LSTM states
+    reset_states();
+}
+
+// Add this method to properly handle optimizer state reset
+void LSTMPredictor::reset_optimizer_state() {
+    if (optimizer) {
+        optimizer->reset_state();
     }
-    
-    sgd_initialized = false;
-    sgd_timestep = 0;
 }
 
 // Add destructor to ensure proper cleanup
