@@ -1,6 +1,7 @@
 #include "optimizers.hpp"
 
-SGD::SGD(float lr, float momentum) : learning_rate(lr), beta(momentum) {}
+SGD::SGD(float lr, float momentum, float weight_decay) 
+    : learning_rate(lr), beta(momentum), weight_decay(weight_decay) {}
 
 void SGD::initialize_state(int num_layers, int input_size, int hidden_size, int num_classes) {
     // Clear existing state first
@@ -45,7 +46,11 @@ void SGD::update_weights(std::vector<std::vector<float>>& weights,
         const size_t len = weights[i].size();
         
         for (size_t j = 0; j < len; ++j) {
+            // Add weight decay
+            g[j] += weight_decay * w[j];
+            // Update momentum
             m[j] = beta * m[j] + g[j];
+            // Update weights
             w[j] -= learning_rate * m[j];
         }
     }
@@ -60,7 +65,9 @@ void SGD::update_biases(std::vector<float>& weights,
     const size_t len = weights.size();
     
     for (size_t i = 0; i < len; ++i) {
+        // Update momentum
         m[i] = beta * m[i] + g[i];
+        // Update biases (no weight decay for biases)
         w[i] -= learning_rate * m[i];
     }
 }

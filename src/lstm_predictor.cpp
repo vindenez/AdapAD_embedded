@@ -558,10 +558,14 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
     try {
         // Initialize optimizer if not exists
         if (!optimizer) {
-            optimizer.reset(new SGD(learning_rate));
+            // Add weight decay parameter (0.0001 is a good starting value)
+            optimizer.reset(new SGD(learning_rate, 0.9, 0.0001));
             optimizer->initialize_state(num_layers, input_size, hidden_size, num_classes);
         }
 
+        // Adjust learning rate if needed
+        optimizer->set_learning_rate(learning_rate);
+        
         // Ensure optimizer state is initialized
         if (!optimizer->is_state_initialized()) {
             optimizer->initialize_state(num_layers, input_size, hidden_size, num_classes);

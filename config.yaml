@@ -1,3 +1,30 @@
+training:
+  epochs:
+    train: 200
+    update: 50
+    update_generator: 50
+  learning_rates:
+    train: 0.01
+    update: 0.004
+    update_generator: 0.004
+
+model:
+  save_enabled: false
+  save_interval: 48
+  save_path: "model_states" 
+  lstm:
+    size: 100
+    layers: 2
+    lookback: 3
+    prediction_len: 1
+  
+anomaly_detection:
+  threshold_multiplier: 1.0
+
+system:
+  random_seed: 42
+  verbose_output: true
+  
 data:
   paths:
     training: "Austevoll_nord_2023-2024/continuous_data/Tide_pressure_without_anomaly.csv"
@@ -104,29 +131,4 @@ data:
         minimal_threshold: 0.05
       
 
-training:
-  epochs:
-    train: 200
-    update: 50
-    update_generator: 50
-  learning_rates:
-    train: 0.01
-    update: 0.004
-    update_generator: 0.004
 
-model:
-  save_enabled: false
-  save_interval: 48
-  save_path: "model_states" 
-  lstm:
-    size: 100
-    layers: 2
-    lookback: 3
-    prediction_len: 1
-  
-anomaly_detection:
-  threshold_multiplier: 1.0
-
-system:
-  random_seed: 42
-  verbose_output: true
