@@ -96,6 +96,9 @@ int main() {
         return 1;
     }
     
+    // Reserve space for parameters to avoid reallocations
+    csv_parameters.reserve(100);  // Adjust based on expected parameter count
+    
     // Initialize models and measure memory usage
     std::vector<std::unique_ptr<AdapAD>> models;
     size_t initial_memory = get_memory_usage();
@@ -108,29 +111,28 @@ int main() {
     std::cout << "Save interval: " << config.save_interval << std::endl;
     std::cout << "Save path: " << config.save_path << std::endl;
 
+    // Pre-allocate models vector
+    models.reserve(csv_parameters.size());
+    
+    // Cache config map to avoid repeated lookups
+    const auto& config_map = config.get_config_map();
+    
     std::cout << "\nInitializing models..." << std::endl;
     for (size_t i = 0; i < csv_parameters.size(); ++i) {
         const std::string& param_name = csv_parameters[i];
         
-        // Check if parameter exists in config
-        std::string config_key = "data.parameters.Tide_pressure." + param_name + ".minimal_threshold";
-        bool param_configured = false;
+        // Construct config key once
+        const std::string config_key = "data.parameters.Austevoll_nord." + param_name + ".minimal_threshold";
         
-        for (const auto& pair : config.get_config_map()) {
-            if (pair.first == config_key) {
-                param_configured = true;
-                break;
-            }
-        }
-        
-        if (!param_configured) {
+        // Use find instead of iteration
+        if (config_map.find(config_key) == config_map.end()) {
             std::cout << "Warning: Parameter '" << param_name 
                       << "' not configured in config.yaml, skipping..." << std::endl;
             continue;
         }
         
         float minimal_threshold;
-        auto value_range_config = init_value_range_config("data.parameters.Tide_pressure." + param_name, minimal_threshold);
+        auto value_range_config = init_value_range_config("data.parameters.Austevoll_nord." + param_name, minimal_threshold);
         
         if (minimal_threshold == 0.0f) {
             std::cerr << "Error: It is mandatory to set a minimal threshold in config.yaml for " 
@@ -149,6 +151,12 @@ int main() {
     std::vector<std::vector<DataPoint>> all_data;
     for (size_t i = 0; i < models.size(); ++i) {
         all_data.push_back(read_csv_column(config.data_source_path, i + 1));
+    }
+    
+    // Pre-allocate data vectors
+    all_data.reserve(models.size());
+    for (auto& data : all_data) {
+        data.reserve(1000);  // Adjust based on expected data size
     }
     
     // Training phase
@@ -199,61 +207,47 @@ int main() {
     // Initialize buffers for each model to accumulate initial data points
     std::vector<std::vector<float>> data_buffers(models.size());
 
-    for (size_t t = predictor_config.train_size; t < all_data[0].size(); ++t) {
+    // Pre-allocate processing times vector
+    processing_times.reserve(WINDOW_SIZE);
+    
+    // Pre-allocate data buffers
+    for (auto& buffer : data_buffers) {
+        buffer.reserve(predictor_config.lookback_len + 1);
+    }
+    
+    // Online learning phase optimization
+    const size_t data_size = all_data[0].size();
+    for (size_t t = predictor_config.train_size; t < data_size; ++t) {
         double timestep_total = 0.0;
         
-        // Process all models for this time step
         for (size_t i = 0; i < models.size(); ++i) {
             auto model_start = std::chrono::high_resolution_clock::now();
             
             try {
-                float measured_value = all_data[i][t].value;
-                data_buffers[i].push_back(measured_value);
+                const float measured_value = all_data[i][t].value;
+                auto& buffer = data_buffers[i];
+                buffer.push_back(measured_value);
                 
-                // Only process if we have enough data points (lookback_len + 1)
-                if (data_buffers[i].size() >= predictor_config.lookback_len + 1) {
-                    
-                    bool is_anomalous = models[i]->is_anomalous(measured_value);
+                if (buffer.size() >= predictor_config.lookback_len + 1) {
+                    all_data[i][t].is_anomaly = models[i]->is_anomalous(measured_value);
                     models[i]->clean();
-                    all_data[i][t].is_anomaly = is_anomalous;
                     
-                    // Keep only the most recent lookback_len + 1 points
-                    if (data_buffers[i].size() > predictor_config.lookback_len + 1) {
-                        data_buffers[i].erase(data_buffers[i].begin());
+                    if (buffer.size() > predictor_config.lookback_len + 1) {
+                        buffer.erase(buffer.begin());
                     }
-                } else {
                 }
-                
             } catch (const std::exception& e) {
                 std::cerr << "Error processing " << csv_parameters[i] 
                           << " at time " << t << ": " << e.what() << std::endl;
             }
             
-            auto model_end = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double> model_time = model_end - model_start;
-            timestep_total += model_time.count();
+            timestep_total += std::chrono::duration<double>(
+                std::chrono::high_resolution_clock::now() - model_start).count();
         }
         
-        // Store the total processing time for this timestep
-        processing_times.push_back(timestep_total);
-        
-        // When we've collected WINDOW_SIZE points, calculate and print averages
-        if (processing_times.size() == WINDOW_SIZE) {
-            double window_sum = std::accumulate(processing_times.begin(), 
-                                              processing_times.end(), 0.0);
-            double window_avg = window_sum / WINDOW_SIZE;
-            
-            std::cout << "Average process time for the last " << window_start 
-                      << " and " << t << " (For all models): " << window_avg 
-                      << " seconds" << std::endl;
-            std::cout << "Average process time for the last " << window_start 
-                      << " and " << t << " (For each model): " << window_avg / models.size() 
-                      << " seconds" << std::endl;
-            
-            // Reset for next window
-            processing_times.clear();
-            window_start = t + 1;
-        }
+        // Print the total processing time for this timestep
+        std::cout << "Time step " << t << " total processing time: " 
+                  << timestep_total << " seconds" << std::endl;
         
         total_predictions++;
         total_processing_time += timestep_total;

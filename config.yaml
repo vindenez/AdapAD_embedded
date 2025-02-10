@@ -2,7 +2,7 @@ training:
   epochs:
     train: 200
     update: 50
-    update_generator: 50
+    update_generator: 5
   learning_rates:
     train: 0.01
     update: 0.004
@@ -24,10 +24,10 @@ anomaly_detection:
 system:
   random_seed: 42
   verbose_output: true
-  
+
 data:
   paths:
-    training: "Austevoll_nord_2023-2024/continuous_data/Tide_pressure_without_anomaly.csv"
+    training: "Austevoll_nord_2023-2024/continuous_data/data_100_20240905_without_dcps.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:
