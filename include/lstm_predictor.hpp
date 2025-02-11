@@ -6,6 +6,8 @@
 #include <string>
 #include <fstream>
 #include <iostream>
+#include "optimizer.hpp"
+#include <memory>
 
 class LSTMPredictor {
 public:
@@ -34,6 +36,17 @@ public:
     LSTMPredictor(int num_classes, int input_size, int hidden_size, 
                   int num_layers, int lookback_len, 
                   bool batch_first = true);
+
+    // Add destructor to ensure proper cleanup
+    ~LSTMPredictor() = default;
+    
+    // Delete copy constructor and assignment operator
+    LSTMPredictor(const LSTMPredictor&) = delete;
+    LSTMPredictor& operator=(const LSTMPredictor&) = delete;
+    
+    // Allow move operations
+    LSTMPredictor(LSTMPredictor&&) = default;
+    LSTMPredictor& operator=(LSTMPredictor&&) = default;
     
     void set_random_seed(unsigned seed) {
         random_seed = seed;
@@ -108,7 +121,6 @@ public:
         training_mode = true; 
     }
     bool is_training() const { return training_mode; }
-    void reset_adam_timestep() { adam_timestep = 0; }
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -130,11 +142,11 @@ public:
         }
     }
 
-    void reset_adam_state();
-
     void clear_training_state();
 
     void clear_temporary_cache();
+
+    void set_optimizer(std::unique_ptr<Optimizer> opt);
 
 private:
     unsigned random_seed;
@@ -203,42 +215,8 @@ private:
 
     void initialize_weights();
 
-    // Adam optimizer state variables
-    bool adam_initialized = false;
-    int adam_timestep = 0;  // Add timestep as member variable
-    
-    // For LSTM layers
-    std::vector<std::vector<std::vector<float>>> m_weight_ih;
-    std::vector<std::vector<std::vector<float>>> v_weight_ih;
-    std::vector<std::vector<std::vector<float>>> m_weight_hh;
-    std::vector<std::vector<std::vector<float>>> v_weight_hh;
-    std::vector<std::vector<float>> m_bias_ih;
-    std::vector<std::vector<float>> v_bias_ih;
-    std::vector<std::vector<float>> m_bias_hh;
-    std::vector<std::vector<float>> v_bias_hh;
-
-    // For FC layer
-    std::vector<std::vector<float>> m_fc_weight;
-    std::vector<std::vector<float>> v_fc_weight;
-    std::vector<float> m_fc_bias;
-    std::vector<float> v_fc_bias;
-
-    // Adam initialization methods
-    void initialize_adam_states();
-    bool are_adam_states_initialized() const;
-
-    void apply_adam_update(std::vector<std::vector<float>>& weights, 
-                        std::vector<std::vector<float>>& grads,
-                        std::vector<std::vector<float>>& m_t, 
-                        std::vector<std::vector<float>>& v_t,
-                        float learning_rate, float beta1, float beta2, float epsilon, int t);
-    
-    void apply_adam_update(std::vector<float>& biases, 
-                        std::vector<float>& grads,
-                        std::vector<float>& m_t, 
-                        std::vector<float>& v_t,
-                        float learning_rate, float beta1, float beta2, float epsilon, int t);
-
     bool training_mode = true;
     size_t current_cache_size = 0;  // Track current cache size
+
+    std::unique_ptr<Optimizer> optimizer;
 };

@@ -17,6 +17,8 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(
         lstm_layer,      // num_layers
         lookback_len     // seq_length
     ));
+    
+    generator->set_optimizer(std::unique_ptr<Optimizer>(new Adam()));
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -106,9 +108,8 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
         }
     }
 
-    generator->reset_adam_state();
-    generator->clear_training_state();
-    generator->clear_temporary_cache();  // Clear accumulated cache after initial training
+    generator->clear_training_state();  // This will reset the optimizer
+    generator->clear_temporary_cache();
 
     // Return processed windows in the expected format
     std::vector<std::vector<std::vector<float>>> x3d;

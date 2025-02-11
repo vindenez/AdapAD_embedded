@@ -19,6 +19,8 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit,
         lstm_layer,      // num_layers
         lookback_len     // seq_length
     ));
+    
+    predictor->set_optimizer(std::unique_ptr<Optimizer>(new Adam()));
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -72,9 +74,8 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
         }
     }
     
-    predictor->reset_adam_state();  // Reset Adam state after training
-    predictor->clear_training_state();
-    predictor->clear_temporary_cache();  // Clear accumulated cache after initial training
+    predictor->clear_training_state();  // This will reset the optimizer
+    predictor->clear_temporary_cache();
     
     // Convert windows to 3D format for return
     std::vector<std::vector<std::vector<float>>> x3d;
