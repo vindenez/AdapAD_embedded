@@ -78,14 +78,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         auto input_data = prepare_data_for_prediction(observed_vals.size() - 1);
         reset_model_states();
 
-        auto before_predict = std::chrono::high_resolution_clock::now();
         auto prediction = data_predictor->predict(input_data);
-        auto after_predict = std::chrono::high_resolution_clock::now();
-        
-        std::cout << "Prediction time: " 
-                  << std::chrono::duration_cast<std::chrono::microseconds>(
-                       after_predict - before_predict).count() 
-                  << "us" << std::endl;
         
         float threshold;
         if (predictive_errors.size() >= predictor_config.lookback_len) {
@@ -93,14 +86,8 @@ bool AdapAD::is_anomalous(float observed_val) {
                 predictive_errors.end() - predictor_config.lookback_len,
                 predictive_errors.end()
             );
-            auto before_threshold = std::chrono::high_resolution_clock::now();
             threshold = generator->generate(past_errors, minimal_threshold);
-            auto after_threshold = std::chrono::high_resolution_clock::now();
             
-            std::cout << "Threshold generation time: " 
-                      << std::chrono::duration_cast<std::chrono::microseconds>(
-                           after_threshold - before_threshold).count() 
-                      << "us" << std::endl;
         } else {
             threshold = minimal_threshold;
         }
@@ -122,30 +109,16 @@ bool AdapAD::is_anomalous(float observed_val) {
             is_anomalous_ret = true;
             anomalies.push_back(observed_vals.size());
         } else {
-            auto before_update = std::chrono::high_resolution_clock::now();
             data_predictor->update(config.epoch_update, config.lr_update,
                                 input_data, {normalized});
-            auto after_update = std::chrono::high_resolution_clock::now();
-            
-            std::cout << "Predictor update time: " 
-                      << std::chrono::duration_cast<std::chrono::microseconds>(
-                           after_update - before_update).count() 
-                      << "us" << std::endl;
-            
+
             if (is_anomalous_ret || threshold > minimal_threshold) {
                 if (predictive_errors.size() >= predictor_config.lookback_len) {
                     std::vector<float> past_errors(
                         predictive_errors.end() - predictor_config.lookback_len,
                         predictive_errors.end()
                     );
-                    auto before_gen_update = std::chrono::high_resolution_clock::now();
                     update_generator(past_errors, prediction_error);
-                    auto after_gen_update = std::chrono::high_resolution_clock::now();
-                    
-                    std::cout << "Generator update time: " 
-                              << std::chrono::duration_cast<std::chrono::microseconds>(
-                                   after_gen_update - before_gen_update).count() 
-                              << "us" << std::endl;
                 }
             }
         }

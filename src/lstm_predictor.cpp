@@ -199,24 +199,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
     const std::vector<std::vector<float>>* initial_cell) {
     
     
-    size_t total_cache_size = 0;
-    for (const auto& layer : layer_cache) {
-        for (const auto& batch : layer) {
-            for (const auto& entry : batch) {
-                total_cache_size += entry.input.size() + 
-                                  entry.prev_hidden.size() + 
-                                  entry.prev_cell.size() + 
-                                  entry.cell_state.size() + 
-                                  entry.input_gate.size() + 
-                                  entry.forget_gate.size() + 
-                                  entry.cell_gate.size() + 
-                                  entry.output_gate.size() + 
-                                  entry.hidden_state.size();
-            }
-        }
-    }
-    std::cout << "Layer cache size: " << total_cache_size << " elements" << std::endl;
-    
     for (size_t batch = 0; batch < x.size(); ++batch) {
         
         for (size_t seq = 0; seq < x[batch].size(); ++seq) {
