@@ -199,23 +199,7 @@ int main() {
     size_t total_predictions = 0;
     double total_processing_time = 0.0;
     
-    // Process each time step
-    std::vector<double> processing_times;  // Store processing times for windowed average
-    const size_t WINDOW_SIZE = 5;
-    size_t window_start = predictor_config.train_size;
-
-    // Initialize buffers for each model to accumulate initial data points
-    std::vector<std::vector<float>> data_buffers(models.size());
-
-    // Pre-allocate processing times vector
-    processing_times.reserve(WINDOW_SIZE);
-    
-    // Pre-allocate data buffers
-    for (auto& buffer : data_buffers) {
-        buffer.reserve(predictor_config.lookback_len + 1);
-    }
-    
-    // Online learning phase optimization
+    // Online learning phase - process one value at a time
     const size_t data_size = all_data[0].size();
     for (size_t t = predictor_config.train_size; t < data_size; ++t) {
         double timestep_total = 0.0;
@@ -224,18 +208,10 @@ int main() {
             auto model_start = std::chrono::high_resolution_clock::now();
             
             try {
+                // Process single new value
                 const float measured_value = all_data[i][t].value;
-                auto& buffer = data_buffers[i];
-                buffer.push_back(measured_value);
-                
-                if (buffer.size() >= predictor_config.lookback_len + 1) {
-                    all_data[i][t].is_anomaly = models[i]->is_anomalous(measured_value);
-                    models[i]->clean();
-                    
-                    if (buffer.size() > predictor_config.lookback_len + 1) {
-                        buffer.erase(buffer.begin());
-                    }
-                }
+                all_data[i][t].is_anomaly = models[i]->is_anomalous(measured_value);
+                models[i]->clean();
             } catch (const std::exception& e) {
                 std::cerr << "Error processing " << csv_parameters[i] 
                           << " at time " << t << ": " << e.what() << std::endl;
@@ -245,7 +221,6 @@ int main() {
                 std::chrono::high_resolution_clock::now() - model_start).count();
         }
         
-        // Print the total processing time for this timestep
         std::cout << "Time step " << t << " total processing time: " 
                   << timestep_total << " seconds" << std::endl;
         

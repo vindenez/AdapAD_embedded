@@ -57,6 +57,7 @@ public:
     // Training methods
     void train_step(const std::vector<std::vector<std::vector<float>>>& x,
                    const std::vector<float>& target,
+                   const LSTMOutput& lstm_output,
                    float learning_rate);
     
     float compute_loss(const std::vector<float>& output,
@@ -132,6 +133,8 @@ public:
     void reset_adam_state();
 
     void clear_training_state();
+
+    void clear_temporary_cache();
 
 private:
     unsigned random_seed;
@@ -237,4 +240,5 @@ private:
                         float learning_rate, float beta1, float beta2, float epsilon, int t);
 
     bool training_mode = true;
+    size_t current_cache_size = 0;  // Track current cache size
 };

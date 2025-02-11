@@ -1,6 +1,6 @@
 data:
   paths:
-    training: "Austevoll_nord_2023-2024/continuous_data/data_100_20240905.csv"
+    training: "Austevoll_nord_2023-2024/continuous_data/data_100_20240905_without_dcps.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:
@@ -53,7 +53,7 @@ data:
         minimal_threshold: 0.02
       pressure_pressure:
         bounds:
-          lower: 320
+          lower: 200
           upper: 370
         minimal_threshold: 0.003
       pressure_temperature:

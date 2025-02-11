@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <execinfo.h>
+#include <cxxabi.h> 
 
 inline float pow_float(float base, float exp) {
     return std::pow(base, exp);
@@ -195,6 +197,25 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
     const std::vector<std::vector<std::vector<float>>>& x,
     const std::vector<std::vector<float>>* initial_hidden,
     const std::vector<std::vector<float>>* initial_cell) {
+    
+    
+    size_t total_cache_size = 0;
+    for (const auto& layer : layer_cache) {
+        for (const auto& batch : layer) {
+            for (const auto& entry : batch) {
+                total_cache_size += entry.input.size() + 
+                                  entry.prev_hidden.size() + 
+                                  entry.prev_cell.size() + 
+                                  entry.cell_state.size() + 
+                                  entry.input_gate.size() + 
+                                  entry.forget_gate.size() + 
+                                  entry.cell_gate.size() + 
+                                  entry.output_gate.size() + 
+                                  entry.hidden_state.size();
+            }
+        }
+    }
+    std::cout << "Layer cache size: " << total_cache_size << " elements" << std::endl;
     
     for (size_t batch = 0; batch < x.size(); ++batch) {
         
@@ -500,6 +521,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
 
 void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>>& x,
                               const std::vector<float>& target,
+                              const LSTMOutput& lstm_output,
                               float learning_rate) {
     try {
         // Add detailed dimension checking for each sequence step
@@ -537,8 +559,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         float epsilon = 1e-8f;
         adam_timestep++;  
 
-        // Forward pass
-        auto lstm_output = forward(x);
+        // Get final prediction (no forward pass needed)
         auto output = get_final_prediction(lstm_output);
 
         // Compute gradients
@@ -1196,6 +1217,32 @@ void LSTMPredictor::reset_adam_state() {
     v_bias_ih.clear();
     m_bias_hh.clear();
     v_bias_hh.clear();
+}
+
+void LSTMPredictor::clear_temporary_cache() {
+    // Remove the training_mode check
+    size_t before_size = 0;
+    for (const auto& layer : layer_cache) {
+        for (const auto& batch : layer) {
+            for (const auto& seq : batch) {
+                before_size += sizeof(float) * (
+                    seq.input.size() +
+                    seq.prev_hidden.size() +
+                    seq.prev_cell.size() +
+                    seq.cell_state.size() +
+                    seq.input_gate.size() +
+                    seq.forget_gate.size() +
+                    seq.cell_gate.size() +
+                    seq.output_gate.size() +
+                    seq.hidden_state.size()
+                );
+            }
+        }
+    }
+    
+    layer_cache.clear();
+    layer_cache.shrink_to_fit();
+    current_cache_size = 0;
 }
 
 void LSTMPredictor::clear_training_state() {

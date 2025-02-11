@@ -64,8 +64,8 @@ bool AdapAD::is_anomalous(float observed_val) {
     bool is_anomalous_ret = false;
     
     try {
+        auto start_time = std::chrono::high_resolution_clock::now();
         float normalized = normalize_data(observed_val);
-        
         observed_vals.push_back(normalized);
         
         // We need lookback_len + 1 points: lookback_len for the window and 1 for prediction
@@ -76,20 +76,32 @@ bool AdapAD::is_anomalous(float observed_val) {
         }
         
         auto input_data = prepare_data_for_prediction(observed_vals.size() - 1);
-        
-        reset_model_states();  // Reset states before each prediction
+        reset_model_states();
+
+        auto before_predict = std::chrono::high_resolution_clock::now();
         auto prediction = data_predictor->predict(input_data);
+        auto after_predict = std::chrono::high_resolution_clock::now();
+        
+        std::cout << "Prediction time: " 
+                  << std::chrono::duration_cast<std::chrono::microseconds>(
+                       after_predict - before_predict).count() 
+                  << "us" << std::endl;
         
         float threshold;
         if (predictive_errors.size() >= predictor_config.lookback_len) {
-            // Create vector of past errors for threshold generation
             std::vector<float> past_errors(
                 predictive_errors.end() - predictor_config.lookback_len,
                 predictive_errors.end()
             );
+            auto before_threshold = std::chrono::high_resolution_clock::now();
             threshold = generator->generate(past_errors, minimal_threshold);
+            auto after_threshold = std::chrono::high_resolution_clock::now();
+            
+            std::cout << "Threshold generation time: " 
+                      << std::chrono::duration_cast<std::chrono::microseconds>(
+                           after_threshold - before_threshold).count() 
+                      << "us" << std::endl;
         } else {
-            // Use minimal threshold for initial predictions
             threshold = minimal_threshold;
         }
         
@@ -105,29 +117,35 @@ bool AdapAD::is_anomalous(float observed_val) {
         
         predictive_errors.push_back(prediction_error);
         
-        // Check range first
+        // Print training mode status before model updates
         if (!is_inside_range(normalized)) {
             is_anomalous_ret = true;
             anomalies.push_back(observed_vals.size());
         } else {
-            // Only process thresholds and errors for in-range values
-            if (prediction_error > threshold && !is_default_normal()) {
-                is_anomalous_ret = true;
-                anomalies.push_back(observed_vals.size());
-            }
-            
-            // Update models only for in-range values
+            auto before_update = std::chrono::high_resolution_clock::now();
             data_predictor->update(config.epoch_update, config.lr_update,
                                 input_data, {normalized});
+            auto after_update = std::chrono::high_resolution_clock::now();
+            
+            std::cout << "Predictor update time: " 
+                      << std::chrono::duration_cast<std::chrono::microseconds>(
+                           after_update - before_update).count() 
+                      << "us" << std::endl;
             
             if (is_anomalous_ret || threshold > minimal_threshold) {
-                // Only update generator if we have enough errors
                 if (predictive_errors.size() >= predictor_config.lookback_len) {
                     std::vector<float> past_errors(
                         predictive_errors.end() - predictor_config.lookback_len,
                         predictive_errors.end()
                     );
+                    auto before_gen_update = std::chrono::high_resolution_clock::now();
                     update_generator(past_errors, prediction_error);
+                    auto after_gen_update = std::chrono::high_resolution_clock::now();
+                    
+                    std::cout << "Generator update time: " 
+                              << std::chrono::duration_cast<std::chrono::microseconds>(
+                                   after_gen_update - before_gen_update).count() 
+                              << "us" << std::endl;
                 }
             }
         }
@@ -166,35 +184,35 @@ bool AdapAD::is_anomalous(float observed_val) {
 void AdapAD::update_generator(
     const std::vector<float>& past_errors, float recent_error) {
     
-    std::vector<float> loss_history;
     generator->train();
     
-    // Single update with early stopping
+    // Reshape past_errors to match PyTorch's reshape(1, -1)
+    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+    reshaped_input[0].resize(1);
+    reshaped_input[0][0] = past_errors;
+    
+    // Single forward pass before epoch loop
+    auto output = generator->forward(reshaped_input);
+    auto pred = generator->get_final_prediction(output);
+    
+    // Calculate initial loss
+    float initial_loss = 0.0f;
+    float diff = pred[0] - recent_error;
+    initial_loss = diff * diff;
+    
+    // Training loop with early stopping based on initial loss
+    std::vector<float> loss_history{initial_loss};
     for (int e = 0; e < config.update_G_epoch; ++e) {
-        // Reshape past_errors to match PyTorch's reshape(1, -1)
-        std::vector<std::vector<std::vector<float>>> reshaped_input(1);
-        reshaped_input[0].resize(1);
-        reshaped_input[0][0] = past_errors;
-        
-        auto output = generator->forward(reshaped_input);
-        auto pred = generator->get_final_prediction(output);
-        
-        // Calculate MSE loss
-        float current_loss = 0.0f;
-        float diff = pred[0] - recent_error;
-        current_loss = diff * diff;
-        
-        // Early stopping check
-        if (!loss_history.empty() && current_loss > loss_history.back()) {
+        if (e > 0 && initial_loss > loss_history.front()) {
             break;
         }
-        loss_history.push_back(current_loss);
         
-        generator->train_step(reshaped_input, {recent_error}, config.update_G_lr);
+        generator->train_step(reshaped_input, {recent_error}, output, config.update_G_lr);
     }
 }
 
 void AdapAD::clean() {
+    size_t before_clean = get_current_memory();
     size_t window_size = predictor_config.lookback_len;
     
     // Only clean if we have more elements than the window size
@@ -205,31 +223,51 @@ void AdapAD::clean() {
             
         // Calculate how many elements to keep
         size_t keep_count = std::min(window_size, predicted_vals.size());
-        
-        // Calculate starting point for keeping elements
         size_t start_idx = predicted_vals.size() - keep_count;
         
         try {
-            // Create temporary vectors with the elements we want to keep
-            std::vector<float> new_predicted(predicted_vals.begin() + start_idx, predicted_vals.end());
+            // Use clear and shrink_to_fit on temporary vectors
+            {
+                std::vector<float> new_predicted(predicted_vals.begin() + start_idx, predicted_vals.end());
+                predicted_vals.swap(new_predicted);
+                new_predicted.clear();
+                new_predicted.shrink_to_fit();
+            }
             
-            // Only clean other vectors if they have elements
             if (!predictive_errors.empty()) {
                 std::vector<float> new_errors(predictive_errors.begin() + start_idx, predictive_errors.end());
                 predictive_errors.swap(new_errors);
+                new_errors.clear();
+                new_errors.shrink_to_fit();
             }
             
             if (!thresholds.empty()) {
                 std::vector<float> new_thresholds(thresholds.begin() + start_idx, thresholds.end());
                 thresholds.swap(new_thresholds);
+                new_thresholds.clear();
+                new_thresholds.shrink_to_fit();
             }
             
-            predicted_vals.swap(new_predicted);
+            // Force capacity to match size
+            predicted_vals.shrink_to_fit();
+            predictive_errors.shrink_to_fit();
+            thresholds.shrink_to_fit();
             
         } catch (const std::exception& e) {
             std::cerr << "Error in clean(): " << e.what() << std::endl;
-            // Continue without cleaning if there's an error
         }
+    }
+    
+    // Clean LSTM caches
+    data_predictor->clear_temporary_cache();
+    generator->clear_temporary_cache();
+    
+    size_t after_clean = get_current_memory();
+    if (after_clean > before_clean) {
+        std::cout << "Memory for " << parameter_name 
+                  << " - Before: " << before_clean / 1024.0 
+                  << " MB, After: " << after_clean / 1024.0 
+                  << " MB" << std::endl;
     }
 }
 
@@ -382,6 +420,15 @@ void AdapAD::train() {
     predicted_vals.clear();
     predictive_errors.clear();
     thresholds.clear();
+    
+    // Keep only the most recent lookback_len values in observed_vals
+    if (observed_vals.size() > predictor_config.lookback_len) {
+        std::vector<float> recent_vals(
+            observed_vals.end() - predictor_config.lookback_len,
+            observed_vals.end()
+        );
+        observed_vals = std::move(recent_vals);  // Use move for efficiency
+    }
 }
 
 void AdapAD::learn_error_pattern(
@@ -424,7 +471,9 @@ void AdapAD::learn_error_pattern(
             input[0].push_back(batch_x[i]);
             auto target = std::vector<float>{batch_y[i]};
             
-            generator->train_step(input, target, config.lr_train);
+            // Add forward pass and pass output to train_step
+            auto output = generator->forward(input);
+            generator->train_step(input, target, output, config.lr_train);
         }
     }
 

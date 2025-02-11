@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <sys/resource.h>
 
 class AdapAD {
 public:
@@ -39,6 +40,8 @@ public:
     void load_latest_model(const std::vector<float>& initial_data);
 
     void reset_model_states();
+
+    void reset_with_initial_data(const std::vector<float>& initial_data);
 
 private:
     // Configuration
@@ -76,5 +79,11 @@ private:
     void save_if_needed(size_t data_point_count);
 
     std::string parameter_name;
+
+    size_t get_current_memory() {
+        struct rusage rusage;
+        getrusage(RUSAGE_SELF, &rusage);
+        return (size_t)rusage.ru_maxrss;
+    }
 };
 #endif // ADAPAD_HPP

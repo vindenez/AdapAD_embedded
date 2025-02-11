@@ -22,8 +22,9 @@ public:
     void reset_states() { predictor->reset_states(); }
     void train_step(const std::vector<std::vector<std::vector<float>>>& x,
                    const std::vector<float>& target,
+                   const LSTMPredictor::LSTMOutput& lstm_output,
                    float learning_rate) {
-        predictor->train_step(x, target, learning_rate);
+        predictor->train_step(x, target, lstm_output, learning_rate);
     }
 
     // Existing delegate methods
@@ -44,6 +45,17 @@ public:
     void save_layer_cache(std::ofstream& file) const;
     void load_layer_cache(std::ifstream& file);
     void initialize_layer_cache();
+
+    void clear_temporary_cache() {
+        if (predictor) {
+            predictor->clear_temporary_cache();
+        }
+    }
+
+    // Add this method to expose training mode status
+    bool is_training() const { 
+        return predictor ? predictor->is_training() : false; 
+    }
 
 private:
     int lookback_len;

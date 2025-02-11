@@ -60,8 +60,8 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
             
             epoch_loss += sample_loss;
             
-            // Train step for each sample
-            predictor->train_step(input_tensor, target, lr);
+            // Train step for each sample - now passing the output
+            predictor->train_step(input_tensor, target, output, lr);
         }
         
         // Report progress
@@ -74,6 +74,7 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
     
     predictor->reset_adam_state();  // Reset Adam state after training
     predictor->clear_training_state();
+    predictor->clear_temporary_cache();  // Clear accumulated cache after initial training
     
     // Convert windows to 3D format for return
     std::vector<std::vector<std::vector<float>>> x3d;
@@ -88,7 +89,8 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
 }
 
 float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<float>>>& observed) {
-    predictor->eval();
+    bool was_training = predictor->is_training();  // Save current state
+    predictor->eval();  // Temporarily set to eval mode
     
     // Reshape input to match Python version: (batch=1, features=lookback_len)
     if (observed.size() != 1 || observed[0].size() != 1 || 
@@ -103,7 +105,13 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
     
     auto output = predictor->forward(reshaped_input);
     auto pred = predictor->get_final_prediction(output);
-    return std::max(0.0f, pred[0]);
+    float result = std::max(0.0f, pred[0]);
+    
+    if (was_training) {
+        predictor->train();  // Restore training mode if it was on
+    }
+    
+    return result;
 }
 
 void NormalDataPredictor::update(int epoch_update, float lr_update,
@@ -141,7 +149,7 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         }
         loss_history.push_back(current_loss);
         
-        predictor->train_step(past_observations, recent_observation, lr_update);
+        predictor->train_step(past_observations, recent_observation, output, lr_update);
     }
 }
 
