@@ -3,12 +3,13 @@
 #include <cmath>
 #include <tuple>
 #include <random>
+#include <string>
+#include <fstream>
+#include <iostream>
 
 class LSTMPredictor {
 public:
-    // Define all structs first
     struct LSTMLayer {
-        // Change weight matrix organization to match PyTorch
         // [i,f,g,o] gates stacked vertically: (4*hidden_size, input_size)
         std::vector<std::vector<float>> weight_ih;  // (4*hidden_size, input_size)
         std::vector<std::vector<float>> weight_hh;  // (4*hidden_size, hidden_size)
@@ -56,6 +57,7 @@ public:
     // Training methods
     void train_step(const std::vector<std::vector<std::vector<float>>>& x,
                    const std::vector<float>& target,
+                   const LSTMOutput& lstm_output,
                    float learning_rate);
     
     float compute_loss(const std::vector<float>& output,
@@ -63,7 +65,6 @@ public:
 
     std::vector<float> get_final_prediction(const LSTMOutput& lstm_output);
 
-    // Add these testing methods
     #ifdef TESTING
     float get_weight(int layer, int gate, int input_idx) const {
         // Convert from gate index to PyTorch's layout [i,f,g,o]
@@ -87,7 +88,6 @@ public:
     }
     #endif
 
-    // Add these methods for gradient checking
     std::vector<LSTMLayer> get_weights() const {
         return lstm_layers;
     }
@@ -100,9 +100,41 @@ public:
 
     int get_num_layers() const { return num_layers; }
 
-    void eval() { training_mode = false; }
-    void train() { training_mode = true; }
+    void eval() { 
+        training_mode = false; 
+    }
+    
+    void train() { 
+        training_mode = true; 
+    }
     bool is_training() const { return training_mode; }
+    void reset_adam_timestep() { adam_timestep = 0; }
+
+    // Model save/load methods
+    void save_weights(std::ofstream& file);
+    void save_biases(std::ofstream& file);
+    void load_weights(std::ifstream& file);
+    void load_biases(std::ifstream& file);
+    void save_layer_cache(std::ofstream& file) const;
+    void load_layer_cache(std::ifstream& file);
+    void initialize_layer_cache();
+
+    std::pair<std::vector<float>, std::vector<float>> get_state() const {
+        return {h_state[0], c_state[0]};  // Return first layer's states
+    }
+    
+    void set_state(const std::pair<std::vector<float>, std::vector<float>>& state) {
+        if (h_state.size() > 0 && c_state.size() > 0) {
+            h_state[0] = state.first;
+            c_state[0] = state.second;
+        }
+    }
+
+    void reset_adam_state();
+
+    void clear_training_state();
+
+    void clear_temporary_cache();
 
 private:
     unsigned random_seed;
@@ -135,18 +167,11 @@ private:
         std::vector<float> output_gate;
         std::vector<float> hidden_state;
         
-        // Add constructor to properly initialize vectors
         LSTMCacheEntry() = default;
-        
-        // Add copy constructor to ensure proper deep copying
         LSTMCacheEntry(const LSTMCacheEntry& other) = default;
-        
-        // Add assignment operator
         LSTMCacheEntry& operator=(const LSTMCacheEntry& other) = default;
     };
     std::vector<std::vector<std::vector<LSTMCacheEntry>>> layer_cache;
-
-
 
     // Store last gradients for testing
     std::vector<LSTMGradients> last_gradients;
@@ -180,6 +205,7 @@ private:
 
     // Adam optimizer state variables
     bool adam_initialized = false;
+    int adam_timestep = 0;  // Add timestep as member variable
     
     // For LSTM layers
     std::vector<std::vector<std::vector<float>>> m_weight_ih;
@@ -212,7 +238,15 @@ private:
                         std::vector<float>& m_t, 
                         std::vector<float>& v_t,
                         float learning_rate, float beta1, float beta2, float epsilon, int t);
+    
+    void apply_sgd_update(std::vector<std::vector<float>>& weights,
+                        std::vector<std::vector<float>>& grads,
+                        float learning_rate);
+    
+    void apply_sgd_update(std::vector<float>& biases,
+                        std::vector<float>& grads,
+                        float learning_rate);
 
-    bool training_mode = true;  // Add this member variable
-
+    bool training_mode = true;
+    size_t current_cache_size = 0;  // Track current cache size
 };

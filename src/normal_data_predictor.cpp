@@ -1,9 +1,11 @@
 #include "normal_data_predictor.hpp"
 #include "normal_data_prediction_error_calculator.hpp"
 #include "matrix_utils.hpp"
+#include "config.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 
 NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, 
                                        int lookback_len, int prediction_len)
@@ -58,8 +60,8 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
             
             epoch_loss += sample_loss;
             
-            // Train step for each sample
-            predictor->train_step(input_tensor, target, lr);
+            // Train step for each sample - now passing the output
+            predictor->train_step(input_tensor, target, output, lr);
         }
         
         // Report progress
@@ -69,6 +71,10 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
                      << ", Average Loss: " << avg_loss << std::endl;
         }
     }
+    
+    //predictor->reset_adam_state();  // Reset Adam state after training
+    //predictor->clear_training_state();
+    //predictor->clear_temporary_cache();  // Clear accumulated cache after initial training
     
     // Convert windows to 3D format for return
     std::vector<std::vector<std::vector<float>>> x3d;
@@ -83,7 +89,8 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
 }
 
 float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<float>>>& observed) {
-    predictor->eval();
+    bool was_training = predictor->is_training();  // Save current state
+    predictor->eval();  // Temporarily set to eval mode
     
     // Reshape input to match Python version: (batch=1, features=lookback_len)
     if (observed.size() != 1 || observed[0].size() != 1 || 
@@ -94,11 +101,17 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
     // Flatten the input to match Python's reshape(1, -1)
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].resize(1);
-    reshaped_input[0][0] = observed[0][0];  // Already in correct shape
+    reshaped_input[0][0] = observed[0][0];  
     
     auto output = predictor->forward(reshaped_input);
     auto pred = predictor->get_final_prediction(output);
-    return std::max(0.0f, pred[0]);
+    float result = std::max(0.0f, pred[0]);
+    
+    if (was_training) {
+        predictor->train();  
+    }
+    
+    return result;
 }
 
 void NormalDataPredictor::update(int epoch_update, float lr_update,
@@ -114,13 +127,12 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         throw std::runtime_error("Empty recent_observation in update");
     }
 
-    static int update_count = 0;
-    update_count++;
+    predictor->train();
     
     std::vector<float> loss_history;
     
     for (int e = 0; e < epoch_update; ++e) {
-        predictor->reset_states();
+        //predictor->reset_states();
         auto output = predictor->forward(past_observations);
         auto pred = predictor->get_final_prediction(output);
         
@@ -137,6 +149,56 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         }
         loss_history.push_back(current_loss);
         
-        predictor->train_step(past_observations, recent_observation, lr_update);
+        predictor->train_step(past_observations, recent_observation, output, lr_update);
+    }
+}
+
+void NormalDataPredictor::save_weights(std::ofstream& file) {
+    if (predictor) {
+        predictor->save_weights(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::save_biases(std::ofstream& file) {
+    if (predictor) {
+        predictor->save_biases(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::load_weights(std::ifstream& file) {
+    if (predictor) {
+        predictor->load_weights(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::load_biases(std::ifstream& file) {
+    if (predictor) {
+        predictor->load_biases(file);
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::save_layer_cache(std::ofstream& file) const {
+    // Delegate to LSTM layer's save functionality
+    predictor->save_layer_cache(file);
+}
+
+void NormalDataPredictor::load_layer_cache(std::ifstream& file) {
+    // Delegate to LSTM layer's load functionality
+    predictor->load_layer_cache(file);
+}
+
+void NormalDataPredictor::initialize_layer_cache() {
+    if (predictor) {
+        predictor->initialize_layer_cache();
+    } else {
+        throw std::runtime_error("Predictor not initialized");
     }
 }

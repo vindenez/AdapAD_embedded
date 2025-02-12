@@ -1,6 +1,11 @@
-#pragma once
-#include <string>
+#ifndef CONFIG_HPP
+#define CONFIG_HPP
 
+#include <string>
+#include <map>
+#include <vector>
+#include "yaml_handler.hpp"
+#include <algorithm> 
 // Configuration structure for predictor settings
 struct PredictorConfig {
     int lookback_len;      // Lookback length for LSTM
@@ -22,62 +27,106 @@ struct ValueRangeConfig {
     float upper_bound;     // Upper bound of sensor values
 };
 
-class ValueRangeDb {
-public:
-    ValueRangeDb() : lower_bound(0), upper_bound(0) {}
+class Config {
+private:
+    Config() {
+        save_enabled = false;    // default value
+        save_interval = 48;     // default value
+        save_path = "model_states/";
+    }
+    std::map<std::string, std::string> config_map; // Store the parsed YAML configuration
+    Config(const Config&) = delete;
+    Config& operator=(const Config&) = delete;
 
-    void init(float lower, float upper) {
-        lower_bound = lower;
-        upper_bound = upper;
+    // Helper methods for accessing config values
+    float get_float(const std::string& key, float default_value = 0.0f);
+    int get_int(const std::string& key, int default_value = 0);
+    std::string get_string(const std::string& key, const std::string& default_value = "");
+    bool get_bool(const std::string& key, bool default_value = false);
+
+public:
+    static Config& getInstance() {
+        static Config instance;
+        return instance;
     }
 
-    float lower() const { return lower_bound; }
-    float upper() const { return upper_bound; }
+    bool load(const std::string& yaml_path);
+    void apply_data_source_config();
 
-private:
-    float lower_bound;
-    float upper_bound;
-};
+    // Get list of parameters for a given source
+    std::vector<std::string> get_parameters(const std::string& source) const {
+        std::vector<std::string> params;
+        std::string base_key = "data.parameters." + source;
+        
+        // Iterate through config_map to find matching parameters
+        for (const auto& pair : config_map) {
+            const std::string& key = pair.first;
+            // Check if key starts with the base_key
+            if (key.compare(0, base_key.length(), base_key) == 0) {
+                // Extract parameter name
+                size_t pos = key.find('.', base_key.length() + 1);
+                if (pos != std::string::npos) {
+                    std::string param = key.substr(base_key.length() + 1, 
+                                                 pos - base_key.length() - 1);
+                    // Add parameter if not already in list
+                    if (std::find(params.begin(), params.end(), param) == params.end()) {
+                        params.push_back(param);
+                    }
+                }
+            }
+        }
+        
+        return params;
+    }
 
-namespace config {
-    // General configuration
-    extern std::string data_source_path;
-    extern std::string data_val_path;
-    extern std::string data_source;
+    // Data paths
+    std::string data_source;
+    std::string data_source_path;
+    std::string data_val_path;
+    std::string log_file_path;
 
     // Training parameters
-    extern int epoch_train;
-    extern float lr_train;
-    extern int epoch_update;
-    extern float lr_update;
-    extern int update_G_epoch;
-    extern float update_G_lr;
+    int epoch_train;
+    float lr_train;
+    int epoch_update;
+    float lr_update;
+    int update_G_epoch;
+    float update_G_lr;
 
     // Model architecture
-    extern int LSTM_size;
-    extern int LSTM_size_layer;
-    extern int lookback_len;
-    extern int prediction_len;
-    extern int train_size;
-    extern int num_classes;
-    extern int input_size;
+    int LSTM_size;
+    int LSTM_size_layer;
+    int lookback_len;
+    int prediction_len;
+    int train_size;
+    int num_classes;
+    int input_size;
 
     // Anomaly detection
-    extern float minimal_threshold;
-    extern float threshold_multiplier;
+    float minimal_threshold;
+    float threshold_multiplier;
 
     // Data preprocessing
-    extern float lower_bound;
-    extern float upper_bound;
+    float lower_bound;
+    float upper_bound;
 
-    // Logging and debugging
-    extern bool verbose_output;
-    extern std::string log_file_path;
+    // System
+    unsigned int random_seed;
+    bool verbose_output;
 
-    // Random seed for reproducibility
-    extern unsigned int random_seed;
-}
+    // Model state configuration
+    bool save_enabled;
+    int save_interval;
+    std::string save_path;
+
+    // Add public method to access config map
+    const std::map<std::string, std::string>& get_config_map() const {
+        return config_map;
+    }
+};
 
 // Declare the configuration functions
 PredictorConfig init_predictor_config();
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold);
+
+#endif // CONFIG_HPP
