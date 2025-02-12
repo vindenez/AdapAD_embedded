@@ -27,7 +27,7 @@ system:
   
 data:
   paths:
-    training: "Austevoll_nord_2023-2024/continuous_data/Tide_pressure_without_anomaly.csv"
+    training: "Austevoll_nord_2023-2024/continuous_data/data_187_30min.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:

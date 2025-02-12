@@ -151,8 +151,6 @@ bool AdapAD::is_anomalous(float observed_val) {
 void AdapAD::update_generator(
     const std::vector<float>& past_errors, float recent_error) {
     
-    std::cout << "Entering update_generator with recent_error: " << recent_error << std::endl;
-
     // Reshape past_errors to match PyTorch's reshape(1, -1)
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].resize(1);
@@ -167,9 +165,6 @@ void AdapAD::update_generator(
     float diff = pred[0] - recent_error;
     initial_loss = diff * diff;
     
-    std::cout << "Initial prediction: " << pred[0] << ", target: " << recent_error 
-              << ", initial loss: " << initial_loss << std::endl;
-    
     // Training loop with early stopping based on loss progression
     float prev_loss = initial_loss;
     for (int e = 0; e < predictor_config.epoch_update; ++e) {
@@ -182,8 +177,6 @@ void AdapAD::update_generator(
         float current_loss = diff * diff;
         
         if (e > 0 && current_loss > prev_loss) {
-            std::cout << "Early stopping at epoch " << e << ", loss increased from " 
-                     << prev_loss << " to " << current_loss << std::endl;
             break;
         }
         prev_loss = current_loss;
