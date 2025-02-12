@@ -129,8 +129,6 @@ public:
         }
     }
 
-    void reset_adam_state();
-
     void clear_training_state();
 
     void clear_temporary_cache();
@@ -218,22 +216,6 @@ private:
     std::vector<float> m_fc_bias;
     std::vector<float> v_fc_bias;
 
-    // Adam initialization methods
-    void initialize_adam_states();
-    bool are_adam_states_initialized() const;
-
-    void apply_adam_update(std::vector<std::vector<float>>& weights, 
-                        std::vector<std::vector<float>>& grads,
-                        std::vector<std::vector<float>>& m_t, 
-                        std::vector<std::vector<float>>& v_t,
-                        float learning_rate, float beta1, float beta2, float epsilon, int t);
-    
-    void apply_adam_update(std::vector<float>& biases, 
-                        std::vector<float>& grads,
-                        std::vector<float>& m_t, 
-                        std::vector<float>& v_t,
-                        float learning_rate, float beta1, float beta2, float epsilon, int t);
-    
     void apply_sgd_update(std::vector<std::vector<float>>& weights,
                         std::vector<std::vector<float>>& grads,
                         float learning_rate);
