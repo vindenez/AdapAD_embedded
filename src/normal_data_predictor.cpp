@@ -32,16 +32,14 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
     auto windows = create_sliding_windows(data2learn);
     std::cout << "Created " << windows.first.size() << " training windows" << std::endl;
     
-    predictor->train();  // Set to training mode
+    predictor->train(); 
     float best_loss = std::numeric_limits<float>::max();
     int no_improve_count = 0;
     
     for (int e = 0; e < epoch; ++e) {
         float epoch_loss = 0.0f;
         
-        // Process each sample individually for better learning
         for (size_t i = 0; i < windows.first.size(); ++i) {
-            // Prepare input tensor
             std::vector<std::vector<std::vector<float>>> input_tensor(1);
             input_tensor[0].resize(1);
             input_tensor[0][0] = windows.first[i];
@@ -72,11 +70,7 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
         }
     }
     
-    //predictor->reset_adam_state();  // Reset Adam state after training
-    //predictor->clear_training_state();
-    //predictor->clear_temporary_cache();  // Clear accumulated cache after initial training
-    
-    // Convert windows to 3D format for return
+    // Convert windows to 3D
     std::vector<std::vector<std::vector<float>>> x3d;
     for (const auto& window : windows.first) {
         std::vector<std::vector<std::vector<float>>> input_tensor(1);
@@ -89,8 +83,8 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
 }
 
 float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<float>>>& observed) {
-    bool was_training = predictor->is_training();  // Save current state
-    predictor->eval();  // Temporarily set to eval mode
+    bool was_training = predictor->is_training();  
+    predictor->eval();  
     
     // Reshape input to match Python version: (batch=1, features=lookback_len)
     if (observed.size() != 1 || observed[0].size() != 1 || 
@@ -129,13 +123,12 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
 
     predictor->train();
     
-    std::vector<float> loss_history;
-    
-    for (int e = 0; e < epoch_update; ++e) {
-        //predictor->reset_states();
+    std::vector<float> loss_l;  
+    for (int epoch = 0; epoch < epoch_update; ++epoch) {
         auto output = predictor->forward(past_observations);
         auto pred = predictor->get_final_prediction(output);
         
+        // Calculate MSE loss
         float current_loss = 0.0f;
         for (size_t i = 0; i < pred.size(); ++i) {
             float diff = pred[i] - recent_observation[i];
@@ -143,12 +136,12 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         }
         current_loss /= static_cast<float>(pred.size());
         
-        // Early stopping check
-        if (!loss_history.empty() && current_loss > loss_history.back()) {
+        // Early stopping
+        if (!loss_l.empty() && current_loss > loss_l.back()) {  
             break;
         }
-        loss_history.push_back(current_loss);
         
+        loss_l.push_back(current_loss);
         predictor->train_step(past_observations, recent_observation, output, lr_update);
     }
 }
@@ -186,12 +179,10 @@ void NormalDataPredictor::load_biases(std::ifstream& file) {
 }
 
 void NormalDataPredictor::save_layer_cache(std::ofstream& file) const {
-    // Delegate to LSTM layer's save functionality
     predictor->save_layer_cache(file);
 }
 
 void NormalDataPredictor::load_layer_cache(std::ifstream& file) {
-    // Delegate to LSTM layer's load functionality
     predictor->load_layer_cache(file);
 }
 

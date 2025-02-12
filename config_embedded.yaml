@@ -1,8 +1,8 @@
 training:
   epochs:
-    train: 100
-    update: 50
-    update_generator: 50
+    train: 20
+    update: 30
+    update_generator: 30
   learning_rates:
     train: 0.01
     update: 0.01
@@ -27,21 +27,15 @@ system:
 
 data:
   paths:
-    training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_100_20240905_without_dcps.csv"
+    training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_188_30min_without_dcps.csv"
     log: "/mnt/sdcard/adapad/adapad_logs"
   parameters:
     Tide_pressure:
-      epochs:
-        train: 40
-        update: 40
-        update_generator: 5
-      learning_rates:
-        update: 0.0002
-        update_generator: 0.0002
-      bounds:
-        lower: 713.0
-        upper: 763.0
-      minimal_threshold: 0.0038
+      value:
+        bounds:
+          lower: 713.0
+          upper: 763.0
+        minimal_threshold: 0.0038
     Wave_height:
       bounds:
         lower: 0
@@ -128,6 +122,3 @@ data:
           lower: -20
           upper: 20
         minimal_threshold: 0.05
-      
-
-

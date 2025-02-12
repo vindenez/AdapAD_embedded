@@ -1,8 +1,8 @@
 training:
   epochs:
-    train: 100
-    update: 50
-    update_generator: 50
+    train: 20
+    update: 30
+    update_generator: 30
   learning_rates:
     train: 0.01
     update: 0.01
@@ -27,7 +27,7 @@ system:
   
 data:
   paths:
-    training: "Austevoll_nord_2023-2024/continuous_data/data_187_30min.csv"
+    training: "Austevoll_nord_2023-2024/continuous_data/data_187_30min_without_dcps.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:

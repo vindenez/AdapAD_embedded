@@ -25,9 +25,9 @@ public:
     };
 
     struct LSTMOutput {
-        std::vector<std::vector<std::vector<float>>> sequence_output; // [batch_size][seq_len][hidden_size]
-        std::vector<std::vector<float>> final_hidden;  // [num_layers][hidden_size]
-        std::vector<std::vector<float>> final_cell;    // [num_layers][hidden_size]
+        std::vector<std::vector<std::vector<float>>> sequence_output;   // [batch_size][seq_len][hidden_size]
+        std::vector<std::vector<float>> final_hidden;                   // [num_layers][hidden_size]
+        std::vector<std::vector<float>> final_cell;                     // [num_layers][hidden_size]
     };
 
     // Constructor and methods
@@ -108,7 +108,6 @@ public:
         training_mode = true; 
     }
     bool is_training() const { return training_mode; }
-    void reset_adam_timestep() { adam_timestep = 0; }
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -198,15 +197,11 @@ private:
         float learning_rate);
 
     int current_layer = 0;
-    size_t current_batch{0};  // Track current batch being processed
+    size_t current_batch{0};  
     size_t current_timestep{0};
 
     void initialize_weights();
 
-    // Adam optimizer state variables
-    bool adam_initialized = false;
-    int adam_timestep = 0;  // Add timestep as member variable
-    
     // For LSTM layers
     std::vector<std::vector<std::vector<float>>> m_weight_ih;
     std::vector<std::vector<std::vector<float>>> v_weight_ih;
@@ -248,5 +243,6 @@ private:
                         float learning_rate);
 
     bool training_mode = true;
-    size_t current_cache_size = 0;  // Track current cache size
+    size_t current_cache_size = 0;  
+    
 };

@@ -203,6 +203,8 @@ int main() {
     const size_t data_size = all_data[0].size();
     for (size_t t = predictor_config.train_size; t < data_size; ++t) {
         double timestep_total = 0.0;
+        std::vector<double> model_times;
+        model_times.reserve(models.size());
         
         for (size_t i = 0; i < models.size(); ++i) {
             auto model_start = std::chrono::high_resolution_clock::now();
@@ -217,10 +219,17 @@ int main() {
                           << " at time " << t << ": " << e.what() << std::endl;
             }
             
-            timestep_total += std::chrono::duration<double>(
+            double model_time = std::chrono::duration<double>(
                 std::chrono::high_resolution_clock::now() - model_start).count();
+            model_times.push_back(model_time);
+            timestep_total += model_time;
         }
         
+        // Calculate and output statistics for this timestep
+        double avg_time = timestep_total / models.size();
+        std::cout << "Timestep " << t << ": "
+                  << "Total time = " << timestep_total << "s, "
+                  << "Average time = " << avg_time << "s" << std::endl;
         
         total_predictions++;
         total_processing_time += timestep_total;

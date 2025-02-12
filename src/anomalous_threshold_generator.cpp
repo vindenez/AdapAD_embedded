@@ -28,8 +28,8 @@ float AnomalousThresholdGenerator::generate(
     const std::vector<float>& prediction_errors,
     float minimal_threshold) {
     
-    bool was_training = generator->is_training();  // Save current state
-    generator->eval();  // Temporarily set to eval mode
+    bool was_training = generator->is_training(); 
+    generator->eval();  
     
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].resize(1);
@@ -43,7 +43,7 @@ float AnomalousThresholdGenerator::generate(
     float result = std::max(minimal_threshold, pred[0] * config.threshold_multiplier);
     
     if (was_training) {
-        generator->train();  // Restore training mode if it was on
+        generator->train();  
     }
     
     return result;
@@ -61,7 +61,6 @@ void AnomalousThresholdGenerator::update(
     
     std::vector<float> target{recent_error};
     
-    //generator->reset_states();
     auto output = generator->forward(reshaped_input);
     auto pred = generator->get_final_prediction(output);
     
@@ -75,13 +74,12 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
     }
     
     auto windows = create_sliding_windows(data2learn);
-    generator->train();  // Set to training mode
+    generator->train();  
     
     for (int e = 0; e < epoch; ++e) {
         float epoch_loss = 0.0f;
         
         for (size_t i = 0; i < windows.first.size(); ++i) {
-            //generator->reset_states();
             
             std::vector<std::vector<std::vector<float>>> reshaped_input(1);
             reshaped_input[0].resize(1);
@@ -105,10 +103,6 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
                      << ", Average Loss: " << avg_loss << std::endl;
         }
     }
-
-    //generator->reset_adam_state();
-    //generator->clear_training_state();
-    //generator->clear_temporary_cache();  // Clear accumulated cache after initial training
 
     // Return processed windows in the expected format
     std::vector<std::vector<std::vector<float>>> x3d;

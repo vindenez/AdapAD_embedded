@@ -30,11 +30,11 @@ struct ValueRangeConfig {
 class Config {
 private:
     Config() {
-        save_enabled = false;    // default value
-        save_interval = 48;     // default value
+        save_enabled = false;   
+        save_interval = 48;    
         save_path = "model_states/";
     }
-    std::map<std::string, std::string> config_map; // Store the parsed YAML configuration
+    std::map<std::string, std::string> config_map;
     Config(const Config&) = delete;
     Config& operator=(const Config&) = delete;
 

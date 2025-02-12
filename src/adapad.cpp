@@ -65,7 +65,7 @@ bool AdapAD::is_anomalous(float observed_val) {
     float normalized = normalize_data(observed_val);
     
     observed_vals.push_back(normalized);
-    
+
     try {
         // Validate vector sizes before operations
         if (observed_vals.size() < predictor_config.lookback_len + 1) {
