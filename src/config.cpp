@@ -44,13 +44,26 @@ bool Config::load(const std::string& yaml_path) {
         save_interval = get_int("model.save_interval", 48);
         save_path = get_string("model.save_path", "model_states/");
 
-        // Load default training parameters
-        epoch_train = get_int("training.epochs.train", 50);
-        epoch_update = get_int("training.epochs.update", 40);
-        update_G_epoch = get_int("training.epochs.update_generator", 40);
-        lr_train = get_float("training.learning_rates.train", 0.0002f);
-        lr_update = get_float("training.learning_rates.update", 0.00005f);
-        update_G_lr = get_float("training.learning_rates.update_generator", 0.00005f);
+        // Load optimizer type from model section
+        optimizer_config.type = get_string("model.optimizer", "adam");
+        
+        // Load Adam config from optimizer section
+        optimizer_config.adam.epochs.train = get_int("optimizer.adam.epochs.train", 50);
+        optimizer_config.adam.epochs.update = get_int("optimizer.adam.epochs.update", 40);
+        optimizer_config.adam.epochs.update_generator = get_int("optimizer.adam.epochs.update_generator", 5);
+        
+        optimizer_config.adam.learning_rates.train = get_float("optimizer.adam.learning_rates.train", 0.0002f);
+        optimizer_config.adam.learning_rates.update = get_float("optimizer.adam.learning_rates.update", 0.00005f);
+        optimizer_config.adam.learning_rates.update_generator = get_float("optimizer.adam.learning_rates.update_generator", 0.00005f);
+        
+        // Load SGD config from optimizer section
+        optimizer_config.sgd.epochs.train = get_int("optimizer.sgd.epochs.train", 200);
+        optimizer_config.sgd.epochs.update = get_int("optimizer.sgd.epochs.update", 60);
+        optimizer_config.sgd.epochs.update_generator = get_int("optimizer.sgd.epochs.update_generator", 10);
+        
+        optimizer_config.sgd.learning_rates.train = get_float("optimizer.sgd.learning_rates.train", 0.002f);
+        optimizer_config.sgd.learning_rates.update = get_float("optimizer.sgd.learning_rates.update", 0.0005f);
+        optimizer_config.sgd.learning_rates.update_generator = get_float("optimizer.sgd.learning_rates.update_generator", 0.0005f);
 
         // Load system settings
         random_seed = get_int("system.random_seed", 42);
@@ -97,6 +110,8 @@ void Config::apply_data_source_config() {
 
 PredictorConfig init_predictor_config() {
     const auto& config = Config::getInstance();
+    const auto& current_epochs = config.get_current_epochs();
+    const auto& current_lr = config.get_current_learning_rates();
     
     PredictorConfig predictor_config;
     predictor_config.lookback_len = config.lookback_len;
@@ -106,10 +121,10 @@ PredictorConfig init_predictor_config() {
     predictor_config.hidden_size = config.LSTM_size;
     predictor_config.num_classes = config.num_classes;
     predictor_config.input_size = config.input_size;
-    predictor_config.epoch_train = config.epoch_train;
-    predictor_config.lr_train = config.lr_train;
-    predictor_config.epoch_update = config.epoch_update;
-    predictor_config.lr_update = config.lr_update;
+    predictor_config.epoch_train = current_epochs.train;
+    predictor_config.lr_train = current_lr.train;
+    predictor_config.epoch_update = current_epochs.update;
+    predictor_config.lr_update = current_lr.update;
 
     return predictor_config;
 }
@@ -128,4 +143,16 @@ ValueRangeConfig init_value_range_config(const std::string& data_source, float& 
     minimal_threshold = std::stof(cfg.get_config_map().at(threshold_key));
     
     return config;
+}
+
+const OptimizerConfig::Epochs& Config::get_current_epochs() const {
+    return optimizer_config.type == "adam" ? 
+           optimizer_config.adam.epochs : 
+           optimizer_config.sgd.epochs;
+}
+
+const OptimizerConfig::LearningRates& Config::get_current_learning_rates() const {
+    return optimizer_config.type == "adam" ? 
+           optimizer_config.adam.learning_rates : 
+           optimizer_config.sgd.learning_rates;
 }

@@ -38,7 +38,7 @@ public:
                   bool batch_first = true);
 
     // Add destructor to ensure proper cleanup
-    ~LSTMPredictor() = default;
+    ~LSTMPredictor();
     
     // Delete copy constructor and assignment operator
     LSTMPredictor(const LSTMPredictor&) = delete;

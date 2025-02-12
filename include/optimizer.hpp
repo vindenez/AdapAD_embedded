@@ -81,6 +81,7 @@ public:
     bool initialized() const override;
     void init(int num_layers, int hidden_size, int input_size, int num_classes) override;
 
+
 private:
     float learning_rate;
     float beta;  // momentum factor

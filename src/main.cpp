@@ -21,11 +21,13 @@ std::vector<DataPoint> read_csv_column(const std::string& filename, int column_i
     std::vector<DataPoint> data;
     std::ifstream file(filename);
     std::string line;
+    int line_number = 0;
     
     // Skip header
     std::getline(file, line);
     
     while (std::getline(file, line)) {
+        line_number++;
         std::stringstream ss(line);
         std::string field;
         
@@ -34,11 +36,34 @@ std::vector<DataPoint> read_csv_column(const std::string& filename, int column_i
             getline(ss, field, ',');
         }
         
+        // Trim whitespace
+        field.erase(0, field.find_first_not_of(" \t\r\n"));
+        field.erase(field.find_last_not_of(" \t\r\n") + 1);
+
         DataPoint point;
-        point.value = std::stof(field);
+        if (field.empty()) {
+            point.value = -999.0f;  // Set empty fields to -999
+            std::cerr << "Empty field found in column " << column_index 
+                      << " at line " << line_number 
+                      << ", setting to -999" << std::endl;
+        } else {
+            try {
+                point.value = std::stof(field);
+            } catch (const std::exception& e) {
+                point.value = -999.0f;  // Set invalid fields to -999
+                std::cerr << "Failed to convert value '" << field << "' in column " 
+                          << column_index << " at line " << line_number 
+                          << ", setting to -999" << std::endl;
+            }
+        }
         point.is_anomaly = false;
         data.push_back(point);
     }
+    
+    if (data.empty()) {
+        std::cerr << "Warning: No data points read from column " << column_index << std::endl;
+    }
+    
     return data;
 }
 

@@ -1,3 +1,41 @@
+model:
+  save_enabled: false
+  save_interval: 48
+  save_path: "model_states" 
+  optimizer: "sgd"
+  lstm:
+    size: 100
+    layers: 2
+    lookback: 3
+    prediction_len: 1
+
+optimizer:
+  adam:
+    epochs:
+      train: 50
+      update: 40
+      update_generator: 5
+    learning_rates:
+      train: 0.0002
+      update: 0.00005
+      update_generator: 0.00005
+  sgd:
+    epochs:
+      train: 200
+      update: 60
+      update_generator: 10
+    learning_rates:
+      train: 0.002
+      update: 0.0005
+      update_generator: 0.0005
+  
+anomaly_detection:
+  threshold_multiplier: 1.0
+
+system:
+  random_seed: 42
+  verbose_output: true
+
 data:
   paths:
     training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_100_20240905_without_dcps.csv"
@@ -103,29 +141,4 @@ data:
         minimal_threshold: 0.05
       
 
-training:
-  epochs:
-    train: 50
-    update: 40
-    update_generator: 40
-  learning_rates:
-    train: 0.0002
-    update: 0.00005
-    update_generator: 0.00005
 
-model:
-  save_enabled: false
-  save_interval: 48
-  save_path: "/mnt/sdcard/adapad/model_states" 
-  lstm:
-    size: 100
-    layers: 2
-    lookback: 3
-    prediction_len: 1
-  
-anomaly_detection:
-  threshold_multiplier: 1.0
-
-system:
-  random_seed: 42
-  verbose_output: true

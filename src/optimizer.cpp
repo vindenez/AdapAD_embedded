@@ -5,12 +5,10 @@
 #include <iostream>
 
 
-// Helper function for pow with floats
 inline float pow_float(float base, float exp) {
     return std::pow(base, exp);
 }
 
-// Adam Implementation
 Adam::Adam(float beta1, float beta2, float epsilon)
     : beta1(beta1), beta2(beta2), epsilon(epsilon), 
       timestep(0), is_initialized(false),
@@ -222,7 +220,6 @@ bool Adam::initialized() const {
     return is_initialized;
 }
 
-// SGD Implementation
 SGD::SGD(float learning_rate, float momentum, float weight_decay) 
     : learning_rate(learning_rate), beta(momentum), weight_decay(weight_decay), is_initialized(false) {}
 

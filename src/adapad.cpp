@@ -109,8 +109,10 @@ bool AdapAD::is_anomalous(float observed_val) {
             is_anomalous_ret = true;
             anomalies.push_back(observed_vals.size());
         } else {
-            data_predictor->update(config.epoch_update, config.lr_update,
-                                input_data, {normalized});
+            data_predictor->update(
+                config.get_current_epochs().update,
+                config.get_current_learning_rates().update,
+                input_data, {normalized});
 
             if (is_anomalous_ret || threshold > minimal_threshold) {
                 if (predictive_errors.size() >= predictor_config.lookback_len) {
@@ -175,12 +177,13 @@ void AdapAD::update_generator(
     
     // Training loop with early stopping based on initial loss
     std::vector<float> loss_history{initial_loss};
-    for (int e = 0; e < config.update_G_epoch; ++e) {
+    for (int e = 0; e < config.get_current_epochs().update_generator; ++e) {
         if (e > 0 && initial_loss > loss_history.front()) {
             break;
         }
         
-        generator->train_step(reshaped_input, {recent_error}, output, config.update_G_lr);
+        generator->train_step(reshaped_input, {recent_error}, output, 
+            config.get_current_learning_rates().update_generator);
     }
 }
 
@@ -335,7 +338,10 @@ void AdapAD::train() {
     
     // Train data predictor and get training data
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> 
-        training_data = data_predictor->train(config.epoch_train, config.lr_train, observed_vals);
+        training_data = data_predictor->train(
+            config.get_current_epochs().train,
+            config.get_current_learning_rates().train,
+            observed_vals);
     auto& trainX = training_data.first;
     auto& trainY = training_data.second;
     

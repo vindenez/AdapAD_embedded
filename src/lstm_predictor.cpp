@@ -942,3 +942,16 @@ void LSTMPredictor::clear_temporary_cache() {
     layer_cache.shrink_to_fit();
     current_cache_size = 0;
 }
+
+LSTMPredictor::~LSTMPredictor() {
+    // Ensure optimizer is released first
+    optimizer.reset();
+    // Clear all vectors
+    lstm_layers.clear();
+    last_gradients.clear();
+    h_state.clear();
+    c_state.clear();
+    fc_weight.clear();
+    fc_bias.clear();
+    layer_cache.clear();
+}

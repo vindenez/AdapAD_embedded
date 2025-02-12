@@ -1,3 +1,4 @@
+#pragma once
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
@@ -6,6 +7,8 @@
 #include <vector>
 #include "yaml_handler.hpp"
 #include <algorithm> 
+#include "optimizer_config.hpp"
+
 // Configuration structure for predictor settings
 struct PredictorConfig {
     int lookback_len;      // Lookback length for LSTM
@@ -30,9 +33,10 @@ struct ValueRangeConfig {
 class Config {
 private:
     Config() {
-        save_enabled = false;    // default value
-        save_interval = 48;     // default value
+        save_enabled = false;
+        save_interval = 48;
         save_path = "model_states/";
+        optimizer_config.type = "adam";  // default optimizer
     }
     std::map<std::string, std::string> config_map; // Store the parsed YAML configuration
     Config(const Config&) = delete;
@@ -119,10 +123,19 @@ public:
     int save_interval;
     std::string save_path;
 
+    // Optimizer configuration
+    OptimizerConfig optimizer_config;
+
     // Add public method to access config map
     const std::map<std::string, std::string>& get_config_map() const {
         return config_map;
     }
+
+
+    // Add method to get current optimizer settings based on type
+    const OptimizerConfig::Epochs& get_current_epochs() const;
+
+    const OptimizerConfig::LearningRates& get_current_learning_rates() const;
 };
 
 // Declare the configuration functions
