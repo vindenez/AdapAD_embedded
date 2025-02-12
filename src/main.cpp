@@ -122,7 +122,7 @@ int main() {
         const std::string& param_name = csv_parameters[i];
         
         // Construct config key once
-        const std::string config_key = "data.parameters.Austevoll_nord." + param_name + ".minimal_threshold";
+        const std::string config_key = "data.parameters.Tide_pressure." + param_name + ".minimal_threshold";
         
         // Use find instead of iteration
         if (config_map.find(config_key) == config_map.end()) {
@@ -132,7 +132,7 @@ int main() {
         }
         
         float minimal_threshold;
-        auto value_range_config = init_value_range_config("data.parameters.Austevoll_nord." + param_name, minimal_threshold);
+        auto value_range_config = init_value_range_config("data.parameters.Tide_pressure." + param_name, minimal_threshold);
         
         if (minimal_threshold == 0.0f) {
             std::cerr << "Error: It is mandatory to set a minimal threshold in config.yaml for " 
