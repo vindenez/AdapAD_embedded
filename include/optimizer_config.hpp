@@ -28,6 +28,8 @@ struct OptimizerConfig {
     struct SGDConfig {
         Epochs epochs;
         LearningRates learning_rates;
+        float momentum = 0.9f;
+        float weight_decay = 0.0f;
     };
 
     std::string type;

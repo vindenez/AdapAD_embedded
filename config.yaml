@@ -2,7 +2,7 @@ model:
   save_enabled: false
   save_interval: 48
   save_path: "model_states" 
-  optimizer: "sgd"
+  optimizer: "adam"
   lstm:
     size: 100
     layers: 2
@@ -21,13 +21,15 @@ optimizer:
       update_generator: 0.00005
   sgd:
     epochs:
-      train: 200
+      train: 100
       update: 60
-      update_generator: 10
+      update_generator: 8
     learning_rates:
-      train: 0.002
-      update: 0.0005
-      update_generator: 0.0005
+      train: 0.0001
+      update: 0.00005
+      update_generator: 0.00005
+    momentum: 0.95
+    weight_decay: 0.00005
 
   
 anomaly_detection:
@@ -39,21 +41,15 @@ system:
 
 data:
   paths:
-    training: "Austevoll_nord_2023-2024/continuous_data/data_100_20240905_without_dcps.csv"
+    training: "Austevoll_nord_2023-2024/continuous_data/Tide_pressure_without_anomaly.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:
-      epochs:
-        train: 40
-        update: 40
-        update_generator: 5
-      learning_rates:
-        update: 0.0002
-        update_generator: 0.0002
-      bounds:
-        lower: 713.0
-        upper: 763.0
-      minimal_threshold: 0.0038
+      value:
+        bounds:
+          lower: 713.0
+          upper: 763.0
+        minimal_threshold: 0.0038
     Wave_height:
       bounds:
         lower: 0

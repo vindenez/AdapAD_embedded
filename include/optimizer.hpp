@@ -35,6 +35,7 @@ public:
     void reset() override;
     bool initialized() const override;
     void init(int num_layers, int hidden_size, int input_size, int num_classes) override;
+    void step();
 
 private:
     float beta1;

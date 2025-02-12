@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include "lstm_predictor.hpp"
+#include "optimizer.hpp"
 
 class NormalDataPredictor {
 public:
@@ -57,10 +58,14 @@ public:
         return predictor ? predictor->is_training() : false; 
     }
 
+    // Add this method
+    void set_optimizer(std::unique_ptr<Optimizer> new_optimizer);
+
 private:
     int lookback_len;
     int prediction_len;
     std::unique_ptr<LSTMPredictor> predictor;
+    std::unique_ptr<Optimizer> optimizer;
     
     std::pair<std::vector<std::vector<float>>, std::vector<float>>
     create_sliding_windows(const std::vector<float>& data);

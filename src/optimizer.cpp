@@ -15,7 +15,7 @@ Adam::Adam(float beta1, float beta2, float epsilon)
       num_layers(0), hidden_size(0), input_size(0), num_classes(0) {}
 
 void Adam::reset() {
-    // Clear all momentum buffers first
+    // Only clear momentum buffers and reset timestep when explicitly called
     m_fc_weight.clear();
     v_fc_weight.clear();
     m_fc_bias.clear();
@@ -30,7 +30,6 @@ void Adam::reset() {
     m_bias_hh.clear();
     v_bias_hh.clear();
     
-    // Reset state
     timestep = 0;
     is_initialized = false;
 }
@@ -141,20 +140,16 @@ void Adam::update(std::vector<std::vector<float>>& weights,
         throw std::runtime_error("Dimension mismatch in Adam update");
     }
 
-    timestep++;
+    // Don't increment timestep here - should be done externally once per training step
     
     for (size_t i = 0; i < weights.size(); ++i) {
         for (size_t j = 0; j < weights[i].size(); ++j) {
-            // Update biased moments
-            (*m_ptr)[i][j] = beta1 * (*m_ptr)[i][j] + (1.0f - beta1) * grads[i][j];
-            (*v_ptr)[i][j] = beta2 * (*v_ptr)[i][j] + (1.0f - beta2) * grads[i][j] * grads[i][j];
-            
-            // Compute bias-corrected moments
+            // Use existing timestep for all updates
             float m_hat = (*m_ptr)[i][j] / (1.0f - pow_float(beta1, static_cast<float>(timestep)));
             float v_hat = (*v_ptr)[i][j] / (1.0f - pow_float(beta2, static_cast<float>(timestep)));
             
             // Update weights
-            weights[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
+            (*m_ptr)[i][j] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
         }
     }
 }
@@ -200,19 +195,15 @@ void Adam::update(std::vector<float>& biases,
         throw std::runtime_error("Dimension mismatch in Adam bias update");
     }
 
-    timestep++;
+    // Don't increment timestep here - should be done externally once per training step
     
     for (size_t i = 0; i < biases.size(); ++i) {
-        // Update biased moments
-        (*m_ptr)[i] = beta1 * (*m_ptr)[i] + (1.0f - beta1) * grads[i];
-        (*v_ptr)[i] = beta2 * (*v_ptr)[i] + (1.0f - beta2) * grads[i] * grads[i];
-        
-        // Compute bias-corrected moments
+        // Use existing timestep for all updates
         float m_hat = (*m_ptr)[i] / (1.0f - pow_float(beta1, static_cast<float>(timestep)));
         float v_hat = (*v_ptr)[i] / (1.0f - pow_float(beta2, static_cast<float>(timestep)));
         
         // Update biases
-        biases[i] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
+        (*m_ptr)[i] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
     }
 }
 
@@ -343,4 +334,9 @@ void SGD::reset() {
 
 bool SGD::initialized() const {
     return is_initialized;
+}
+
+// Add method to increment timestep
+void Adam::step() {
+    timestep++;
 }

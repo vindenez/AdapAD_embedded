@@ -70,6 +70,7 @@ private:
     bool is_inside_range(float val);
     bool is_default_normal();
     float simplify_error(const std::vector<float>& errors, float N_sigma = 0);
+    std::vector<float> get_tail(const std::vector<float>& vec, size_t n);
 
     const Config& config;  // Reference to config instance
     size_t update_count;  // Counter for tracking updates between saves
@@ -85,5 +86,7 @@ private:
         getrusage(RUSAGE_SELF, &rusage);
         return (size_t)rusage.ru_maxrss;
     }
+
+    void init_optimizer();  // Add this declaration
 };
 #endif // ADAPAD_HPP

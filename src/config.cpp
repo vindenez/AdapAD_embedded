@@ -64,6 +64,10 @@ bool Config::load(const std::string& yaml_path) {
         optimizer_config.sgd.learning_rates.train = get_float("optimizer.sgd.learning_rates.train", 0.002f);
         optimizer_config.sgd.learning_rates.update = get_float("optimizer.sgd.learning_rates.update", 0.0005f);
         optimizer_config.sgd.learning_rates.update_generator = get_float("optimizer.sgd.learning_rates.update_generator", 0.0005f);
+        
+        // Load new SGD parameters
+        optimizer_config.sgd.momentum = get_float("optimizer.sgd.momentum", 0.9f);
+        optimizer_config.sgd.weight_decay = get_float("optimizer.sgd.weight_decay", 0.0001f);
 
         // Load system settings
         random_seed = get_int("system.random_seed", 42);

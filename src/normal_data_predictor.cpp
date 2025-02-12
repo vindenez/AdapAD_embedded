@@ -29,16 +29,21 @@ NormalDataPredictor::create_sliding_windows(const std::vector<float>& data) {
 }
 
 std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
-NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2learn) {
-    std::cout << "Starting training with " << data2learn.size() << " samples..." << std::endl;
-    auto windows = create_sliding_windows(data2learn);
+NormalDataPredictor::train(int epochs, float learning_rate, const std::vector<float>& data) {
+    // Debug print to verify parameters are received
+    std::cout << "NormalDataPredictor training with:" << std::endl;
+    std::cout << "  epochs: " << epochs << std::endl;
+    std::cout << "  learning_rate: " << learning_rate << std::endl;
+
+    std::cout << "Starting training with " << data.size() << " samples..." << std::endl;
+    auto windows = create_sliding_windows(data);
     std::cout << "Created " << windows.first.size() << " training windows" << std::endl;
     
     predictor->train();  // Set to training mode
     float best_loss = std::numeric_limits<float>::max();
     int no_improve_count = 0;
     
-    for (int e = 0; e < epoch; ++e) {
+    for (int e = 0; e < epochs; ++e) {
         float epoch_loss = 0.0f;
         
         // Process each sample individually for better learning
@@ -63,13 +68,13 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
             epoch_loss += sample_loss;
             
             // Train step for each sample - now passing the output
-            predictor->train_step(input_tensor, target, output, lr);
+            predictor->train_step(input_tensor, target, output, learning_rate);
         }
         
         // Report progress
         if ((e + 1) % 100 == 0) {
             float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
-            std::cout << "Epoch " << (e + 1) << "/" << epoch 
+            std::cout << "Epoch " << (e + 1) << "/" << epochs 
                      << ", Average Loss: " << avg_loss << std::endl;
         }
     }
@@ -115,31 +120,32 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
     return result;
 }
 
-void NormalDataPredictor::update(int epoch_update, float lr_update,
-                               const std::vector<std::vector<std::vector<float>>>& past_observations,
-                               const std::vector<float>& recent_observation) {
+void NormalDataPredictor::update(int epochs, float learning_rate, 
+                                const std::vector<std::vector<std::vector<float>>>& x, 
+                                const std::vector<float>& y) {
+
     // Validate input dimensions
-    if (past_observations.empty() || past_observations[0].empty() || 
-        past_observations[0][0].size() != lookback_len) {
-        throw std::runtime_error("Invalid past_observations dimensions in update");
+    if (x.empty() || x[0].empty() || 
+        x[0][0].size() != lookback_len) {
+        throw std::runtime_error("Invalid x dimensions in update");
     }
 
-    if (recent_observation.empty()) {
-        throw std::runtime_error("Empty recent_observation in update");
+    if (y.empty()) {
+        throw std::runtime_error("Empty y in update");
     }
 
     predictor->train();
     
     std::vector<float> loss_history;
     
-    for (int e = 0; e < epoch_update; ++e) {
+    for (int e = 0; e < epochs; ++e) {
         predictor->reset_states();
-        auto output = predictor->forward(past_observations);
+        auto output = predictor->forward(x);
         auto pred = predictor->get_final_prediction(output);
         
         float current_loss = 0.0f;
         for (size_t i = 0; i < pred.size(); ++i) {
-            float diff = pred[i] - recent_observation[i];
+            float diff = pred[i] - y[i];
             current_loss += diff * diff;
         }
         current_loss /= static_cast<float>(pred.size());
@@ -150,7 +156,7 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         }
         loss_history.push_back(current_loss);
         
-        predictor->train_step(past_observations, recent_observation, output, lr_update);
+        predictor->train_step(x, y, output, learning_rate);
     }
 }
 
@@ -202,4 +208,8 @@ void NormalDataPredictor::initialize_layer_cache() {
     } else {
         throw std::runtime_error("Predictor not initialized");
     }
+}
+
+void NormalDataPredictor::set_optimizer(std::unique_ptr<Optimizer> new_optimizer) {
+    optimizer = std::move(new_optimizer);
 }
