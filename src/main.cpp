@@ -10,10 +10,18 @@
 #include <memory>
 #include <sys/resource.h>
 #include <numeric>
+#include <sys/time.h>
 
 struct DataPoint {
     float value;
     bool is_anomaly;
+};
+
+struct SystemStats {
+    long voluntary_switches;
+    long involuntary_switches;
+    struct timeval user_time;
+    struct timeval system_time;
 };
 
 // Helper function to read CSV column
@@ -67,6 +75,17 @@ float get_cpu_temp() {
         temp_file >> temp;
     }
     return temp / 1000.0f;  // Convert from millicelsius to celsius
+}
+
+SystemStats get_system_stats() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return {
+        usage.ru_nvcsw,
+        usage.ru_nivcsw,
+        usage.ru_utime,
+        usage.ru_stime
+    };
 }
 
 int main() {
@@ -232,6 +251,7 @@ int main() {
         
         for (size_t i = 0; i < models.size(); ++i) {
             auto model_start = std::chrono::high_resolution_clock::now();
+            auto stats_before = get_system_stats();
             
             try {
                 // Process single new value
@@ -243,13 +263,28 @@ int main() {
                           << " at time " << t << ": " << e.what() << std::endl;
             }
             
+            auto model_end = std::chrono::high_resolution_clock::now();
             double model_time = std::chrono::duration<double>(
-                std::chrono::high_resolution_clock::now() - model_start).count();
+                model_end - model_start).count();
             
             timestep_total += model_time;
             
             // Print individual model time
-            std::cout << csv_parameters[i] << ": " << model_time << "s" << std::endl;
+            std::cout << csv_parameters[i] << ": " << model_time << "s";
+            
+            if (model_time > 1.0) {  // Only log details for slow operations
+                auto stats_after = get_system_stats();
+                double system_time = 
+                    (stats_after.system_time.tv_sec - stats_before.system_time.tv_sec) +
+                    (stats_after.system_time.tv_usec - stats_before.system_time.tv_usec) / 1e6;
+                
+                std::cout << " (System time: " << system_time << "s, Context switches: +"
+                          << (stats_after.voluntary_switches - stats_before.voluntary_switches)
+                          << "v/" 
+                          << (stats_after.involuntary_switches - stats_before.involuntary_switches)
+                          << "i)";
+            }
+            std::cout << std::endl;
         }
         
         std::cout << "Total timestep time: " << timestep_total << "s" << std::endl;
@@ -259,13 +294,10 @@ int main() {
         total_processing_time += timestep_total;
         
         int freq_after = get_cpu_freq();
-        auto end_time = std::chrono::high_resolution_clock::now();
-        double elapsed = std::chrono::duration<double>(end_time - start_time).count();
-        
         if (freq_before != freq_after) {
             std::cout << "CPU frequency changed during timestep " << t 
                       << ": " << freq_before/1000 << " -> " << freq_after/1000 
-                      << " MHz (time: " << elapsed << "s)" << std::endl;
+                      << " MHz" << std::endl;
         }
     }
     
