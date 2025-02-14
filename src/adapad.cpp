@@ -151,6 +151,8 @@ bool AdapAD::is_anomalous(float observed_val) {
 void AdapAD::update_generator(
     const std::vector<float>& past_errors, float recent_error) {
     
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
     // Reshape past_errors to match PyTorch's reshape(1, -1)
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].resize(1);
@@ -167,6 +169,7 @@ void AdapAD::update_generator(
     
     // Training loop with early stopping based on loss progression
     float prev_loss = initial_loss;
+    int epochs_completed = 0;
     for (int e = 0; e < predictor_config.epoch_update; ++e) {
         generator->train_step(reshaped_input, {recent_error}, output, predictor_config.lr_update);
         
@@ -180,66 +183,32 @@ void AdapAD::update_generator(
             break;
         }
         prev_loss = current_loss;
+        epochs_completed++;
     }
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end_time - start_time;
+    
 }
 
 void AdapAD::clean() {
-    size_t before_clean = get_current_memory();
     size_t window_size = predictor_config.lookback_len;
     
-    // Only clean if we have more elements than the window size
-    // AND all vectors have the same size
-    if (predicted_vals.size() > window_size && 
-        predicted_vals.size() == predictive_errors.size() &&
-        predicted_vals.size() == thresholds.size()) {
-            
-        // Calculate how many elements to keep
-        size_t keep_count = std::min(window_size, predicted_vals.size());
-        size_t start_idx = predicted_vals.size() - keep_count;
+    // Use circular buffer approach instead of growing/shrinking
+    if (predicted_vals.size() > window_size) {
+        // Move elements to the beginning instead of reallocating
+        std::copy(predicted_vals.end() - window_size, predicted_vals.end(), predicted_vals.begin());
+        predicted_vals.resize(window_size);  // No shrink_to_fit needed
         
-        try {
-            // Use clear and shrink_to_fit on temporary vectors
-            {
-                std::vector<float> new_predicted(predicted_vals.begin() + start_idx, predicted_vals.end());
-                predicted_vals.swap(new_predicted);
-                new_predicted.clear();
-                new_predicted.shrink_to_fit();
-            }
-            
-            if (!predictive_errors.empty()) {
-                std::vector<float> new_errors(predictive_errors.begin() + start_idx, predictive_errors.end());
-                predictive_errors.swap(new_errors);
-                new_errors.clear();
-                new_errors.shrink_to_fit();
-            }
-            
-            if (!thresholds.empty()) {
-                std::vector<float> new_thresholds(thresholds.begin() + start_idx, thresholds.end());
-                thresholds.swap(new_thresholds);
-                new_thresholds.clear();
-                new_thresholds.shrink_to_fit();
-            }
-            
-            // Force capacity to match size
-            predicted_vals.shrink_to_fit();
-            predictive_errors.shrink_to_fit();
-            thresholds.shrink_to_fit();
-            
-        } catch (const std::exception& e) {
-            std::cerr << "Error in clean(): " << e.what() << std::endl;
+        if (!predictive_errors.empty()) {
+            std::copy(predictive_errors.end() - window_size, predictive_errors.end(), predictive_errors.begin());
+            predictive_errors.resize(window_size);
         }
-    }
-    
-    // Clean LSTM caches
-    //data_predictor->clear_temporary_cache();
-    //generator->clear_temporary_cache();
-    
-    size_t after_clean = get_current_memory();
-    if (after_clean > before_clean) {
-        std::cout << "Memory for " << parameter_name 
-                  << " - Before: " << before_clean / 1024.0 
-                  << " MB, After: " << after_clean / 1024.0 
-                  << " MB" << std::endl;
+        
+        if (!thresholds.empty()) {
+            std::copy(thresholds.end() - window_size, thresholds.end(), thresholds.begin());
+            thresholds.resize(window_size);
+        }
     }
 }
 

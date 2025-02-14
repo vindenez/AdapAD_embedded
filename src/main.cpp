@@ -49,6 +49,26 @@ size_t get_memory_usage() {
     return (size_t)rusage.ru_maxrss;
 }
 
+// Function to read CPU frequency
+int get_cpu_freq() {
+    std::ifstream freq_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
+    int freq = 0;
+    if (freq_file) {
+        freq_file >> freq;
+    }
+    return freq;
+}
+
+// Function to read CPU temperature (if available)
+float get_cpu_temp() {
+    std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
+    int temp = 0;
+    if (temp_file) {
+        temp_file >> temp;
+    }
+    return temp / 1000.0f;  // Convert from millicelsius to celsius
+}
+
 int main() {
     std::chrono::high_resolution_clock::time_point total_start_time = 
         std::chrono::high_resolution_clock::now();
@@ -202,9 +222,13 @@ int main() {
     // Online learning phase - process one value at a time
     const size_t data_size = all_data[0].size();
     for (size_t t = predictor_config.train_size; t < data_size; ++t) {
+        int freq_before = get_cpu_freq();
+        auto start_time = std::chrono::high_resolution_clock::now();
+        
+        std::cout << "\nTimestep " << t 
+                  << " (CPU Freq: " << freq_before/1000 << " MHz):" << std::endl;
+        
         double timestep_total = 0.0;
-        std::vector<double> model_times;
-        model_times.reserve(models.size());
         
         for (size_t i = 0; i < models.size(); ++i) {
             auto model_start = std::chrono::high_resolution_clock::now();
@@ -221,18 +245,28 @@ int main() {
             
             double model_time = std::chrono::duration<double>(
                 std::chrono::high_resolution_clock::now() - model_start).count();
-            model_times.push_back(model_time);
+            
             timestep_total += model_time;
+            
+            // Print individual model time
+            std::cout << csv_parameters[i] << ": " << model_time << "s" << std::endl;
         }
         
-        // Calculate and output statistics for this timestep
-        double avg_time = timestep_total / models.size();
-        std::cout << "Timestep " << t << ": "
-                  << "Total time = " << timestep_total << "s, "
-                  << "Average time = " << avg_time << "s" << std::endl;
+        std::cout << "Total timestep time: " << timestep_total << "s" << std::endl;
+        std::cout << "----------------------------------------" << std::endl;
         
         total_predictions++;
         total_processing_time += timestep_total;
+        
+        int freq_after = get_cpu_freq();
+        auto end_time = std::chrono::high_resolution_clock::now();
+        double elapsed = std::chrono::duration<double>(end_time - start_time).count();
+        
+        if (freq_before != freq_after) {
+            std::cout << "CPU frequency changed during timestep " << t 
+                      << ": " << freq_before/1000 << " -> " << freq_after/1000 
+                      << " MHz (time: " << elapsed << "s)" << std::endl;
+        }
     }
     
     auto total_end_time = std::chrono::high_resolution_clock::now();

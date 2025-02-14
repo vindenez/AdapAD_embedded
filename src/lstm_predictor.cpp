@@ -622,6 +622,8 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             }
         }
 
+        clear_temporary_cache();
+
     } catch (const std::exception& e) {
         throw;
     }
@@ -998,29 +1000,25 @@ void LSTMPredictor::load_layer_cache(std::ifstream& file) {
 }
 
 void LSTMPredictor::clear_temporary_cache() {
-    // Remove the training_mode check
-    size_t before_size = 0;
-    for (const auto& layer : layer_cache) {
-        for (const auto& batch : layer) {
-            for (const auto& seq : batch) {
-                before_size += sizeof(float) * (
-                    seq.input.size() +
-                    seq.prev_hidden.size() +
-                    seq.prev_cell.size() +
-                    seq.cell_state.size() +
-                    seq.input_gate.size() +
-                    seq.forget_gate.size() +
-                    seq.cell_gate.size() +
-                    seq.output_gate.size() +
-                    seq.hidden_state.size()
-                );
+    // Instead of clearing and deallocating, just reset values to zero
+    for (auto& layer : layer_cache) {
+        for (auto& batch : layer) {
+            for (auto& seq : batch) {
+                // Reset all vectors to zero instead of deallocating
+                std::fill(seq.input.begin(), seq.input.end(), 0.0f);
+                std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
+                std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
+                std::fill(seq.cell_state.begin(), seq.cell_state.end(), 0.0f);
+                std::fill(seq.input_gate.begin(), seq.input_gate.end(), 0.0f);
+                std::fill(seq.forget_gate.begin(), seq.forget_gate.end(), 0.0f);
+                std::fill(seq.cell_gate.begin(), seq.cell_gate.end(), 0.0f);
+                std::fill(seq.output_gate.begin(), seq.output_gate.end(), 0.0f);
+                std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
             }
         }
     }
     
-    layer_cache.clear();
-    layer_cache.shrink_to_fit();
-    current_cache_size = 0;
+    current_cache_size = 0;  // Reset size counter
 }
 
 void LSTMPredictor::clear_training_state() {
