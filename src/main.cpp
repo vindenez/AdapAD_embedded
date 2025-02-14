@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "adapad.hpp"
 #include "config.hpp"
 #include "yaml_handler.hpp"
@@ -11,6 +12,10 @@
 #include <sys/resource.h>
 #include <numeric>
 #include <sys/time.h>
+#include <sched.h>
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
 
 struct DataPoint {
     float value;
@@ -89,6 +94,24 @@ SystemStats get_system_stats() {
 }
 
 int main() {
+    #ifdef __linux__
+        // Linux-specific priority setting code will be included only when compiling for Linux
+        #include <sys/syscall.h>
+        struct sched_param param;
+        param.sched_priority = 50;
+        
+        if (syscall(SYS_sched_setscheduler, getpid(), 1 /* SCHED_FIFO */, &param) == -1) {
+            std::cerr << "Warning: Could not set real-time priority: " 
+                      << strerror(errno) << std::endl;
+        }
+    #endif
+
+    // Cross-platform nice value setting
+    if (setpriority(PRIO_PROCESS, getpid(), -20) == -1) {
+        std::cerr << "Warning: Could not set nice value: "
+                  << strerror(errno) << std::endl;
+    }
+    
     std::chrono::high_resolution_clock::time_point total_start_time = 
         std::chrono::high_resolution_clock::now();
     
