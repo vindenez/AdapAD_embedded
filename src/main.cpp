@@ -29,24 +29,64 @@ std::vector<DataPoint> read_csv_column(const std::string& filename, int column_i
     std::vector<DataPoint> data;
     std::ifstream file(filename);
     std::string line;
+    int line_number = 0;
     
     // Skip header
     std::getline(file, line);
+    line_number++;
     
     while (std::getline(file, line)) {
+        line_number++;
         std::stringstream ss(line);
         std::string field;
         
         // Skip to desired column
         for (int i = 0; i <= column_index; i++) {
-            getline(ss, field, ',');
+            if (!getline(ss, field, ',')) {
+                std::cerr << "Warning: Missing column at line " << line_number << std::endl;
+                field = "";  // Ensure field is empty for missing columns
+            }
         }
         
         DataPoint point;
-        point.value = std::stof(field);
+        // Trim whitespace
+        field.erase(0, field.find_first_not_of(" \t\r\n"));
+        field.erase(field.find_last_not_of(" \t\r\n") + 1);
+        
+        // Check for empty or invalid values
+        if (field.empty() || field == "NA" || field == "NaN" || field == "-" || field == "0.0") {
+            std::cerr << "Warning: Invalid/missing value at line " << line_number 
+                     << ", column " << column_index << ": '" << field 
+                     << "', setting to -999" << std::endl;
+            point.value = -999.0f;
+        } else {
+            try {
+                point.value = std::stof(field);
+            } catch (const std::exception& e) {
+                std::cerr << "Warning: Failed to parse value at line " << line_number 
+                         << ", column " << column_index << ": '" << field 
+                         << "', setting to -999" << std::endl;
+                point.value = -999.0f;
+            }
+        }
+        
         point.is_anomaly = false;
         data.push_back(point);
     }
+    
+    if (data.empty()) {
+        throw std::runtime_error("No data points found in column " + std::to_string(column_index));
+    }
+    
+    // Count valid vs invalid values
+    size_t invalid_count = std::count_if(data.begin(), data.end(), 
+        [](const DataPoint& p) { return p.value == -999.0f; });
+    
+    std::cout << "Column " << column_index << " statistics:" << std::endl;
+    std::cout << "- Total points: " << data.size() << std::endl;
+    std::cout << "- Valid points: " << (data.size() - invalid_count) << std::endl;
+    std::cout << "- Missing/invalid points: " << invalid_count << std::endl;
+    
     return data;
 }
 
