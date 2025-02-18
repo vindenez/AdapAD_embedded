@@ -240,24 +240,43 @@ int main() {
     
     // Online learning phase - process one value at a time
     const size_t data_size = all_data[0].size();
+    size_t prev_memory = get_memory_usage();
+    
     for (size_t t = predictor_config.train_size; t < data_size; ++t) {
         int freq_before = get_cpu_freq();
+        float temp_before = get_cpu_temp();
         auto start_time = std::chrono::high_resolution_clock::now();
         
         std::cout << "\nTimestep " << t 
-                  << " (CPU Freq: " << freq_before/1000 << " MHz):" << std::endl;
+                  << " (CPU Freq: " << freq_before/1000 << " MHz"
+                  << ", Temp: " << temp_before << "°C)" << std::endl;
         
         double timestep_total = 0.0;
         
         for (size_t i = 0; i < models.size(); ++i) {
             auto model_start = std::chrono::high_resolution_clock::now();
             auto stats_before = get_system_stats();
+            size_t model_memory_before = get_memory_usage();
             
             try {
                 // Process single new value
                 const float measured_value = all_data[i][t].value;
                 all_data[i][t].is_anomaly = models[i]->is_anomalous(measured_value);
                 models[i]->clean();
+                
+                // Log memory delta for this model
+                size_t model_memory_after = get_memory_usage();
+                long memory_delta = (long)model_memory_after - (long)model_memory_before;
+                
+                std::cout << csv_parameters[i] << ": " 
+                          << "Time=" << std::chrono::duration<double>(
+                             std::chrono::high_resolution_clock::now() - model_start).count() << "s"
+                          << ", MemDelta=" << memory_delta / 1024.0 << "MB";
+                
+                if (memory_delta > 1024 * 100) { // Log warning if memory increase > 100KB
+                    std::cout << " [WARNING: High memory usage]";
+                }
+                
             } catch (const std::exception& e) {
                 std::cerr << "Error processing " << csv_parameters[i] 
                           << " at time " << t << ": " << e.what() << std::endl;
@@ -269,36 +288,37 @@ int main() {
             
             timestep_total += model_time;
             
-            // Print individual model time
-            std::cout << csv_parameters[i] << ": " << model_time << "s";
+            // Enhanced embedded system logging
+            auto stats_after = get_system_stats();
+            double system_time = 
+                (stats_after.system_time.tv_sec - stats_before.system_time.tv_sec) +
+                (stats_after.system_time.tv_usec - stats_before.system_time.tv_usec) / 1e6;
             
-            if (model_time > 1.0) {  // Only log details for slow operations
-                auto stats_after = get_system_stats();
-                double system_time = 
-                    (stats_after.system_time.tv_sec - stats_before.system_time.tv_sec) +
-                    (stats_after.system_time.tv_usec - stats_before.system_time.tv_usec) / 1e6;
-                
-                std::cout << " (System time: " << system_time << "s, Context switches: +"
-                          << (stats_after.voluntary_switches - stats_before.voluntary_switches)
-                          << "v/" 
-                          << (stats_after.involuntary_switches - stats_before.involuntary_switches)
-                          << "i)";
-            }
-            std::cout << std::endl;
+            std::cout << " (Sys=" << system_time << "s"
+                      << ", CSw=" << (stats_after.voluntary_switches - stats_before.voluntary_switches)
+                      << "v/" << (stats_after.involuntary_switches - stats_before.involuntary_switches)
+                      << "i)" << std::endl;
         }
         
-        std::cout << "Total timestep time: " << timestep_total << "s" << std::endl;
+        // Log overall timestep statistics
+        size_t current_memory = get_memory_usage();
+        float temp_after = get_cpu_temp();
+        int freq_after = get_cpu_freq();
+        
+        std::cout << "\nTimestep Summary:" << std::endl;
+        std::cout << "- Total time: " << timestep_total << "s" << std::endl;
+        std::cout << "- Memory: " << current_memory / 1024.0 << "MB (Δ"
+                  << (long)(current_memory - prev_memory) / 1024.0 << "MB)" << std::endl;
+        std::cout << "- CPU Freq: " << freq_after/1000 << "MHz (Δ"
+                  << (freq_after - freq_before)/1000 << "MHz)" << std::endl;
+        std::cout << "- CPU Temp: " << temp_after << "°C (Δ"
+                  << (temp_after - temp_before) << "°C)" << std::endl;
         std::cout << "----------------------------------------" << std::endl;
+        
+        prev_memory = current_memory;
         
         total_predictions++;
         total_processing_time += timestep_total;
-        
-        int freq_after = get_cpu_freq();
-        if (freq_before != freq_after) {
-            std::cout << "CPU frequency changed during timestep " << t 
-                      << ": " << freq_before/1000 << " -> " << freq_after/1000 
-                      << " MHz" << std::endl;
-        }
     }
     
     auto total_end_time = std::chrono::high_resolution_clock::now();
