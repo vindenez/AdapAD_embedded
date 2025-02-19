@@ -24,6 +24,17 @@ struct SystemStats {
     struct timeval system_time;
 };
 
+struct CPUStats {
+    unsigned long long user;
+    unsigned long long nice;
+    unsigned long long system;
+    unsigned long long idle;
+    unsigned long long iowait;
+    unsigned long long irq;
+    unsigned long long softirq;
+    unsigned long long steal;
+};
+
 // Helper function to read CSV column
 std::vector<DataPoint> read_csv_column(const std::string& filename, int column_index) {
     std::vector<DataPoint> data;
@@ -126,6 +137,37 @@ SystemStats get_system_stats() {
         usage.ru_utime,
         usage.ru_stime
     };
+}
+
+CPUStats get_cpu_stats() {
+    std::ifstream stat_file("/proc/stat");
+    CPUStats stats{0};
+    std::string cpu_label;
+    if (stat_file) {
+        stat_file >> cpu_label 
+                  >> stats.user >> stats.nice >> stats.system 
+                  >> stats.idle >> stats.iowait >> stats.irq 
+                  >> stats.softirq >> stats.steal;
+    }
+    return stats;
+}
+
+double calculate_cpu_usage(const CPUStats& start, const CPUStats& end) {
+    unsigned long long start_idle = start.idle + start.iowait;
+    unsigned long long end_idle = end.idle + end.iowait;
+    
+    unsigned long long start_total = start.user + start.nice + start.system + 
+                                   start.idle + start.iowait + start.irq + 
+                                   start.softirq + start.steal;
+    unsigned long long end_total = end.user + end.nice + end.system + 
+                                  end.idle + end.iowait + end.irq + 
+                                  end.softirq + end.steal;
+    
+    unsigned long long total_diff = end_total - start_total;
+    unsigned long long idle_diff = end_idle - start_idle;
+    
+    if (total_diff == 0) return 0.0;
+    return (100.0 * (total_diff - idle_diff)) / total_diff;
 }
 
 int main() {
@@ -286,6 +328,7 @@ int main() {
         int freq_before = get_cpu_freq();
         float temp_before = get_cpu_temp();
         auto start_time = std::chrono::high_resolution_clock::now();
+        auto cpu_stats_before = get_cpu_stats();
         
         std::cout << "\nTimestep " << t 
                   << " (CPU Freq: " << freq_before/1000 << " MHz"
@@ -344,6 +387,8 @@ int main() {
         size_t current_memory = get_memory_usage();
         float temp_after = get_cpu_temp();
         int freq_after = get_cpu_freq();
+        auto cpu_stats_after = get_cpu_stats();
+        double cpu_usage = calculate_cpu_usage(cpu_stats_before, cpu_stats_after);
         
         std::cout << "\nTimestep Summary:" << std::endl;
         std::cout << "- Total time: " << timestep_total << "s" << std::endl;
@@ -353,6 +398,7 @@ int main() {
                   << (freq_after - freq_before)/1000 << "MHz)" << std::endl;
         std::cout << "- CPU Temp: " << temp_after << "°C (Δ"
                   << (temp_after - temp_before) << "°C)" << std::endl;
+        std::cout << "- CPU Usage: " << cpu_usage << "%" << std::endl;
         std::cout << "----------------------------------------" << std::endl;
         
         prev_memory = current_memory;
