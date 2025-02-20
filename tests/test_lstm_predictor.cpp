@@ -7,7 +7,6 @@
 #include <sstream>
 #include <string>
 
-// Add DEBUG_PRINT macro definition
 #ifdef DEBUG
 #define DEBUG_PRINT(x) printf x
 #else

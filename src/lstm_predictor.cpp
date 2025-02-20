@@ -1,6 +1,5 @@
 #include "lstm_predictor.hpp"
 #include "matrix_utils.hpp"
-#include "activation_functions.hpp"
 #include "config.hpp"
 #include "model_state.hpp"
 

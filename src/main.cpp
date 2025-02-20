@@ -35,7 +35,6 @@ struct CPUStats {
     unsigned long long steal;
 };
 
-// Helper function to read CSV column
 std::vector<DataPoint> read_csv_column(const std::string& filename, int column_index) {
     std::vector<DataPoint> data;
     std::ifstream file(filename);
@@ -101,14 +100,12 @@ std::vector<DataPoint> read_csv_column(const std::string& filename, int column_i
     return data;
 }
 
-// Helper function to get current memory usage
 size_t get_memory_usage() {
     struct rusage rusage;
     getrusage(RUSAGE_SELF, &rusage);
     return (size_t)rusage.ru_maxrss;
 }
 
-// Function to read CPU frequency
 int get_cpu_freq() {
     std::ifstream freq_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
     int freq = 0;
@@ -118,14 +115,13 @@ int get_cpu_freq() {
     return freq;
 }
 
-// Function to read CPU temperature (if available)
 float get_cpu_temp() {
     std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
     int temp = 0;
     if (temp_file) {
         temp_file >> temp;
     }
-    return temp / 1000.0f;  // Convert from millicelsius to celsius
+    return temp / 1000.0f;  // millicelsius to celsius
 }
 
 SystemStats get_system_stats() {
@@ -218,7 +214,7 @@ int main() {
     }
     
     // Reserve space for parameters to avoid reallocations
-    csv_parameters.reserve(100);  // Adjust based on expected parameter count
+    csv_parameters.reserve(15);  // Adjust based on expected parameter count
     
     // Initialize models and measure memory usage
     std::vector<std::unique_ptr<AdapAD>> models;
@@ -277,7 +273,7 @@ int main() {
     // Pre-allocate data vectors
     all_data.reserve(models.size());
     for (auto& data : all_data) {
-        data.reserve(1000);  // Adjust based on expected data size
+        data.reserve(4000);  // Adjust based on expected data size
     }
     
     // Training phase
@@ -320,7 +316,7 @@ int main() {
     size_t total_predictions = 0;
     double total_processing_time = 0.0;
     
-    // Online learning phase - process one value at a time
+    // Online learning phase - processes sequentially
     const size_t data_size = all_data[0].size();
     size_t prev_memory = get_memory_usage();
     
