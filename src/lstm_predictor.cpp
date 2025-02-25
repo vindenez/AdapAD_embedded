@@ -31,7 +31,7 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
     reset_states();
 }
 
-// Keeping the cell state for long term dependencies
+// Neither cell nor hidden state are used for long term dependencies
 void LSTMPredictor::reset_states() {
     c_state.clear();
     h_state.clear();
@@ -364,7 +364,7 @@ void LSTMPredictor::backward_linear_layer(
     }
     
     // Compute input gradients
-    // We need to multiply fc_weight^T (4xnum_classes) with grad_output (num_classes)
+    // Multiply fc_weight^T (4xnum_classes) with grad_output (num_classes)
     for (int i = 0; i < hidden_size; ++i) {
         input_grad[i] = 0.0f;
         for (int j = 0; j < num_classes; ++j) {
@@ -419,7 +419,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
         
         const auto& layer_cache = cache[layer][current_batch];
         
-        // If this is the last layer, add grad_output (like dy @ Wy.T in Python)
+        // If this is the last layer, add grad_output (like dy @ Wy.T in PyTorch)
         if (layer == num_layers - 1) {
             for (int h = 0; h < hidden_size; ++h) {
                 dh[h] += grad_output[h];
@@ -518,11 +518,6 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             }
         }
         
-        // Initialize Adam states if needed
-        //if (!are_adam_states_initialized()) {
-        //    initialize_adam_states();
-        //}
-        
         // Verify input dimensions
         if (x.empty() || x[0].empty() || x[0][0].empty()) {
             throw std::runtime_error("Empty input tensor");
@@ -557,14 +552,10 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             throw std::runtime_error("Dimension mismatch in FC layer gradients");
         }
 
-        // Apply Adam updates to FC layer
+        // Apply SGD updates to FC layer
         try {
-            //apply_adam_update(fc_weight, fc_weight_grad, m_fc_weight, v_fc_weight,
-            //                learning_rate, beta1, beta2, epsilon, adam_timestep);
             apply_sgd_update(fc_weight, fc_weight_grad, learning_rate);
-            
-            //apply_adam_update(fc_bias, fc_bias_grad, m_fc_bias, v_fc_bias,
-            //                learning_rate, beta1, beta2, epsilon, adam_timestep);
+
             apply_sgd_update(fc_bias, fc_bias_grad, learning_rate);
         } catch (const std::exception& e) {
             throw;
@@ -592,27 +583,12 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                                            std::to_string(layer));
                 }
                 
-                //apply_adam_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad,
-                //                 m_weight_ih[layer], v_weight_ih[layer],
-                //                 learning_rate, beta1, beta2, epsilon, adam_timestep);
                 apply_sgd_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad, learning_rate);
 
-
-                //apply_adam_update(lstm_layers[layer].weight_hh, lstm_grads[layer].weight_hh_grad,
-                //                 m_weight_hh[layer], v_weight_hh[layer],
-                //                 learning_rate, beta1, beta2, epsilon, adam_timestep);
                 apply_sgd_update(lstm_layers[layer].weight_hh, lstm_grads[layer].weight_hh_grad, learning_rate);
 
-                
-                //apply_adam_update(lstm_layers[layer].bias_ih, lstm_grads[layer].bias_ih_grad,
-                //                 m_bias_ih[layer], v_bias_ih[layer],
-                //                 learning_rate, beta1, beta2, epsilon, adam_timestep);
                 apply_sgd_update(lstm_layers[layer].bias_ih, lstm_grads[layer].bias_ih_grad, learning_rate);
 
-
-                //apply_adam_update(lstm_layers[layer].bias_hh, lstm_grads[layer].bias_hh_grad,
-                //                 m_bias_hh[layer], v_bias_hh[layer],
-                //                 learning_rate, beta1, beta2, epsilon, adam_timestep);
                 apply_sgd_update(lstm_layers[layer].bias_hh, lstm_grads[layer].bias_hh_grad, learning_rate);
 
 
@@ -1021,7 +997,6 @@ void LSTMPredictor::clear_temporary_cache() {
 }
 
 void LSTMPredictor::clear_training_state() {
-    // Reset Adam optimizer states
     // Clear layer cache (intermediate computations)
     layer_cache.clear();
     layer_cache.resize(num_layers);
@@ -1035,6 +1010,9 @@ void LSTMPredictor::clear_training_state() {
     
 }
 
+// Could maybe try a decaying learning rate if the model deviates after running for a while
+// Momentum seems to not be needed, as the model focuses on online learning.
+// Decaying learning rate might not be a good solution if the model will eventually encounter concept drift in some form and thereby being counter productive.
 void LSTMPredictor::apply_sgd_update(
     std::vector<std::vector<float>>& weights,
     std::vector<std::vector<float>>& grads,
@@ -1048,7 +1026,7 @@ void LSTMPredictor::apply_sgd_update(
         for (size_t j = 0; j < weights[i].size(); ++j) {
             float grad = grads[i][j];
             
-            // Optional gradient clipping
+            // Gradient clipping
             const float GRAD_CLIP = 1.0f;
             grad = std::max(std::min(grad, GRAD_CLIP), -GRAD_CLIP);
             
