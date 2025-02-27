@@ -4,9 +4,9 @@ training:
     update: 30
     update_generator: 30
   learning_rates:
-    train: 0.01
-    update: 0.01
-    update_generator: 0.01
+    train: 0.015
+    update: 0.015
+    update_generator: 0.015
 
 model:
   save_enabled: false
@@ -27,7 +27,7 @@ system:
   
 data:
   paths:
-    training: "data/data_187_30min.csv"
+    training: "data/Tide_pressure.csv"
     log: "adapad_logs"
   parameters:
     Tide_pressure:

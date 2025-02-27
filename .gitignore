@@ -10,6 +10,7 @@
 
 /libs
 
+*.py
 
 adapad
 adapad_log.csv
