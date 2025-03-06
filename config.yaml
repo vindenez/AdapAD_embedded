@@ -6,7 +6,7 @@ training:
   learning_rates:
     train: 0.01
     update: 0.014
-    update_generator: 0.00001
+    update_generator: 0.0002
 
 model:
   save_enabled: false

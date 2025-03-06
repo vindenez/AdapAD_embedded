@@ -5,8 +5,8 @@ training:
     update_generator: 30
   learning_rates:
     train: 0.01
-    update: 0.01
-    update_generator: 0.01
+    update: 0.014
+    update_generator: 0.0002
 
 model:
   save_enabled: false
@@ -27,7 +27,7 @@ system:
 
 data:
   paths:
-    training: "/mnt/sdcard/adapad/Austevoll_nord_2023-2024/continuous_data/data_3716_20230829_0400_to_20231114_1300.csv"
+    training: "/mnt/sdcard/adapad/data/Tide_pressure.validation_stage.csv"
     log: "/mnt/sdcard/adapad/adapad_logs"
   parameters:
     Tide_pressure:
