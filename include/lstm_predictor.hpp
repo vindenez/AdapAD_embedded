@@ -7,6 +7,8 @@
 #include <fstream>
 #include <iostream>
 
+#include <blasfeo_utils.hpp>
+
 class LSTMPredictor {
 public:
     struct LSTMLayer {
@@ -142,6 +144,8 @@ private:
     int hidden_size;
     int seq_length;
     bool batch_first;
+
+    BlasfeoMatrixOps blasfeo_utils;
 
     std::vector<LSTMLayer> lstm_layers;
 

@@ -174,7 +174,7 @@ int main() {
     Config& config = Config::getInstance();
     
     // Load the config file
-    if (!config.load("config.yaml")) {
+    if (!config.load("/mnt/sdcard/adapad/config_embedded.yaml")) {
         std::cerr << "Failed to load config.yaml" << std::endl;
         return 1;
     }

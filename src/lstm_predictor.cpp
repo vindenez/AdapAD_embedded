@@ -2,7 +2,9 @@
 #include "matrix_utils.hpp"
 #include "config.hpp"
 #include "model_state.hpp"
+#include "blasfeo_utils.hpp"
 
+#include <chrono>
 #include <random>
 #include <algorithm>
 #include <iostream>
@@ -1013,59 +1015,90 @@ void LSTMPredictor::clear_training_state() {
 // Could maybe try a decaying learning rate if the model deviates after running for a while
 // Momentum seems to not be needed, as the model focuses on online learning.
 // Decaying learning rate might not be a good solution if the model will eventually encounter concept drift in some form and thereby being counter productive.
+// Optimized apply_sgd_update for matrices using BLASFEO
 void LSTMPredictor::apply_sgd_update(
     std::vector<std::vector<float>>& weights,
     std::vector<std::vector<float>>& grads,
     float learning_rate) {
     
-    float max_grad = 0.0f;
-    float max_update = 0.0f;
-    int zero_grads = 0;
+    // Get dimensions
+    size_t rows = weights.size();
+    size_t cols = weights[0].size();
+    size_t total_size = rows * cols;
+
+    // Flatten matrices for better performance
+    std::vector<double> weights_flat(total_size);
+    std::vector<double> grads_flat(total_size);
+    std::vector<double> result_flat(total_size);
     
-    for (size_t i = 0; i < weights.size(); ++i) {
-        for (size_t j = 0; j < weights[i].size(); ++j) {
+    // Flatten and apply gradient clipping in one pass
+    for (size_t i = 0; i < rows; ++i) {
+        for (size_t j = 0; j < cols; ++j) {
+            size_t idx = i * cols + j;
+            weights_flat[idx] = weights[i][j];
+
+            // Apply gradient clipping
             float grad = grads[i][j];
-            
-            // Gradient clipping
             const float GRAD_CLIP = 1.0f;
             grad = std::max(std::min(grad, GRAD_CLIP), -GRAD_CLIP);
-            
-            // Simple SGD update
-            float update = learning_rate * grad;
-            weights[i][j] -= update;
-            
-            // Track statistics
-            max_grad = std::max(max_grad, std::abs(grad));
-            max_update = std::max(max_update, std::abs(update));
-            if (std::abs(grad) < 1e-10) zero_grads++;
+
+            grads_flat[idx] = grad;
+        }
+    }
+
+    // Use BLASFEO for the SGD update
+    blasfeo_utils.sgd_update(
+        weights_flat.data(),
+        grads_flat.data(),
+        result_flat.data(),
+        total_size,
+        learning_rate
+    );
+
+    // Convert back to 2D
+    for (size_t i = 0; i < rows; ++i) {
+        for (size_t j = 0; j < cols; ++j) {
+            weights[i][j] = result_flat[i * cols + j];
         }
     }
 }
 
+// Optimized apply_sgd_update for vectors using BLASFEO
 void LSTMPredictor::apply_sgd_update(
     std::vector<float>& biases,
     std::vector<float>& grads,
     float learning_rate) {
-    
-    float max_grad = 0.0f;
-    float max_update = 0.0f;
-    int zero_grads = 0;
-    
-    for (size_t i = 0; i < biases.size(); ++i) {
+
+    size_t size = biases.size();
+
+    // Convert to double for BLASFEO
+    std::vector<double> biases_double(size);
+    std::vector<double> grads_double(size);
+    std::vector<double> result_double(size);
+
+    // Convert and apply gradient clipping in one pass
+    for (size_t i = 0; i < size; ++i) {
+        biases_double[i] = biases[i];
+
+        // Apply gradient clipping
         float grad = grads[i];
-        
-        // Optional gradient clipping
         const float GRAD_CLIP = 1.0f;
         grad = std::max(std::min(grad, GRAD_CLIP), -GRAD_CLIP);
-        
-        // Simple SGD update
-        float update = learning_rate * grad;
-        biases[i] -= update;
-        
-        // Track statistics
-        max_grad = std::max(max_grad, std::abs(grad));
-        max_update = std::max(max_update, std::abs(update));
-        if (std::abs(grad) < 1e-10) zero_grads++;
+
+        grads_double[i] = grad;
     }
-    
+
+    // Use BLASFEO for the SGD update
+    blasfeo_utils.sgd_update(
+        biases_double.data(),
+        grads_double.data(),
+        result_double.data(),
+        size,
+        learning_rate
+    );
+
+    // Convert back to float
+    for (size_t i = 0; i < size; ++i) {
+        biases[i] = result_double[i];
+    }
 }
