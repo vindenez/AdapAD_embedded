@@ -44,11 +44,13 @@ bool Config::load(const std::string& yaml_path) {
         save_interval = get_int("model.save_interval", 48);
         save_path = get_string("model.save_path", "model_states/");
 
-        // Load default training parameters
-        epoch_train = get_int("training.epochs.train", 50);
-        epoch_update = get_int("training.epochs.update", 40);
-        lr_train = get_float("training.learning_rates.train", 0.0002f);
-        lr_update = get_float("training.learning_rates.update", 0.00005f);
+        // Load training parameters
+        epoch_train = get_int("training.epochs.train", 20);
+        epoch_update = get_int("training.epochs.update", 30);
+        epoch_update_generator = get_int("training.epochs.update_generator", 30);
+        lr_train = get_float("training.learning_rates.train", 0.015f);
+        lr_update = get_float("training.learning_rates.update", 0.015f);
+        lr_update_generator = get_float("training.learning_rates.update_generator", 0.015f);
 
         // Load system settings
         random_seed = get_int("system.random_seed", 42);
@@ -107,7 +109,9 @@ PredictorConfig init_predictor_config() {
     predictor_config.epoch_train = config.epoch_train;
     predictor_config.lr_train = config.lr_train;
     predictor_config.epoch_update = config.epoch_update;
+    predictor_config.epoch_update_generator = config.epoch_update_generator;
     predictor_config.lr_update = config.lr_update;
+    predictor_config.lr_update_generator = config.lr_update_generator;
 
     return predictor_config;
 }

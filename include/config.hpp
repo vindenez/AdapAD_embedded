@@ -18,7 +18,9 @@ struct PredictorConfig {
     int epoch_train;
     float lr_train;
     int epoch_update;
+    int epoch_update_generator;    
     float lr_update;
+    float lr_update_generator;     
 };
 
 // Configuration structure for value ranges
@@ -89,7 +91,9 @@ public:
     int epoch_train;
     float lr_train;
     int epoch_update;
+    int epoch_update_generator;    // New
     float lr_update;
+    float lr_update_generator;     // New
     int update_G_epoch;
     float update_G_lr;
 

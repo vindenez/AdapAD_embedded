@@ -170,8 +170,8 @@ void AdapAD::update_generator(
     // Training loop with early stopping based on loss progression
     float prev_loss = initial_loss;
     int epochs_completed = 0;
-    for (int e = 0; e < predictor_config.epoch_update; ++e) {
-        generator->train_step(reshaped_input, {recent_error}, output, predictor_config.lr_update);
+    for (int e = 0; e < predictor_config.epoch_update_generator; ++e) {
+        generator->train_step(reshaped_input, {recent_error}, output, predictor_config.lr_update_generator);
         
         // Calculate new loss after training step
         output = generator->forward(reshaped_input);
