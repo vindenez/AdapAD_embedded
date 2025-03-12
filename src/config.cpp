@@ -41,6 +41,7 @@ bool Config::load(const std::string& yaml_path) {
 
         // Load save settings
         save_enabled = get_bool("model.save_enabled", false);
+        load_enabled = get_bool("model.load_enabled", false);
         save_interval = get_int("model.save_interval", 48);
         save_path = get_string("model.save_path", "model_states/");
 

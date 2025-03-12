@@ -14,6 +14,18 @@
 
 class AdapAD {
 public:
+
+    size_t get_memory_usage() {
+        size_t total = 0;
+        
+        // Component-specific memory calculations
+        // For vectors:
+        total += observed_vals.capacity() * sizeof(float);
+        total += predicted_vals.capacity() * sizeof(float);
+        // etc.
+        
+        return total;
+    }
     std::unique_ptr<NormalDataPredictor> data_predictor;
     std::unique_ptr<AnomalousThresholdGenerator> generator;
     std::vector<std::vector<std::vector<float>>> prepare_data_for_prediction(size_t supposed_anomalous_pos);

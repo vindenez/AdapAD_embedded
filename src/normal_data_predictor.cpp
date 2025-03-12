@@ -193,3 +193,4 @@ void NormalDataPredictor::initialize_layer_cache() {
         throw std::runtime_error("Predictor not initialized");
     }
 }
+

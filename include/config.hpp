@@ -32,7 +32,8 @@ struct ValueRangeConfig {
 class Config {
 private:
     Config() {
-        save_enabled = false;   
+        save_enabled = false;
+        load_enabled = false;   
         save_interval = 48;    
         save_path = "model_states/";
     }
@@ -120,6 +121,7 @@ public:
 
     // Model state configuration
     bool save_enabled;
+    bool load_enabled;
     int save_interval;
     std::string save_path;
 

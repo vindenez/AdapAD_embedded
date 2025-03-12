@@ -225,6 +225,7 @@ int main() {
         // Debug print save settings
     std::cout << "\nModel save settings:" << std::endl;
     std::cout << "Save enabled: " << config.save_enabled << std::endl;
+    std::cout << "Load enabled: " << config.load_enabled << std::endl;
     std::cout << "Save interval: " << config.save_interval << std::endl;
     std::cout << "Save path: " << config.save_path << std::endl;
 
@@ -287,7 +288,7 @@ int main() {
             initial_data.push_back(all_data[i][j].value);
         }
 
-        if (models[i]->has_saved_model()) {
+        if (config.load_enabled && models[i]->has_saved_model()) {
             std::cout << "Found saved model for " << csv_parameters[i] << ", loading..." << std::endl;
             try {
                 models[i]->load_latest_model(initial_data);

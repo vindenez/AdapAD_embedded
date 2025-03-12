@@ -10,6 +10,7 @@ training:
 
 model:
   save_enabled: false
+  load_enabled: false
   save_interval: 48
   save_path: "model_states" 
   lstm:
@@ -27,7 +28,7 @@ system:
 
 data:
   paths:
-    training: "/mnt/sdcard/adapad/data/Tide_pressure.validation_stage.csv"
+    training: "/mnt/sdcard/data/Tide_pressure.validation_stage.csv"
     log: "/mnt/sdcard/adapad/adapad_logs"
   parameters:
     Tide_pressure:

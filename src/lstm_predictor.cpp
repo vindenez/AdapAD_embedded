@@ -574,7 +574,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         // LSTM backward pass
         auto lstm_grads = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
 
-        // Apply Adam updates to LSTM layers
+        // Apply Optimizer updates to LSTM layers
         for (int layer = 0; layer < num_layers; ++layer) {
             try {
                 // Verify LSTM layer dimensions before updates
@@ -1017,7 +1017,7 @@ void LSTMPredictor::apply_sgd_update(
     std::vector<std::vector<float>>& weights,
     std::vector<std::vector<float>>& grads,
     float learning_rate) {
-    
+
     float max_grad = 0.0f;
     float max_update = 0.0f;
     int zero_grads = 0;

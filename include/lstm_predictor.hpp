@@ -6,9 +6,11 @@
 #include <string>
 #include <fstream>
 #include <iostream>
+#include "blasfeo_utils.hpp"
 
 class LSTMPredictor {
 public:
+
     struct LSTMLayer {
         // [i,f,g,o] gates stacked vertically: (4*hidden_size, input_size)
         std::vector<std::vector<float>> weight_ih;  // (4*hidden_size, input_size)

@@ -10,6 +10,7 @@ training:
 
 model:
   save_enabled: false
+  load_enabled: false
   save_interval: 48
   save_path: "model_states" 
   lstm:

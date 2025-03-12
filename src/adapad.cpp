@@ -61,6 +61,7 @@ void AdapAD::set_training_data(const std::vector<float>& data) {
 }
 
 bool AdapAD::is_anomalous(float observed_val) {
+    
     bool is_anomalous_ret = false;
     float normalized = normalize_data(observed_val);
     
@@ -117,7 +118,7 @@ bool AdapAD::is_anomalous(float observed_val) {
                     is_anomalous_ret = true;
                     anomalies.push_back(observed_vals.size());
                 }
-                
+
                 // Update models only for in-range values
                 data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
                                     past_observations, {normalized});
@@ -139,6 +140,16 @@ bool AdapAD::is_anomalous(float observed_val) {
               << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << ","
               << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";
         f_log.close();
+        
+        // Check if we should save the model based on update count
+        if (config.save_enabled && ++update_count >= config.save_interval) {
+            try {
+                save_models();
+                update_count = 0;  // Reset counter after saving
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to save model state: " << e.what() << std::endl;
+            }
+        }
         
     } catch (const std::exception& e) {
         std::cerr << "Error in is_anomalous: " << e.what() << std::endl;
@@ -361,6 +372,10 @@ void AdapAD::train() {
     predicted_vals.clear();
     predictive_errors.clear();
     thresholds.clear();
+
+    if (config.save_enabled) {
+        save_models();
+    }
     
     // Keep only the most recent lookback_len values in observed_vals
     if (observed_vals.size() > predictor_config.lookback_len) {

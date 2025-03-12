@@ -9,6 +9,7 @@
 
 class AnomalousThresholdGenerator {
 public:
+
     AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, 
                                int lookback_len, int prediction_len);
     
