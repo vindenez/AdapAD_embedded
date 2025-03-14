@@ -3,13 +3,6 @@ An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems wit
 The model aims to detect anomalous measurements from real-time univariate time series data.
 
 
-Make sure makefile suits your CPU architecture. Config path is specified in Main.cpp, other paths/hyperparameters are defined in Config.yaml.
-
-If you use included Makefile:  
-Clean - make clean  
-Build - make  
-Run - ./adapad  
-
 ## References
 > Nguyen, N.T., Heldal, R. and Pelliccione, P., 2024. Concept-drift-adaptive anomaly detector for marine sensor data streams. Internet of Things, p.101414.
 
@@ -24,6 +17,25 @@ Run - ./adapad
 }
 ```
 https://github.com/ntnguyen-so/AdapAD_alg
+
+## Installation
+
+Make sure makefile suits your CPU architecture and Operating System. Config path is specified in Main.cpp, other paths/hyperparameters are defined in Config.yaml. 
+
+If you use included Makefile:
+
+Clean
+```
+make clean
+```
+Build
+```
+make
+```
+Run
+```
+./adapad
+```
 
 ## Runtime on ARM Cortex-A7 528 MHz
 
