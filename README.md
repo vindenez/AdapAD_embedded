@@ -23,6 +23,7 @@ Run - ./adapad
   publisher={Elsevier}
 }
 ```
+https://github.com/ntnguyen-so/AdapAD_alg
 
 ## Runtime on ARM Cortex-A7 528 MHz
 
