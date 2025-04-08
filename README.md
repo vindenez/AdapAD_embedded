@@ -39,7 +39,7 @@ Run
 
 ## Runtime on ARM Cortex-A7 528 MHz
 
-0.76 Seconds processing time (prediction/forward pass and update/backprop) per time step.
+0.76 Seconds turnaround time (prediction/forward pass and update/backprop) per time step.
 
 ## Memory usage
 
