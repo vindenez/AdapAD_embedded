@@ -49,7 +49,7 @@ AdapAD::AdapAD(const PredictorConfig& predictor_config,
     f_log.close();
 
     // Create save directory if it doesn't exist
-    mkdir(config.save_path.c_str(), 0777);  // UNIX-style directory creation
+    mkdir(config.save_path.c_str(), 0777);  
 }
 
 void AdapAD::set_training_data(const std::vector<float>& data) {
@@ -205,11 +205,10 @@ void AdapAD::update_generator(
 void AdapAD::clean() {
     size_t window_size = predictor_config.lookback_len;
     
-    // Use circular buffer approach instead of growing/shrinking
     if (predicted_vals.size() > window_size) {
         // Move elements to the beginning instead of reallocating
         std::copy(predicted_vals.end() - window_size, predicted_vals.end(), predicted_vals.begin());
-        predicted_vals.resize(window_size);  // No shrink_to_fit needed
+        predicted_vals.resize(window_size);  
         
         if (!predictive_errors.empty()) {
             std::copy(predictive_errors.end() - window_size, predictive_errors.end(), predictive_errors.begin());
@@ -360,7 +359,7 @@ void AdapAD::train() {
         }
     }
 
-    // After training is complete, reset states like we do in load_models
+    // After training is complete, reset states like in load_models
     std::cout << "Resetting model states after training..." << std::endl;
     //reset_model_states();
     
@@ -383,7 +382,7 @@ void AdapAD::train() {
             observed_vals.end() - predictor_config.lookback_len,
             observed_vals.end()
         );
-        observed_vals = std::move(recent_vals);  // Use move for efficiency
+        observed_vals = std::move(recent_vals);  // Using move for efficiency
     }
 }
 

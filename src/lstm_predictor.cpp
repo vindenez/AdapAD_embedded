@@ -31,7 +31,6 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
     reset_states();
 }
 
-// Neither cell nor hidden state are used for long term dependencies
 void LSTMPredictor::reset_states() {
     c_state.clear();
     h_state.clear();
@@ -85,11 +84,11 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         throw std::runtime_error("Weight hh dimension mismatch");
     }
     
-    // Declare cache_entry only if training_mode is true**
+    // Declare cache_entry only if training_mode is true
     LSTMCacheEntry cache_entry;
 
     if (training_mode) {
-        // Validate indices before accessing cache**
+        // Validate indices before accessing cache
         if (current_layer >= layer_cache.size() ||
             current_batch >= layer_cache[current_layer].size() ||
             current_timestep >= layer_cache[current_layer][current_batch].size()) {
@@ -100,7 +99,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         cache_entry = layer_cache[current_layer][current_batch][current_timestep];
         
         // Validate and copy input
-        cache_entry.input = input;  // Now we know the size is correct
+        cache_entry.input = input;  
         
         // Initialize other cache vectors
         cache_entry.input_gate.resize(hidden_size, 0.0f);

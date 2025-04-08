@@ -6,7 +6,6 @@
 #include <string>
 #include <fstream>
 #include <iostream>
-#include "blasfeo_utils.hpp"
 
 class LSTMPredictor {
 public:
