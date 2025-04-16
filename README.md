@@ -1,4 +1,4 @@
-An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems with limited computational resources. AdapAD is an AI-based model for automatic data quality control.
+An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems with limited computational resources. AdapAD is an prediction-based AD model using LSTM for automatic data quality control.
 
 The model utilizes online learning to adapt to concept-drift and to detect anomalous measurements from real-time univariate time series data.
 
