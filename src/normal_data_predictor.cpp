@@ -194,3 +194,19 @@ void NormalDataPredictor::initialize_layer_cache() {
     }
 }
 
+void NormalDataPredictor::clear_training_state() {
+    if (predictor) {
+        predictor->clear_training_state();
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::reset_states() {
+    if (predictor) {
+        predictor->reset_states();
+    } else {
+        throw std::runtime_error("Predictor not initialized");
+    }
+}
+

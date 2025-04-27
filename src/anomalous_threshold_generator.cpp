@@ -171,3 +171,19 @@ void AnomalousThresholdGenerator::initialize_layer_cache() {
         throw std::runtime_error("Generator not initialized");
     }
 }
+
+void AnomalousThresholdGenerator::clear_training_state() {
+    if (generator) {
+        generator->clear_training_state();
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::reset_states() {
+    if (generator) {
+        generator->reset_states();
+    } else {
+        throw std::runtime_error("Generator not initialized");
+    }
+}

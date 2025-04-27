@@ -161,7 +161,7 @@ private:
         std::vector<float> cell_state;
         std::vector<float> input_gate;
         std::vector<float> forget_gate;
-        std::vector<float> cell_gate;
+        std::vector<float> cell_candidate;
         std::vector<float> output_gate;
         std::vector<float> hidden_state;
         

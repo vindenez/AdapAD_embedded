@@ -31,7 +31,7 @@ public:
         return generator->get_final_prediction(output);
     }
     
-    void reset_states() { generator->reset_states(); }
+    void reset_states();
     void train_step(const std::vector<std::vector<std::vector<float>>>& x,
                    const std::vector<float>& target,
                    const LSTMPredictor::LSTMOutput& lstm_output,
@@ -53,6 +53,8 @@ public:
             generator->clear_temporary_cache();
         }
     }
+
+    void clear_training_state();
 
     // Add this method to expose training mode status
     bool is_training() const { 

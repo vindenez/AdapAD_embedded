@@ -79,13 +79,18 @@ bool AdapAD::is_anomalous(float observed_val) {
             past_observations[0][0].size() != predictor_config.lookback_len) {
             throw std::runtime_error("Invalid past_observations dimensions");
         }
-
-        //reset_model_states();
+        
+        // Reset states before each inference to avoid state accumulation
+        data_predictor->reset_states();
+        generator->reset_states();
 
         // Make prediction
         data_predictor->eval();  // Set to eval mode for prediction
         auto predicted_val = data_predictor->predict(past_observations);
         data_predictor->train(); // Switch back to training mode for online learning
+        
+        // Clear LSTM temporary states after prediction
+        data_predictor->clear_training_state();
         
         // Validate vector sizes before push_back
         if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
@@ -112,7 +117,12 @@ bool AdapAD::is_anomalous(float observed_val) {
                     predictive_errors.end() - predictor_config.lookback_len,
                     predictive_errors.end());
                 
+                // Reset generator states before inference
+                generator->reset_states();
                 threshold = generator->generate(past_errors, minimal_threshold);
+                
+                // Clear temporary states after threshold generation
+                generator->clear_training_state();
                 
                 if (prediction_error > threshold && !is_default_normal()) {
                     is_anomalous_ret = true;
@@ -123,12 +133,21 @@ bool AdapAD::is_anomalous(float observed_val) {
                 data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
                                     past_observations, {normalized});
                 
+                // Clean up after predictor update
+                data_predictor->clear_training_state();
+                
                 if (is_anomalous_ret || threshold > minimal_threshold) {
                     update_generator(past_errors, prediction_error);
+                    // Clean up after generator update
+                    generator->clear_training_state();
                 }
             }
             thresholds.push_back(threshold);
         }
+        
+        // Force memory cleanup before logging
+        data_predictor->clear_training_state();
+        generator->clear_training_state();
         
         // Log results
         f_log.open(f_name, std::ios_base::app);
@@ -145,11 +164,19 @@ bool AdapAD::is_anomalous(float observed_val) {
         if (config.save_enabled && ++update_count >= config.save_interval) {
             try {
                 save_models();
+                
+                // Force memory cleanup after save
+                data_predictor->clear_training_state();
+                generator->clear_training_state();
+                
                 update_count = 0;  // Reset counter after saving
             } catch (const std::exception& e) {
                 std::cerr << "Failed to save model state: " << e.what() << std::endl;
             }
         }
+        
+        // Call the clean method to ensure vectors are properly managed
+        clean();
         
     } catch (const std::exception& e) {
         std::cerr << "Error in is_anomalous: " << e.what() << std::endl;
@@ -163,6 +190,9 @@ void AdapAD::update_generator(
     const std::vector<float>& past_errors, float recent_error) {
     
     auto start_time = std::chrono::high_resolution_clock::now();
+    
+    // Reset states before starting
+    generator->reset_states();
     
     // Reshape past_errors to match PyTorch's reshape(1, -1)
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
@@ -197,28 +227,61 @@ void AdapAD::update_generator(
         epochs_completed++;
     }
     
+    // Clean up temporary states
+    generator->clear_training_state();
+    
+    // Force memory release for reshaped_input
+    {
+        std::vector<std::vector<std::vector<float>>> empty;
+        reshaped_input.swap(empty);
+    }
+    
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end_time - start_time;
-    
 }
 
 void AdapAD::clean() {
     size_t window_size = predictor_config.lookback_len;
     
+    // Force LSTM layer caches to release memory
+    data_predictor->clear_training_state();
+    generator->clear_training_state();
+    
+    // More aggressive management of observed values
+    if (observed_vals.size() > window_size * 2) {
+        // Preserve only the most recent values
+        std::vector<float> recent_vals(observed_vals.end() - window_size, observed_vals.end());
+        observed_vals.swap(recent_vals); // Efficient swap instead of copy
+        // Force vector to release excess memory
+        std::vector<float>(observed_vals).swap(observed_vals);
+    }
+    
+    // Manage prediction values with similar approach
     if (predicted_vals.size() > window_size) {
-        // Move elements to the beginning instead of reallocating
-        std::copy(predicted_vals.end() - window_size, predicted_vals.end(), predicted_vals.begin());
-        predicted_vals.resize(window_size);  
-        
-        if (!predictive_errors.empty()) {
-            std::copy(predictive_errors.end() - window_size, predictive_errors.end(), predictive_errors.begin());
-            predictive_errors.resize(window_size);
-        }
-        
-        if (!thresholds.empty()) {
-            std::copy(thresholds.end() - window_size, thresholds.end(), thresholds.begin());
-            thresholds.resize(window_size);
-        }
+        std::vector<float> recent_preds(predicted_vals.end() - window_size, predicted_vals.end());
+        predicted_vals.swap(recent_preds);
+        std::vector<float>(predicted_vals).swap(predicted_vals);
+    }
+    
+    // Same for predictive errors
+    if (predictive_errors.size() > window_size) {
+        std::vector<float> recent_errors(predictive_errors.end() - window_size, predictive_errors.end());
+        predictive_errors.swap(recent_errors);
+        std::vector<float>(predictive_errors).swap(predictive_errors);
+    }
+    
+    // And thresholds
+    if (thresholds.size() > window_size) {
+        std::vector<float> recent_thresholds(thresholds.end() - window_size, thresholds.end());
+        thresholds.swap(recent_thresholds);
+        std::vector<float>(thresholds).swap(thresholds);
+    }
+    
+    // Manage anomalies list
+    if (anomalies.size() > 100) { // Limit stored anomalies
+        std::vector<size_t> recent_anomalies(anomalies.end() - 100, anomalies.end());
+        anomalies.swap(recent_anomalies);
+        std::vector<size_t>(anomalies).swap(anomalies);
     }
 }
 
@@ -311,11 +374,18 @@ void AdapAD::train() {
     // Start timing
     auto start_time = std::chrono::high_resolution_clock::now();
     
+    // Reset states before training
+    data_predictor->reset_states();
+    generator->reset_states();
+    
     // Train data predictor and get training data
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> 
         training_data = data_predictor->train(config.epoch_train, config.lr_train, observed_vals);
     auto& trainX = training_data.first;
     auto& trainY = training_data.second;
+    
+    // Clean up after data predictor training
+    data_predictor->clear_training_state();
     
     // Calculate and store predicted values for training data
     predicted_vals.clear();
@@ -332,7 +402,14 @@ void AdapAD::train() {
         f_log << reverse_normalized_data(observed_vals[predicted_vals.size()-1]) << ","
               << reverse_normalized_data(pred) << ",,,,," << "\n";
         f_log.close();
+        
+        // Release memory for this input tensor
+        std::vector<std::vector<std::vector<float>>> empty;
+        input_tensor.swap(empty);
     }
+    
+    // Clean up after predictions
+    data_predictor->clear_training_state();
     
     // Calculate prediction errors for training data
     predictive_errors.clear();
@@ -342,8 +419,11 @@ void AdapAD::train() {
     }
     
     // Train generator
-    //generator->reset_states();
+    generator->reset_states();
     generator->train(config.epoch_train, config.lr_train, predictive_errors);
+    
+    // Clean up after generator training
+    generator->clear_training_state();
     
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -361,7 +441,8 @@ void AdapAD::train() {
 
     // After training is complete, reset states like in load_models
     std::cout << "Resetting model states after training..." << std::endl;
-    //reset_model_states();
+    data_predictor->reset_states();
+    generator->reset_states();
     
     // Clear and reinitialize caches
     data_predictor->initialize_layer_cache();
@@ -371,7 +452,16 @@ void AdapAD::train() {
     predicted_vals.clear();
     predictive_errors.clear();
     thresholds.clear();
-
+    
+    // Force vector memory release
+    {
+        std::vector<float> empty_vec;
+        predicted_vals.swap(empty_vec);
+        predictive_errors.swap(empty_vec);
+        thresholds.swap(empty_vec);
+    }
+    
+    // Save again with cleared state if enabled
     if (config.save_enabled) {
         save_models();
     }
@@ -382,8 +472,15 @@ void AdapAD::train() {
             observed_vals.end() - predictor_config.lookback_len,
             observed_vals.end()
         );
-        observed_vals = std::move(recent_vals);  // Using move for efficiency
+        observed_vals.swap(recent_vals);  // Using swap for efficiency
+        
+        // Force memory release
+        std::vector<float>(observed_vals).swap(observed_vals);
     }
+    
+    // One last cleanup
+    data_predictor->clear_training_state();
+    generator->clear_training_state();
 }
 
 void AdapAD::learn_error_pattern(
@@ -463,6 +560,10 @@ float AdapAD::simplify_error(const std::vector<float>& errors, float N_sigma) {
 
 void AdapAD::save_models() {
     try {
+        // Reset states before saving to minimize memory usage
+        data_predictor->reset_states();
+        generator->reset_states();
+        
         // Create directory if it doesn't exist
         if (mkdir(config.save_path.c_str(), 0777) == -1) {
             if (errno != EEXIST) {
@@ -513,6 +614,10 @@ void AdapAD::save_models() {
         file.write(reinterpret_cast<const char*>(&value_range_config.lower_bound), sizeof(float));
         file.write(reinterpret_cast<const char*>(&value_range_config.upper_bound), sizeof(float));
 
+        // Clean up state before saving
+        data_predictor->clear_training_state();
+        generator->clear_training_state();
+        
         // Save layer cache states
         data_predictor->save_layer_cache(file);
         generator->save_layer_cache(file);
@@ -524,6 +629,14 @@ void AdapAD::save_models() {
         // Save generator weights and biases directly to file
         generator->save_weights(file);
         generator->save_biases(file);
+        
+        // Ensure file is flushed and closed properly
+        file.flush();
+        file.close();
+        
+        // Force cleanup after saving
+        data_predictor->clear_training_state();
+        generator->clear_training_state();
         
     } catch (const std::exception& e) {
         std::cerr << "Error saving model state: " << e.what() << std::endl;
@@ -579,6 +692,10 @@ void AdapAD::load_models(const std::string& timestamp, const std::vector<float>&
             value_range_config.lower_bound = temp_lower_bound;
             value_range_config.upper_bound = temp_upper_bound;
 
+            // Clean up state before initializing
+            data_predictor->reset_states();
+            generator->reset_states();
+            
             std::cout << "Initializing layer caches..." << std::endl;
             // Initialize layer caches
             data_predictor->initialize_layer_cache();
@@ -611,7 +728,12 @@ void AdapAD::load_models(const std::string& timestamp, const std::vector<float>&
 
             std::cout << "Resetting model states..." << std::endl;
             // Reset states after loading
-            reset_model_states();
+            data_predictor->reset_states();
+            generator->reset_states();
+            
+            // Clean up memory
+            data_predictor->clear_training_state();
+            generator->clear_training_state();
             
             std::cout << "Initializing observed values..." << std::endl;
             // Initialize observed_vals with exactly lookback_len points
@@ -621,14 +743,26 @@ void AdapAD::load_models(const std::string& timestamp, const std::vector<float>&
                 observed_vals.push_back(normalized);
             }
             
-            // Initialize other vectors
+            // Initialize other vectors with minimal size 
             predicted_vals.clear();
             predictive_errors.clear();
             thresholds.clear();
             
+            // Force memory release
+            std::vector<float> empty_vec;
+            predicted_vals.swap(empty_vec);
+            empty_vec.clear();
+            predictive_errors.swap(empty_vec);
+            empty_vec.clear();
+            thresholds.swap(empty_vec);
+            
+            // Properly close the file
+            file.close();
+            
             std::cout << "Successfully loaded model state for " << parameter_name << std::endl;
             
         } catch (const std::runtime_error& e) {
+            file.close();
             throw std::runtime_error("Error during model loading: " + std::string(e.what()));
         }
         
