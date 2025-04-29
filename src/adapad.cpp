@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <sys/resource.h>
 
 AdapAD::AdapAD(const PredictorConfig& predictor_config,
                const ValueRangeConfig& value_range_config,
@@ -64,21 +65,12 @@ bool AdapAD::is_anomalous(float observed_val) {
     bool is_anomalous_ret = false;
     float normalized = normalize_data(observed_val);
     
-    // Track memory before adding new value
-    size_t mem_before = get_current_memory();
-    
     // First add the new value
     observed_vals.push_back(normalized);
     
     // Then remove the oldest entry if we have more than lookback_len values
     if (observed_vals.size() > predictor_config.lookback_len + 1) {  // +1 to ensure we have enough for prediction
         observed_vals.erase(observed_vals.begin());
-    }
-    
-    size_t mem_after = get_current_memory();
-    if (mem_after > mem_before) {
-        std::cout << "Memory increase after observed_vals.push_back: " 
-                  << (mem_after - mem_before) << " bytes" << std::endl;
     }
 
     try {
@@ -87,14 +79,7 @@ bool AdapAD::is_anomalous(float observed_val) {
             throw std::runtime_error("Not enough observed values");
         }
 
-        // Track memory before preparing data
-        mem_before = get_current_memory();
         auto past_observations = prepare_data_for_prediction(observed_vals.size());
-        mem_after = get_current_memory();
-        if (mem_after > mem_before) {
-            std::cout << "Memory increase after prepare_data_for_prediction: " 
-                      << (mem_after - mem_before) << " bytes" << std::endl;
-        }
 
         if (past_observations.empty() || past_observations[0].empty() || 
             past_observations[0][0].size() != predictor_config.lookback_len) {
@@ -109,45 +94,22 @@ bool AdapAD::is_anomalous(float observed_val) {
             generator->initialize_layer_cache();
         }
         
-        // Track memory before prediction
-        mem_before = get_current_memory();
-        
         // Store predictor forward pass results
         auto predictor_output = data_predictor->forward(past_observations);
         auto predicted_val = data_predictor->get_final_prediction(predictor_output);
-        
-        mem_after = get_current_memory();
-        if (mem_after > mem_before) {
-            std::cout << "Memory increase after prediction: " 
-                      << (mem_after - mem_before) << " bytes" << std::endl;
-        }
         
         // Validate vector sizes before push_back
         if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
             predicted_vals.erase(predicted_vals.begin());
         }
         
-        // Track memory before adding predicted value
-        mem_before = get_current_memory();
         predicted_vals.push_back(predicted_val[0]);
-        mem_after = get_current_memory();
-        if (mem_after > mem_before) {
-            std::cout << "Memory increase after predicted_vals.push_back: " 
-                      << (mem_after - mem_before) << " bytes" << std::endl;
-        }
         
         // Calculate error in normalized space to match thresholds
         float prediction_error = NormalDataPredictionErrorCalculator::calc_error(
             predicted_val[0], normalized);  
         
-        // Track memory before adding error
-        mem_before = get_current_memory();
         predictive_errors.push_back(prediction_error);
-        mem_after = get_current_memory();
-        if (mem_after > mem_before) {
-            std::cout << "Memory increase after predictive_errors.push_back: " 
-                      << (mem_after - mem_before) << " bytes" << std::endl;
-        }
         
         // Check range first
         if (!is_inside_range(normalized)) {
@@ -162,9 +124,6 @@ bool AdapAD::is_anomalous(float observed_val) {
                     predictive_errors.end() - predictor_config.lookback_len,
                     predictive_errors.end());
                 
-                // Track memory before generator
-                mem_before = get_current_memory();
-                
                 // Store generator forward pass results
                 std::vector<std::vector<std::vector<float>>> generator_input(1);
                 generator_input[0].resize(1);
@@ -172,50 +131,23 @@ bool AdapAD::is_anomalous(float observed_val) {
                 auto generator_output = generator->forward(generator_input);
                 threshold = generator->generate(past_errors, minimal_threshold);
                 
-                mem_after = get_current_memory();
-                if (mem_after > mem_before) {
-                    std::cout << "Memory increase after generator->generate: " 
-                              << (mem_after - mem_before) << " bytes" << std::endl;
-                }
-                
                 if (prediction_error > threshold && !is_default_normal()) {
                     is_anomalous_ret = true;
                     anomalies.push_back(observed_vals.size());
                 }
 
-                // Track memory before update
-                mem_before = get_current_memory();
                 // Use stored forward pass results for predictor update
                 data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
                                     past_observations, {normalized}, predictor_output);
-                mem_after = get_current_memory();
-                if (mem_after > mem_before) {
-                    std::cout << "Memory increase after data_predictor->update: " 
-                              << (mem_after - mem_before) << " bytes" << std::endl;
-                }
                 
                 if (is_anomalous_ret || threshold > minimal_threshold) {
-                    // Track memory before generator update
-                    mem_before = get_current_memory();
                     // Use stored forward pass results for generator update
                     generator->update(predictor_config.epoch_update, predictor_config.lr_update,
                                     past_errors, prediction_error, generator_output);
-                    mem_after = get_current_memory();
-                    if (mem_after > mem_before) {
-                        std::cout << "Memory increase after update_generator: " 
-                                  << (mem_after - mem_before) << " bytes" << std::endl;
-                    }
                 }
             }
             
-            // Track memory before adding threshold
-            mem_before = get_current_memory();
             thresholds.push_back(threshold);
-            mem_after = get_current_memory();
-            if (mem_after > mem_before) {
-                std::cout << "Memory increase after thresholds.push_back: " 
-                          << (mem_after - mem_before) << " bytes" << std::endl;
-            }
         }
         
         // Log results
@@ -239,14 +171,7 @@ bool AdapAD::is_anomalous(float observed_val) {
             }
         }
         
-        // Track memory before cleanup
-        mem_before = get_current_memory();
         clean();
-        mem_after = get_current_memory();
-        if (mem_after > mem_before) {
-            std::cout << "Memory increase after clean: " 
-                      << (mem_after - mem_before) << " bytes" << std::endl;
-        }
         
     } catch (const std::exception& e) {
         std::cerr << "Error in is_anomalous: " << e.what() << std::endl;

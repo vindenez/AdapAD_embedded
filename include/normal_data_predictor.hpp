@@ -3,7 +3,6 @@
 
 #include "lstm_predictor.hpp"
 #include <vector>
-#include <memory>
 #include "lstm_predictor.hpp"
 #include <fstream>
 
@@ -73,9 +72,6 @@ public:
             predictor->learn();
         }
     }
-
-    // Helper function to get current memory usage
-    size_t get_current_memory() const;
 
     bool is_layer_cache_initialized() const { 
         return predictor ? predictor->is_layer_cache_initialized() : false; 

@@ -8,15 +8,6 @@
 #include <fstream>
 #include <sys/resource.h>
 
-// Helper function to get current memory usage
-size_t NormalDataPredictor::get_current_memory() const {
-    struct rusage usage;
-    if (getrusage(RUSAGE_SELF, &usage) == 0) {
-        return usage.ru_maxrss * 1024;  // Convert from KB to bytes
-    }
-    return 0;
-}
-
 NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, 
                                        int lookback_len, int prediction_len)
     : lookback_len(lookback_len),
