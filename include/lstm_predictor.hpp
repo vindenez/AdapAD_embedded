@@ -103,12 +103,21 @@ public:
 
     void eval() { 
         training_mode = false; 
+        online_learning_mode = false;
     }
     
     void train() { 
         training_mode = true; 
     }
+
+    void learn() { 
+        training_mode = true; 
+        online_learning_mode = true;
+    }
+
     bool is_training() const { return training_mode; }
+    bool is_online_learning() const { return online_learning_mode; }
+
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -133,6 +142,25 @@ public:
     void clear_training_state();
 
     void clear_temporary_cache();
+
+    // Clear all temporary data and maintain minimal structure
+    void clear_temporary_data();
+
+    // Reset layer cache between timesteps
+    void reset_layer_cache();
+
+    // Clear layer cache and reinitialize with minimal structure
+    void clear_layer_cache();
+
+    // Clear update state and reinitialize gradients
+    void clear_update_state();
+
+    bool is_layer_cache_initialized() const {
+        return !layer_cache.empty() && 
+               layer_cache.size() == num_layers &&
+               !layer_cache[0].empty() &&
+               layer_cache[0][0].size() == seq_length;
+    }
 
 private:
     unsigned random_seed;
@@ -226,6 +254,8 @@ private:
                         float learning_rate);
 
     bool training_mode = true;
+    bool online_learning_mode = false;
+
     size_t current_cache_size = 0;  
     
 };

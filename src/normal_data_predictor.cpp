@@ -6,6 +6,16 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <sys/resource.h>
+
+// Helper function to get current memory usage
+size_t NormalDataPredictor::get_current_memory() const {
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        return usage.ru_maxrss * 1024;  // Convert from KB to bytes
+    }
+    return 0;
+}
 
 NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, 
                                        int lookback_len, int prediction_len)
@@ -19,6 +29,22 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit,
         lstm_layer,      // num_layers
         lookback_len     // seq_length
     ));
+
+    // Pre-allocate vectors for update
+    update_input.resize(1);
+    update_input[0].resize(1);
+    update_input[0][0].resize(lookback_len, 0.0f);
+    update_target.resize(prediction_len, 0.0f);
+    update_pred.resize(prediction_len, 0.0f);
+    update_output.sequence_output.resize(1);
+    update_output.sequence_output[0].resize(1);
+    update_output.sequence_output[0][0].resize(prediction_len, 0.0f);
+    update_output.final_hidden.resize(lstm_layer);
+    update_output.final_cell.resize(lstm_layer);
+    for (int i = 0; i < lstm_layer; ++i) {
+        update_output.final_hidden[i].resize(lstm_unit, 0.0f);
+        update_output.final_cell[i].resize(lstm_unit, 0.0f);
+    }
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -69,6 +95,10 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
                      << ", Average Loss: " << avg_loss << std::endl;
         }
     }
+
+    // Clean up after training
+    predictor->clear_training_state();
+    predictor->learn();
     
     // Convert windows to 3D
     std::vector<std::vector<std::vector<float>>> x3d;
@@ -121,29 +151,46 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
         throw std::runtime_error("Empty recent_observation in update");
     }
 
-    predictor->train();
+    // Copy data to pre-allocated input
+    std::copy(past_observations[0][0].begin(), past_observations[0][0].end(), 
+              update_input[0][0].begin());
     
-    std::vector<float> loss_l;  
+    // Copy target to pre-allocated vector
+    std::copy(recent_observation.begin(), recent_observation.end(), 
+              update_target.begin());
+    
+    // Single forward pass for both prediction and backpropagation
+    update_output = predictor->forward(update_input);
+    update_pred = predictor->get_final_prediction(update_output);
+    
+    // Calculate initial loss
+    float initial_loss = 0.0f;
+    for (size_t i = 0; i < update_pred.size(); ++i) {
+        float diff = update_pred[i] - update_target[i];
+        initial_loss += diff * diff;
+    }
+    initial_loss /= static_cast<float>(update_pred.size());
+    
+    // Training loop with early stopping based on loss progression
+    float prev_loss = initial_loss;
+    int epochs_completed = 0;
+    
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
-        auto output = predictor->forward(past_observations);
-        auto pred = predictor->get_final_prediction(output);
+        // Update step for online learning using the same forward pass
+        predictor->train_step(update_input, update_target, update_output, lr_update);
         
-        // Calculate MSE loss
-        float current_loss = 0.0f;
-        for (size_t i = 0; i < pred.size(); ++i) {
-            float diff = pred[i] - recent_observation[i];
-            current_loss += diff * diff;
-        }
-        current_loss /= static_cast<float>(pred.size());
-        
-        // Early stopping
-        if (!loss_l.empty() && current_loss > loss_l.back()) {  
+        // Early stopping if loss increases
+        if (epoch > 0 && initial_loss > prev_loss) {
             break;
         }
         
-        loss_l.push_back(current_loss);
-        predictor->train_step(past_observations, recent_observation, output, lr_update);
+        prev_loss = initial_loss;
+        epochs_completed++;
     }
+    
+    // Clear temporary data but preserve states
+    predictor->clear_temporary_data();
+    predictor->clear_update_state();
 }
 
 void NormalDataPredictor::save_weights(std::ofstream& file) {

@@ -5,10 +5,14 @@
 #include <vector>
 #include <memory>
 #include "lstm_predictor.hpp"
+#include <fstream>
 
 class NormalDataPredictor {
 public:
     NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
+    
+    std::pair<std::vector<std::vector<float>>, std::vector<float>>
+    create_sliding_windows(const std::vector<float>& data);
     
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
     train(int epoch, float lr, const std::vector<float>& data2learn);
@@ -59,12 +63,32 @@ public:
         return predictor ? predictor->is_training() : false; 
     }
 
+    bool is_online_learning() const {
+        return predictor ? predictor->is_online_learning() : false;
+    }
+
+    void learn() {
+        if (predictor) {
+            predictor->learn();
+        }
+    }
+
+    // Helper function to get current memory usage
+    size_t get_current_memory() const;
+
+    bool is_layer_cache_initialized() const { 
+        return predictor ? predictor->is_layer_cache_initialized() : false; 
+    }
+
 private:
     int lookback_len;
     int prediction_len;
     std::unique_ptr<LSTMPredictor> predictor;
     
-    std::pair<std::vector<std::vector<float>>, std::vector<float>>
-    create_sliding_windows(const std::vector<float>& data);
+    // Pre-allocated vectors for update
+    std::vector<std::vector<std::vector<float>>> update_input;
+    std::vector<float> update_target;
+    std::vector<float> update_pred;
+    LSTMPredictor::LSTMOutput update_output;
 };
 #endif // NORMAL_DATA_PREDICTOR_HPP

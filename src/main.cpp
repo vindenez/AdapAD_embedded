@@ -35,6 +35,89 @@ struct CPUStats {
     unsigned long long steal;
 };
 
+class DataStream {
+private:
+    std::ifstream file;
+    std::vector<std::string> headers;
+    size_t current_line;
+    size_t num_columns;
+    std::string file_path;
+
+public:
+    DataStream(const std::string& path) : file_path(path), current_line(0) {
+        file.open(path);
+        if (!file.is_open()) {
+            throw std::runtime_error("Could not open data file: " + path);
+        }
+        
+        // Read header
+        std::string header;
+        std::getline(file, header);
+        
+        // Parse header
+        std::stringstream ss(header);
+        std::string col;
+        while (std::getline(ss, col, ',')) {
+            headers.push_back(col);
+        }
+        num_columns = headers.size();
+    }
+    
+    std::vector<std::string> get_headers() const {
+        return headers;
+    }
+    
+    bool read_next_line(std::vector<float>& values) {
+        if (!file.good()) return false;
+        
+        std::string line;
+        if (!std::getline(file, line)) return false;
+        
+        std::stringstream ss(line);
+        std::string field;
+        values.clear();
+        
+        // Skip timestamp
+        std::getline(ss, field, ',');
+        
+        // Read values
+        while (std::getline(ss, field, ',')) {
+            // Trim whitespace
+            field.erase(0, field.find_first_not_of(" \t\r\n"));
+            field.erase(field.find_last_not_of(" \t\r\n") + 1);
+            
+            try {
+                if (field.empty() || field == "NA" || field == "NaN" || field == "-" || field == "0.0") {
+                    values.push_back(-999.0f);
+                } else {
+                    values.push_back(std::stof(field));
+                }
+            } catch (const std::exception& e) {
+                values.push_back(-999.0f);
+            }
+        }
+        
+        current_line++;
+        return true;
+    }
+    
+    void reset() {
+        file.clear();
+        file.seekg(0);
+        std::string header;
+        std::getline(file, header);  // Skip header
+        current_line = 0;
+    }
+    
+    size_t get_current_line() const {
+        return current_line;
+    }
+    
+    size_t get_num_columns() const {
+        return num_columns;
+    }
+};
+
 std::vector<DataPoint> read_csv_column(const std::string& filename, int column_index) {
     std::vector<DataPoint> data;
     std::ifstream file(filename);
@@ -222,7 +305,7 @@ int main() {
 
     auto predictor_config = init_predictor_config();  // Get predictor config once
 
-        // Debug print save settings
+    // Debug print save settings
     std::cout << "\nModel save settings:" << std::endl;
     std::cout << "Save enabled: " << config.save_enabled << std::endl;
     std::cout << "Load enabled: " << config.load_enabled << std::endl;
@@ -265,45 +348,44 @@ int main() {
     size_t total_memory = get_memory_usage() - initial_memory;
     std::cout << "Total memory usage for all models: " << total_memory / 1024.0 << " MB" << std::endl;
     
-    // Read training data for all models
-    std::vector<std::vector<DataPoint>> all_data;
-    for (size_t i = 0; i < models.size(); ++i) {
-        all_data.push_back(read_csv_column(config.data_source_path, i + 1));
-    }
-    
-    // Pre-allocate data vectors
-    all_data.reserve(models.size());
-    for (auto& data : all_data) {
-        data.reserve(4000);  // Adjust based on expected data size
-    }
+    // Create data stream
+    DataStream data_stream(config.data_source_path);
     
     // Training phase
     std::cout << "\nStarting training phase..." << std::endl;
     auto train_start = std::chrono::high_resolution_clock::now();
     
-    for (size_t i = 0; i < models.size(); ++i) {
-        // Get initial data points for lookback
-        std::vector<float> initial_data;
-        for (size_t j = 0; j < predictor_config.lookback_len && j < all_data[i].size(); ++j) {
-            initial_data.push_back(all_data[i][j].value);
+    // Read training data in chunks
+    std::vector<float> line_values;
+    std::vector<std::vector<float>> training_data(models.size());
+    
+    // Read training data
+    for (size_t j = 0; j < predictor_config.train_size; ++j) {
+        if (!data_stream.read_next_line(line_values)) {
+            throw std::runtime_error("Not enough training data");
         }
-
+        
+        for (size_t i = 0; i < models.size(); ++i) {
+            if (i < line_values.size()) {
+                training_data[i].push_back(line_values[i]);
+            }
+        }
+    }
+    
+    // Train models
+    for (size_t i = 0; i < models.size(); ++i) {
         if (config.load_enabled && models[i]->has_saved_model()) {
             std::cout << "Found saved model for " << csv_parameters[i] << ", loading..." << std::endl;
             try {
-                models[i]->load_latest_model(initial_data);
+                models[i]->load_latest_model(training_data[i]);
             } catch (const std::exception& e) {
                 std::cerr << "Failed to load model for " << csv_parameters[i] << ": " << e.what() << std::endl;
                 std::cout << "Falling back to training new model..." << std::endl;
-                goto train_new_model;
+                models[i]->set_training_data(training_data[i]);
+                models[i]->train();
             }
         } else {
-            train_new_model:
-            std::vector<float> training_data;
-            for (size_t j = 0; j < predictor_config.train_size && j < all_data[i].size(); ++j) {
-                training_data.push_back(all_data[i][j].value);
-            }
-            models[i]->set_training_data(training_data);
+            models[i]->set_training_data(training_data[i]);
             models[i]->train();
         }
     }
@@ -318,16 +400,15 @@ int main() {
     double total_processing_time = 0.0;
     
     // Online learning phase - processes sequentially
-    const size_t data_size = all_data[0].size();
     size_t prev_memory = get_memory_usage();
     
-    for (size_t t = predictor_config.train_size; t < data_size; ++t) {
+    while (data_stream.read_next_line(line_values)) {
         int freq_before = get_cpu_freq();
         float temp_before = get_cpu_temp();
         auto start_time = std::chrono::high_resolution_clock::now();
         auto cpu_stats_before = get_cpu_stats();
         
-        std::cout << "\nTimestep " << t 
+        std::cout << "\nTimestep " << data_stream.get_current_line() 
                   << " (CPU Freq: " << freq_before/1000 << " MHz"
                   << ", Temp: " << temp_before << "°C)" << std::endl;
         
@@ -340,8 +421,8 @@ int main() {
             
             try {
                 // Process single new value
-                const float measured_value = all_data[i][t].value;
-                all_data[i][t].is_anomaly = models[i]->is_anomalous(measured_value);
+                const float measured_value = (i < line_values.size()) ? line_values[i] : -999.0f;
+                bool is_anomaly = models[i]->is_anomalous(measured_value);
                 models[i]->clean();
                 
                 // Log memory delta for this model
@@ -359,7 +440,7 @@ int main() {
                 
             } catch (const std::exception& e) {
                 std::cerr << "Error processing " << csv_parameters[i] 
-                          << " at time " << t << ": " << e.what() << std::endl;
+                          << " at time " << data_stream.get_current_line() << ": " << e.what() << std::endl;
             }
             
             auto model_end = std::chrono::high_resolution_clock::now();

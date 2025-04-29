@@ -22,11 +22,49 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size,
       input_size(input_size),
       hidden_size(hidden_size),
       seq_length(lookback_len),
-      batch_first(batch_first) {
+      batch_first(batch_first),
+      training_mode(false),
+      online_learning_mode(false) {
     
+    // Pre-allocate LSTM layers
     lstm_layers.resize(num_layers);
     last_gradients.resize(num_layers);
     
+    // Pre-allocate layer cache with minimal structure
+    layer_cache.resize(num_layers);
+    for (int layer = 0; layer < num_layers; ++layer) {
+        layer_cache[layer].resize(1);  // One batch
+        layer_cache[layer][0].resize(lookback_len);  // Sequence length
+        
+        // Pre-allocate each cache entry with properly sized vectors
+        for (auto& seq : layer_cache[layer][0]) {
+            int expected_input_size = (layer == 0) ? input_size : hidden_size;
+            seq.input.resize(expected_input_size, 0.0f);
+            seq.prev_hidden.resize(hidden_size, 0.0f);
+            seq.prev_cell.resize(hidden_size, 0.0f);
+            seq.cell_state.resize(hidden_size, 0.0f);
+            seq.input_gate.resize(hidden_size, 0.0f);
+            seq.forget_gate.resize(hidden_size, 0.0f);
+            seq.cell_candidate.resize(hidden_size, 0.0f);
+            seq.output_gate.resize(hidden_size, 0.0f);
+            seq.hidden_state.resize(hidden_size, 0.0f);
+        }
+    }
+    
+    // Pre-allocate gradients
+    for (auto& grad : last_gradients) {
+        int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
+        grad.weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
+        grad.weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
+        grad.bias_ih_grad.resize(4 * hidden_size, 0.0f);
+        grad.bias_hh_grad.resize(4 * hidden_size, 0.0f);
+    }
+    
+    // Pre-allocate states
+    h_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
+    c_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
+    
+    // Initialize weights
     initialize_weights();
     reset_states();
 }
@@ -84,10 +122,9 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         throw std::runtime_error("Weight hh dimension mismatch");
     }
     
-    // Declare cache_entry only if training_mode is true
-    LSTMCacheEntry cache_entry;
-
-    if (training_mode) {
+    // Reference to cache entry if in training or online learning mode
+    LSTMCacheEntry* cache_entry = nullptr;
+    if (training_mode) {  // This includes both training and online learning
         // Validate indices before accessing cache
         if (current_layer >= layer_cache.size() ||
             current_batch >= layer_cache[current_layer].size() ||
@@ -95,21 +132,23 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
             throw std::runtime_error("Invalid cache access");
         }
         
-        // Initialize cache entry with proper sizes**
-        cache_entry = layer_cache[current_layer][current_batch][current_timestep];
+        cache_entry = &layer_cache[current_layer][current_batch][current_timestep];
         
-        // Validate and copy input
-        cache_entry.input = input;  
+        // Resize vectors to exact needed size
+        cache_entry->input.resize(expected_layer_input);
+        cache_entry->prev_hidden.resize(hidden_size);
+        cache_entry->prev_cell.resize(hidden_size);
+        cache_entry->cell_state.resize(hidden_size);
+        cache_entry->input_gate.resize(hidden_size);
+        cache_entry->forget_gate.resize(hidden_size);
+        cache_entry->cell_candidate.resize(hidden_size);
+        cache_entry->output_gate.resize(hidden_size);
+        cache_entry->hidden_state.resize(hidden_size);
         
-        // Initialize other cache vectors
-        cache_entry.input_gate.resize(hidden_size, 0.0f);
-        cache_entry.forget_gate.resize(hidden_size, 0.0f);
-        cache_entry.cell_candidate.resize(hidden_size, 0.0f);
-        cache_entry.output_gate.resize(hidden_size, 0.0f);
-        cache_entry.cell_state.resize(hidden_size, 0.0f);
-        cache_entry.hidden_state.resize(hidden_size, 0.0f);
-        cache_entry.prev_hidden = h_state;
-        cache_entry.prev_cell = c_state;
+        // Copy input and states
+        std::copy(input.begin(), input.end(), cache_entry->input.begin());
+        std::copy(h_state.begin(), h_state.end(), cache_entry->prev_hidden.begin());
+        std::copy(c_state.begin(), c_state.end(), cache_entry->prev_cell.begin());
     }
     
     // Initialize gates with biases (PyTorch layout: [i,f,g,o])
@@ -159,14 +198,14 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         float new_hidden = o_t * tanh_custom(new_cell);
         h_state[h] = new_hidden;
 
-        // Store values in cache only if training_mode is true
-        if (training_mode) {
-            cache_entry.input_gate[h] = i_t;
-            cache_entry.forget_gate[h] = f_t;
-            cache_entry.cell_candidate[h] = cell_candidate;
-            cache_entry.output_gate[h] = o_t;
-            cache_entry.cell_state[h] = new_cell;
-            cache_entry.hidden_state[h] = new_hidden;
+        // Store values in cache if in training mode (includes online learning)
+        if (training_mode && cache_entry) {
+            cache_entry->input_gate[h] = i_t;
+            cache_entry->forget_gate[h] = f_t;
+            cache_entry->cell_candidate[h] = cell_candidate;
+            cache_entry->output_gate[h] = o_t;
+            cache_entry->cell_state[h] = new_cell;
+            cache_entry->hidden_state[h] = new_hidden;
         }
     }
     
@@ -183,11 +222,6 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         throw std::runtime_error("Output size mismatch in lstm_cell_forward");
     }
 
-    // If training_mode, store cache_entry back to layer_cache
-    if (training_mode) {
-        layer_cache[current_layer][current_batch][current_timestep] = cache_entry;
-    }
-
     return output;
 }
 
@@ -197,12 +231,8 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
     const std::vector<std::vector<float>>* initial_hidden,
     const std::vector<std::vector<float>>* initial_cell) {
 
-    reset_states();
-    
     for (size_t batch = 0; batch < x.size(); ++batch) {
-        
         for (size_t seq = 0; seq < x[batch].size(); ++seq) {
-            
             // Verify input dimensions for each timestep
             if (x[batch][seq].size() != input_size) {
                 throw std::runtime_error("Input dimension mismatch in sequence");
@@ -214,80 +244,19 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         size_t batch_size = x.size();
         size_t seq_len = x[0].size();
         
-        // Initialize layer cache for training, reusing existing memory whenever possible
-        if (training_mode) {
-            if (layer_cache.empty() || 
-                layer_cache.size() != num_layers ||
-                layer_cache[0].size() != batch_size ||
-                layer_cache[0][0].size() != seq_len) {
-                
-                // Try to reuse existing cache structure
-                if (!layer_cache.empty()) {
-                    // Resize existing cache structure
-                    layer_cache.resize(num_layers);
-                    
-                    for (int layer = 0; layer < num_layers; ++layer) {
-                        layer_cache[layer].resize(batch_size);
-                        for (size_t batch = 0; batch < batch_size; ++batch) {
-                            if (batch < layer_cache[layer].size()) {
-                                // Resize existing batch
-                                layer_cache[layer][batch].resize(seq_len);
-                            } else {
-                                // Add new batch
-                                layer_cache[layer].push_back(std::vector<LSTMCacheEntry>(seq_len));
-                            }
-                        }
-                    }
-                } else {
-                    // Create new cache structure if none exists
-                    layer_cache.resize(num_layers);
-                    
-                    for (int layer = 0; layer < num_layers; ++layer) {
-                        layer_cache[layer].resize(batch_size);
-                        for (size_t batch = 0; batch < batch_size; ++batch) {
-                            layer_cache[layer][batch].resize(seq_len);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Initialize output structure, reusing if possible
+        // Initialize output structure with minimal size
         LSTMOutput output;
         output.sequence_output.resize(batch_size);
-        
-        for (size_t b = 0; b < batch_size; ++b) {
-            output.sequence_output[b].resize(seq_len);
-            for (size_t t = 0; t < seq_len; ++t) {
-                output.sequence_output[b][t].resize(hidden_size, 0.0f);
+        for (auto& batch : output.sequence_output) {
+            batch.resize(seq_len);
+            for (auto& seq : batch) {
+                seq.resize(hidden_size, 0.0f);
             }
         }
         
-        // Initialize or use provided states
-        if (!initial_hidden || !initial_cell) {
-            // Reuse existing h_state and c_state if available
-            if (h_state.size() != num_layers || c_state.size() != num_layers) {
-                h_state.resize(num_layers);
-                c_state.resize(num_layers);
-                for (int layer = 0; layer < num_layers; ++layer) {
-                    h_state[layer].resize(hidden_size, 0.0f);
-                    c_state[layer].resize(hidden_size, 0.0f);
-                }
-            } else {
-                // Clear existing states
-                for (int layer = 0; layer < num_layers; ++layer) {
-                    std::fill(h_state[layer].begin(), h_state[layer].end(), 0.0f);
-                    std::fill(c_state[layer].begin(), c_state[layer].end(), 0.0f);
-                }
-            }
-        } else {
-            h_state = *initial_hidden;
-            c_state = *initial_cell;
-        }
-        
-        // Process each batch and timestep
+        // Process each batch
         for (size_t batch = 0; batch < batch_size; ++batch) {
-            current_batch = batch;  // Set unconditionally
+            current_batch = batch;
             
             if (!initial_hidden || !initial_cell) {
                 reset_states();
@@ -319,7 +288,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
                         c_state[layer],
                         lstm_layers[layer]
                     );
-                    
                 }
                 
                 output.sequence_output[batch][t] = layer_outputs[num_layers];
@@ -332,6 +300,8 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         return output;
         
     } catch (const std::exception& e) {
+        // Clean up on error
+        clear_training_state();
         throw;
     }
 }
@@ -449,7 +419,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
         
         const auto& layer_cache = cache[layer][current_batch];
         
-        // If this is the last layer, add grad_output (like dy @ Wy.T in PyTorch)
+        // If this is the last layer, add grad output (like dy @ Wy.T in PyTorch)
         if (layer == num_layers - 1) {
             for (int h = 0; h < hidden_size; ++h) {
                 dh[h] += grad_output[h];
@@ -576,55 +546,45 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         std::vector<float> lstm_grad;
         backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
 
-        // Verify FC layer dimensions for SGD
-        if (fc_weight.size() != fc_weight_grad.size() || 
-            (fc_weight.size() > 0 && fc_weight[0].size() != fc_weight_grad[0].size())) {
-            throw std::runtime_error("Dimension mismatch in FC layer gradients");
-        }
+        // Update weights using SGD
+        apply_sgd_update(fc_weight, fc_weight_grad, learning_rate);
+        apply_sgd_update(fc_bias, fc_bias_grad, learning_rate);
 
-        // Apply SGD updates to FC layer
-        try {
-            apply_sgd_update(fc_weight, fc_weight_grad, learning_rate);
-
-            apply_sgd_update(fc_bias, fc_bias_grad, learning_rate);
-        } catch (const std::exception& e) {
-            throw;
-        }
-
-        // Validate cache before LSTM backward pass
-        if (layer_cache.empty()) {
-            throw std::runtime_error("Empty layer cache");
-        }
-
-        // Verify lstm_grad dimensions
-        if (lstm_grad.size() != hidden_size) {
-            throw std::runtime_error("Invalid lstm_grad dimensions");
-        }
-
-        // LSTM backward pass
-        auto lstm_grads = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
-
-        // Apply Optimizer updates to LSTM layers
-        for (int layer = 0; layer < num_layers; ++layer) {
-            try {
-                // Verify LSTM layer dimensions before updates
-                if (lstm_layers[layer].weight_ih.size() != lstm_grads[layer].weight_ih_grad.size()) {
-                    throw std::runtime_error("LSTM weight_ih dimension mismatch at layer " + 
-                                           std::to_string(layer));
+        // Only clear temporary data, not the entire state
+        if (online_learning_mode) {
+            // Clear gradients but maintain structure
+            for (auto& grad : last_gradients) {
+                for (auto& row : grad.weight_ih_grad) {
+                    std::fill(row.begin(), row.end(), 0.0f);
                 }
-                apply_sgd_update(lstm_layers[layer].weight_ih, lstm_grads[layer].weight_ih_grad, learning_rate);
-                apply_sgd_update(lstm_layers[layer].weight_hh, lstm_grads[layer].weight_hh_grad, learning_rate);
-                apply_sgd_update(lstm_layers[layer].bias_ih, lstm_grads[layer].bias_ih_grad, learning_rate);
-                apply_sgd_update(lstm_layers[layer].bias_hh, lstm_grads[layer].bias_hh_grad, learning_rate);
-
-            } catch (const std::exception& e) {
-                throw;
+                for (auto& row : grad.weight_hh_grad) {
+                    std::fill(row.begin(), row.end(), 0.0f);
+                }
+                std::fill(grad.bias_ih_grad.begin(), grad.bias_ih_grad.end(), 0.0f);
+                std::fill(grad.bias_hh_grad.begin(), grad.bias_hh_grad.end(), 0.0f);
+            }
+            
+            // Clear layer cache but maintain structure
+            for (auto& layer : layer_cache) {
+                for (auto& batch : layer) {
+                    for (auto& seq : batch) {
+                        std::fill(seq.input.begin(), seq.input.end(), 0.0f);
+                        std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
+                        std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
+                        std::fill(seq.cell_state.begin(), seq.cell_state.end(), 0.0f);
+                        std::fill(seq.input_gate.begin(), seq.input_gate.end(), 0.0f);
+                        std::fill(seq.forget_gate.begin(), seq.forget_gate.end(), 0.0f);
+                        std::fill(seq.cell_candidate.begin(), seq.cell_candidate.end(), 0.0f);
+                        std::fill(seq.output_gate.begin(), seq.output_gate.end(), 0.0f);
+                        std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
+                    }
+                }
             }
         }
-
-        clear_temporary_cache();
-
+        
     } catch (const std::exception& e) {
+        // Clean up on error
+        clear_training_state();
         throw;
     }
 }
@@ -646,13 +606,17 @@ float LSTMPredictor::compute_loss(const std::vector<float>& output,
 
 std::vector<float> LSTMPredictor::get_final_prediction(const LSTMOutput& lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
+    
+    // Get the final hidden state directly
     const auto& final_hidden = lstm_output.sequence_output.back().back();
     
+    // Compute the output
     for (int i = 0; i < num_classes; ++i) {
-        final_output[i] = fc_bias[i];
+        float sum = fc_bias[i];
         for (int j = 0; j < hidden_size; ++j) {
-            final_output[i] += fc_weight[i][j] * final_hidden[j];
+            sum += fc_weight[i][j] * final_hidden[j];
         }
+        final_output[i] = sum;
     }
     
     return final_output;
@@ -1039,58 +1003,15 @@ void LSTMPredictor::load_layer_cache(std::ifstream& file) {
     }
 }
 
-void LSTMPredictor::clear_temporary_cache() {
-    // Keep the layer cache structure but resize vectors to minimum required size
-    for (auto& layer : layer_cache) {
-        for (auto& batch : layer) {
-            for (auto& seq : batch) {
-                // Resize vectors to minimum size instead of just zeroing them
-                seq.input.resize(std::min(seq.input.capacity(), static_cast<size_t>(16)));
-                seq.prev_hidden.resize(std::min(seq.prev_hidden.capacity(), static_cast<size_t>(16)));
-                seq.prev_cell.resize(std::min(seq.prev_cell.capacity(), static_cast<size_t>(16)));
-                seq.cell_state.resize(std::min(seq.cell_state.capacity(), static_cast<size_t>(16)));
-                seq.input_gate.resize(std::min(seq.input_gate.capacity(), static_cast<size_t>(16)));
-                seq.forget_gate.resize(std::min(seq.forget_gate.capacity(), static_cast<size_t>(16)));
-                seq.cell_candidate.resize(std::min(seq.cell_candidate.capacity(), static_cast<size_t>(16)));
-                seq.output_gate.resize(std::min(seq.output_gate.capacity(), static_cast<size_t>(16)));
-                seq.hidden_state.resize(std::min(seq.hidden_state.capacity(), static_cast<size_t>(16)));
-                
-                // Fill with zeros
-                std::fill(seq.input.begin(), seq.input.end(), 0.0f);
-                std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
-                std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
-                std::fill(seq.cell_state.begin(), seq.cell_state.end(), 0.0f);
-                std::fill(seq.input_gate.begin(), seq.input_gate.end(), 0.0f);
-                std::fill(seq.forget_gate.begin(), seq.forget_gate.end(), 0.0f);
-                std::fill(seq.cell_candidate.begin(), seq.cell_candidate.end(), 0.0f);
-                std::fill(seq.output_gate.begin(), seq.output_gate.end(), 0.0f);
-                std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
-            }
-            
-            // Limit batch sequences to what's needed
-            if (batch.size() > seq_length) {
-                batch.resize(seq_length);
-            }
-        }
-        
-        // Limit batch size
-        if (layer.size() > 1) {
-            layer.resize(1);
-        }
-    }
-    
-    current_cache_size = 0;  // Reset size counter
-}
+
 
 void LSTMPredictor::clear_training_state() {
     // Clear layer cache but maintain structure with minimal sizes
     for (auto& layer : layer_cache) {
         for (auto& batch : layer) {
-            // Resize to minimum needed size rather than clearing entirely
             batch.resize(std::min(batch.size(), static_cast<size_t>(seq_length)));
             
             for (auto& seq : batch) {
-                // Resize vectors to appropriate minimum sizes
                 int expected_input_size = (current_layer == 0) ? input_size : hidden_size;
                 seq.input.resize(expected_input_size);
                 seq.prev_hidden.resize(hidden_size);
@@ -1102,7 +1023,6 @@ void LSTMPredictor::clear_training_state() {
                 seq.output_gate.resize(hidden_size);
                 seq.hidden_state.resize(hidden_size);
                 
-                // Zero out the vectors
                 std::fill(seq.input.begin(), seq.input.end(), 0.0f);
                 std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
                 std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
@@ -1114,8 +1034,6 @@ void LSTMPredictor::clear_training_state() {
                 std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
             }
         }
-        
-        // Keep batch size to minimum
         layer.resize(1);
     }
     
@@ -1123,7 +1041,6 @@ void LSTMPredictor::clear_training_state() {
     for (auto& gradient : last_gradients) {
         int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
         
-        // Resize to minimum needed sizes instead of clearing
         for (auto& row : gradient.weight_ih_grad) {
             row.resize(input_size_layer);
             std::fill(row.begin(), row.end(), 0.0f);
@@ -1138,7 +1055,6 @@ void LSTMPredictor::clear_training_state() {
         std::fill(gradient.bias_hh_grad.begin(), gradient.bias_hh_grad.end(), 0.0f);
     }
     
-    // Reset current position trackers
     current_layer = 0;
     current_timestep = 0;
     current_batch = 0;
@@ -1155,7 +1071,6 @@ void LSTMPredictor::apply_sgd_update(
 
     float max_grad = 0.0f;
     float max_update = 0.0f;
-    int zero_grads = 0;
     
     for (size_t i = 0; i < weights.size(); ++i) {
         for (size_t j = 0; j < weights[i].size(); ++j) {
@@ -1172,7 +1087,6 @@ void LSTMPredictor::apply_sgd_update(
             // Track statistics
             max_grad = std::max(max_grad, std::abs(grad));
             max_update = std::max(max_update, std::abs(update));
-            if (std::abs(grad) < 1e-10) zero_grads++;
         }
     }
 }
@@ -1184,7 +1098,6 @@ void LSTMPredictor::apply_sgd_update(
     
     float max_grad = 0.0f;
     float max_update = 0.0f;
-    int zero_grads = 0;
     
     for (size_t i = 0; i < biases.size(); ++i) {
         float grad = grads[i];
@@ -1200,7 +1113,108 @@ void LSTMPredictor::apply_sgd_update(
         // Track statistics
         max_grad = std::max(max_grad, std::abs(grad));
         max_update = std::max(max_update, std::abs(update));
-        if (std::abs(grad) < 1e-10) zero_grads++;
+    }
+}
+
+void LSTMPredictor::reset_layer_cache() {
+    // Clear existing cache
+    {
+        std::vector<std::vector<std::vector<LSTMCacheEntry>>> empty;
+        layer_cache.swap(empty);
     }
     
+    // Initialize with minimal structure
+    layer_cache.resize(num_layers);
+    for (int layer = 0; layer < num_layers; ++layer) {
+        layer_cache[layer].resize(1);  // One batch
+        layer_cache[layer][0].resize(seq_length);  // Sequence length
+        
+        // Initialize each cache entry with properly sized vectors
+        for (auto& seq : layer_cache[layer][0]) {
+            int expected_input_size = (layer == 0) ? input_size : hidden_size;
+            seq.input.resize(expected_input_size, 0.0f);
+            seq.prev_hidden.resize(hidden_size, 0.0f);
+            seq.prev_cell.resize(hidden_size, 0.0f);
+            seq.cell_state.resize(hidden_size, 0.0f);
+            seq.input_gate.resize(hidden_size, 0.0f);
+            seq.forget_gate.resize(hidden_size, 0.0f);
+            seq.cell_candidate.resize(hidden_size, 0.0f);
+            seq.output_gate.resize(hidden_size, 0.0f);
+            seq.hidden_state.resize(hidden_size, 0.0f);
+        }
+    }
+    
+    // Reset current position trackers
+    current_layer = 0;
+    current_timestep = 0;
+    current_batch = 0;
+    current_cache_size = 0;
+}
+
+void LSTMPredictor::clear_temporary_data() {
+    // Clear layer cache with swap
+    {
+        std::vector<std::vector<std::vector<LSTMCacheEntry>>> empty;
+        layer_cache.swap(empty);
+    }
+    
+    // Clear gradients with swap
+    for (auto& grad : last_gradients) {
+        {
+            std::vector<std::vector<float>> empty;
+            grad.weight_ih_grad.swap(empty);
+            grad.weight_hh_grad.swap(empty);
+        }
+        {
+            std::vector<float> empty;
+            grad.bias_ih_grad.swap(empty);
+            grad.bias_hh_grad.swap(empty);
+        }
+    }
+    
+    // Reset current position trackers
+    current_layer = 0;
+    current_timestep = 0;
+    current_batch = 0;
+    current_cache_size = 0;
+}
+
+void LSTMPredictor::clear_layer_cache() {
+    // Clear existing cache
+    clear_temporary_data();
+    
+    // Reinitialize with minimal structure
+    layer_cache.resize(num_layers);
+    for (int layer = 0; layer < num_layers; ++layer) {
+        layer_cache[layer].resize(1);  // One batch
+        layer_cache[layer][0].resize(seq_length);  // Sequence length
+        
+        for (auto& seq : layer_cache[layer][0]) {
+            int expected_input_size = (layer == 0) ? input_size : hidden_size;
+            seq.input.resize(expected_input_size, 0.0f);
+            seq.prev_hidden.resize(hidden_size, 0.0f);
+            seq.prev_cell.resize(hidden_size, 0.0f);
+            seq.cell_state.resize(hidden_size, 0.0f);
+            seq.input_gate.resize(hidden_size, 0.0f);
+            seq.forget_gate.resize(hidden_size, 0.0f);
+            seq.cell_candidate.resize(hidden_size, 0.0f);
+            seq.output_gate.resize(hidden_size, 0.0f);
+            seq.hidden_state.resize(hidden_size, 0.0f);
+        }
+    }
+}
+
+void LSTMPredictor::clear_update_state() {
+    // Clear existing data
+    clear_temporary_data();
+    
+    // Reinitialize gradients with correct sizes
+    last_gradients.resize(num_layers);
+    for (auto& grad : last_gradients) {
+        int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
+        grad.weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
+        grad.weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
+        grad.bias_ih_grad.resize(4 * hidden_size, 0.0f);
+        grad.bias_hh_grad.resize(4 * hidden_size, 0.0f);
+    }
 }

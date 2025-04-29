@@ -72,7 +72,6 @@ private:
     // Helper methods
     void learn_error_pattern(const std::vector<std::vector<std::vector<float>>>& trainX,
                            const std::vector<float>& trainY);
-    void update_generator(const std::vector<float>& past_errors, float recent_error);
     void logging(bool is_anomalous_ret);
     float normalize_data(float val);
     float reverse_normalized_data(float val);
