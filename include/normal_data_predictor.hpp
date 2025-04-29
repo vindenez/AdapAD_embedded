@@ -21,7 +21,8 @@ public:
     
     void update(int epoch_update, float lr_update,
                 const std::vector<std::vector<std::vector<float>>>& past_observations,
-                const std::vector<float>& recent_observation);
+                const std::vector<float>& recent_observation,
+                const LSTMPredictor::LSTMOutput& forward_output);
 
     void reset_states();
     void train_step(const std::vector<std::vector<std::vector<float>>>& x,

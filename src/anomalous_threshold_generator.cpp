@@ -68,7 +68,8 @@ float AnomalousThresholdGenerator::generate(
 
 void AnomalousThresholdGenerator::update(
     int epoch_update, float lr_update,
-    const std::vector<float>& past_errors, float recent_error) {
+    const std::vector<float>& past_errors, float recent_error,
+    const LSTMPredictor::LSTMOutput& forward_output) {
     
     // Copy data to pre-allocated input
     std::copy(past_errors.begin(), past_errors.end(), 
@@ -77,8 +78,8 @@ void AnomalousThresholdGenerator::update(
     // Set target
     update_target[0] = recent_error;
     
-    // Single forward pass for both prediction and backpropagation
-    update_output = generator->forward(update_input);
+    // Use the provided forward pass results
+    update_output = forward_output;
     update_pred = generator->get_final_prediction(update_output);
     
     // Calculate initial loss

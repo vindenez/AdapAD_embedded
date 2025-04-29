@@ -140,7 +140,8 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
 
 void NormalDataPredictor::update(int epoch_update, float lr_update,
                                const std::vector<std::vector<std::vector<float>>>& past_observations,
-                               const std::vector<float>& recent_observation) {
+                               const std::vector<float>& recent_observation,
+                               const LSTMPredictor::LSTMOutput& forward_output) {
     // Validate input dimensions
     if (past_observations.empty() || past_observations[0].empty() || 
         past_observations[0][0].size() != lookback_len) {
@@ -159,8 +160,8 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
     std::copy(recent_observation.begin(), recent_observation.end(), 
               update_target.begin());
     
-    // Single forward pass for both prediction and backpropagation
-    update_output = predictor->forward(update_input);
+    // Use the provided forward pass results
+    update_output = forward_output;
     update_pred = predictor->get_final_prediction(update_output);
     
     // Calculate initial loss

@@ -111,7 +111,11 @@ bool AdapAD::is_anomalous(float observed_val) {
         
         // Track memory before prediction
         mem_before = get_current_memory();
-        auto predicted_val = data_predictor->predict(past_observations);
+        
+        // Store predictor forward pass results
+        auto predictor_output = data_predictor->forward(past_observations);
+        auto predicted_val = data_predictor->get_final_prediction(predictor_output);
+        
         mem_after = get_current_memory();
         if (mem_after > mem_before) {
             std::cout << "Memory increase after prediction: " 
@@ -125,7 +129,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         
         // Track memory before adding predicted value
         mem_before = get_current_memory();
-        predicted_vals.push_back(predicted_val);
+        predicted_vals.push_back(predicted_val[0]);
         mem_after = get_current_memory();
         if (mem_after > mem_before) {
             std::cout << "Memory increase after predicted_vals.push_back: " 
@@ -134,7 +138,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         
         // Calculate error in normalized space to match thresholds
         float prediction_error = NormalDataPredictionErrorCalculator::calc_error(
-            predicted_val, normalized);  
+            predicted_val[0], normalized);  
         
         // Track memory before adding error
         mem_before = get_current_memory();
@@ -160,7 +164,14 @@ bool AdapAD::is_anomalous(float observed_val) {
                 
                 // Track memory before generator
                 mem_before = get_current_memory();
+                
+                // Store generator forward pass results
+                std::vector<std::vector<std::vector<float>>> generator_input(1);
+                generator_input[0].resize(1);
+                generator_input[0][0] = past_errors;
+                auto generator_output = generator->forward(generator_input);
                 threshold = generator->generate(past_errors, minimal_threshold);
+                
                 mem_after = get_current_memory();
                 if (mem_after > mem_before) {
                     std::cout << "Memory increase after generator->generate: " 
@@ -174,8 +185,9 @@ bool AdapAD::is_anomalous(float observed_val) {
 
                 // Track memory before update
                 mem_before = get_current_memory();
+                // Use stored forward pass results for predictor update
                 data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
-                                    past_observations, {normalized});
+                                    past_observations, {normalized}, predictor_output);
                 mem_after = get_current_memory();
                 if (mem_after > mem_before) {
                     std::cout << "Memory increase after data_predictor->update: " 
@@ -185,8 +197,9 @@ bool AdapAD::is_anomalous(float observed_val) {
                 if (is_anomalous_ret || threshold > minimal_threshold) {
                     // Track memory before generator update
                     mem_before = get_current_memory();
+                    // Use stored forward pass results for generator update
                     generator->update(predictor_config.epoch_update, predictor_config.lr_update,
-                                      past_errors, prediction_error);
+                                    past_errors, prediction_error, generator_output);
                     mem_after = get_current_memory();
                     if (mem_after > mem_before) {
                         std::cout << "Memory increase after update_generator: " 
@@ -208,9 +221,9 @@ bool AdapAD::is_anomalous(float observed_val) {
         // Log results
         f_log.open(f_name, std::ios_base::app);
         f_log << observed_val << ","
-              << reverse_normalized_data(predicted_val) << ","
-              << reverse_normalized_data(predicted_val - (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
-              << reverse_normalized_data(predicted_val + (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
+              << reverse_normalized_data(predicted_val[0]) << ","
+              << reverse_normalized_data(predicted_val[0] - (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
+              << reverse_normalized_data(predicted_val[0] + (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
               << (is_anomalous_ret ? "True" : "False") << ","
               << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << ","
               << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";

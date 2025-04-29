@@ -184,9 +184,22 @@ std::vector<DataPoint> read_csv_column(const std::string& filename, int column_i
 }
 
 size_t get_memory_usage() {
+#ifdef __linux__
+    // On Linux, use /proc/self/statm to get current RSS
+    std::ifstream statm_file("/proc/self/statm");
+    if (statm_file) {
+        unsigned long size, resident, shared, text, lib, data, dt;
+        statm_file >> size >> resident >> shared >> text >> lib >> data >> dt;
+        // resident is in pages, convert to bytes (multiply by page size)
+        return resident * sysconf(_SC_PAGESIZE);
+    }
+#else
+    // Fallback to getrusage for other systems
     struct rusage rusage;
     getrusage(RUSAGE_SELF, &rusage);
     return (size_t)rusage.ru_maxrss;
+#endif
+    return 0;
 }
 
 int get_cpu_freq() {
