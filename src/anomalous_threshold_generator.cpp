@@ -15,8 +15,25 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(
         lookback_len,    // input_size
         lstm_unit,       // hidden_size
         lstm_layer,      // num_layers
-        lookback_len     // seq_length
+        lookback_len,    // seq_length
+        true            // batch_first
     ));
+
+    // Pre-allocate vectors for update
+    update_input.resize(1);
+    update_input[0].resize(1);
+    update_input[0][0].resize(lookback_len, 0.0f);
+    update_target.resize(1, 0.0f);
+    update_pred.resize(1, 0.0f);
+    update_output.sequence_output.resize(1);
+    update_output.sequence_output[0].resize(1);
+    update_output.sequence_output[0][0].resize(prediction_len, 0.0f);
+    update_output.final_hidden.resize(lstm_layer);
+    update_output.final_cell.resize(lstm_layer);
+    for (int i = 0; i < lstm_layer; ++i) {
+        update_output.final_hidden[i].resize(lstm_unit, 0.0f);
+        update_output.final_cell[i].resize(lstm_unit, 0.0f);
+    }
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -51,20 +68,45 @@ float AnomalousThresholdGenerator::generate(
 
 void AnomalousThresholdGenerator::update(
     int epoch_update, float lr_update,
-    const std::vector<float>& past_errors, float recent_error) {
+    const std::vector<float>& past_errors, float recent_error,
+    const LSTMPredictor::LSTMOutput& forward_output) {
     
-    generator->train();
+    // Copy data to pre-allocated input
+    std::copy(past_errors.begin(), past_errors.end(), 
+              update_input[0][0].begin());
     
-    std::vector<std::vector<std::vector<float>>> reshaped_input(1);
-    reshaped_input[0].resize(1);
-    reshaped_input[0][0] = past_errors;
+    // Set target
+    update_target[0] = recent_error;
     
-    std::vector<float> target{recent_error};
+    // Use the provided forward pass results
+    update_output = forward_output;
+    update_pred = generator->get_final_prediction(update_output);
     
-    auto output = generator->forward(reshaped_input);
-    auto pred = generator->get_final_prediction(output);
+    // Calculate initial loss
+    float initial_loss = 0.0f;
+    float diff = update_pred[0] - recent_error;
+    initial_loss = diff * diff;
     
-    generator->train_step(reshaped_input, target, output, lr_update);
+    // Training loop with early stopping based on loss progression
+    float prev_loss = initial_loss;
+    int epochs_completed = 0;
+    
+    for (int e = 0; e < epoch_update; ++e) {
+        // Train step using the same forward pass
+        generator->train_step(update_input, update_target, update_output, lr_update);
+        
+        // Early stopping if loss increases
+        if (e > 0 && initial_loss > prev_loss) {
+            break;
+        }
+        
+        prev_loss = initial_loss;
+        epochs_completed++;
+    }
+    
+    // Clear temporary data but preserve states
+    generator->clear_temporary_data();
+    generator->clear_update_state();
 }
 
 std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
@@ -103,6 +145,10 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
                      << ", Average Loss: " << avg_loss << std::endl;
         }
     }
+
+    // Clean up after training
+    generator->clear_training_state();
+    generator->learn();
 
     // Return processed windows in the expected format
     std::vector<std::vector<std::vector<float>>> x3d;

@@ -7,10 +7,10 @@
 #include <sstream>
 #include <chrono>
 #include <string>
-#include <memory>
 #include <sys/resource.h>
 #include <numeric>
 #include <sys/time.h>
+#include <unistd.h>  
 
 struct DataPoint {
     float value;
@@ -33,6 +33,89 @@ struct CPUStats {
     unsigned long long irq;
     unsigned long long softirq;
     unsigned long long steal;
+};
+
+class DataStream {
+private:
+    std::ifstream file;
+    std::vector<std::string> headers;
+    size_t current_line;
+    size_t num_columns;
+    std::string file_path;
+
+public:
+    DataStream(const std::string& path) : file_path(path), current_line(0) {
+        file.open(path);
+        if (!file.is_open()) {
+            throw std::runtime_error("Could not open data file: " + path);
+        }
+        
+        // Read header
+        std::string header;
+        std::getline(file, header);
+        
+        // Parse header
+        std::stringstream ss(header);
+        std::string col;
+        while (std::getline(ss, col, ',')) {
+            headers.push_back(col);
+        }
+        num_columns = headers.size();
+    }
+    
+    std::vector<std::string> get_headers() const {
+        return headers;
+    }
+    
+    bool read_next_line(std::vector<float>& values) {
+        if (!file.good()) return false;
+        
+        std::string line;
+        if (!std::getline(file, line)) return false;
+        
+        std::stringstream ss(line);
+        std::string field;
+        values.clear();
+        
+        // Skip timestamp
+        std::getline(ss, field, ',');
+        
+        // Read values
+        while (std::getline(ss, field, ',')) {
+            // Trim whitespace
+            field.erase(0, field.find_first_not_of(" \t\r\n"));
+            field.erase(field.find_last_not_of(" \t\r\n") + 1);
+            
+            try {
+                if (field.empty() || field == "NA" || field == "NaN" || field == "-" || field == "0.0") {
+                    values.push_back(-999.0f);
+                } else {
+                    values.push_back(std::stof(field));
+                }
+            } catch (const std::exception& e) {
+                values.push_back(-999.0f);
+            }
+        }
+        
+        current_line++;
+        return true;
+    }
+    
+    void reset() {
+        file.clear();
+        file.seekg(0);
+        std::string header;
+        std::getline(file, header);  // Skip header
+        current_line = 0;
+    }
+    
+    size_t get_current_line() const {
+        return current_line;
+    }
+    
+    size_t get_num_columns() const {
+        return num_columns;
+    }
 };
 
 std::vector<DataPoint> read_csv_column(const std::string& filename, int column_index) {
@@ -98,12 +181,6 @@ std::vector<DataPoint> read_csv_column(const std::string& filename, int column_i
     std::cout << "- Missing/invalid points: " << invalid_count << std::endl;
     
     return data;
-}
-
-size_t get_memory_usage() {
-    struct rusage rusage;
-    getrusage(RUSAGE_SELF, &rusage);
-    return (size_t)rusage.ru_maxrss;
 }
 
 int get_cpu_freq() {
@@ -216,13 +293,12 @@ int main() {
     // Reserve space for parameters to avoid reallocations
     csv_parameters.reserve(15);  // Adjust based on expected parameter count
     
-    // Initialize models and measure memory usage
+    // Initialize models
     std::vector<std::unique_ptr<AdapAD>> models;
-    size_t initial_memory = get_memory_usage();
 
     auto predictor_config = init_predictor_config();  // Get predictor config once
 
-        // Debug print save settings
+    // Debug print save settings
     std::cout << "\nModel save settings:" << std::endl;
     std::cout << "Save enabled: " << config.save_enabled << std::endl;
     std::cout << "Load enabled: " << config.load_enabled << std::endl;
@@ -262,48 +338,44 @@ int main() {
             predictor_config, value_range_config, minimal_threshold, param_name)));
     }
 
-    size_t total_memory = get_memory_usage() - initial_memory;
-    std::cout << "Total memory usage for all models: " << total_memory / 1024.0 << " MB" << std::endl;
-    
-    // Read training data for all models
-    std::vector<std::vector<DataPoint>> all_data;
-    for (size_t i = 0; i < models.size(); ++i) {
-        all_data.push_back(read_csv_column(config.data_source_path, i + 1));
-    }
-    
-    // Pre-allocate data vectors
-    all_data.reserve(models.size());
-    for (auto& data : all_data) {
-        data.reserve(4000);  // Adjust based on expected data size
-    }
+    // Create data stream
+    DataStream data_stream(config.data_source_path);
     
     // Training phase
     std::cout << "\nStarting training phase..." << std::endl;
     auto train_start = std::chrono::high_resolution_clock::now();
     
-    for (size_t i = 0; i < models.size(); ++i) {
-        // Get initial data points for lookback
-        std::vector<float> initial_data;
-        for (size_t j = 0; j < predictor_config.lookback_len && j < all_data[i].size(); ++j) {
-            initial_data.push_back(all_data[i][j].value);
+    // Read training data in chunks
+    std::vector<float> line_values;
+    std::vector<std::vector<float>> training_data(models.size());
+    
+    // Read training data
+    for (size_t j = 0; j < predictor_config.train_size; ++j) {
+        if (!data_stream.read_next_line(line_values)) {
+            throw std::runtime_error("Not enough training data");
         }
-
+        
+        for (size_t i = 0; i < models.size(); ++i) {
+            if (i < line_values.size()) {
+                training_data[i].push_back(line_values[i]);
+            }
+        }
+    }
+    
+    // Train models
+    for (size_t i = 0; i < models.size(); ++i) {
         if (config.load_enabled && models[i]->has_saved_model()) {
             std::cout << "Found saved model for " << csv_parameters[i] << ", loading..." << std::endl;
             try {
-                models[i]->load_latest_model(initial_data);
+                models[i]->load_latest_model(training_data[i]);
             } catch (const std::exception& e) {
                 std::cerr << "Failed to load model for " << csv_parameters[i] << ": " << e.what() << std::endl;
                 std::cout << "Falling back to training new model..." << std::endl;
-                goto train_new_model;
+                models[i]->set_training_data(training_data[i]);
+                models[i]->train();
             }
         } else {
-            train_new_model:
-            std::vector<float> training_data;
-            for (size_t j = 0; j < predictor_config.train_size && j < all_data[i].size(); ++j) {
-                training_data.push_back(all_data[i][j].value);
-            }
-            models[i]->set_training_data(training_data);
+            models[i]->set_training_data(training_data[i]);
             models[i]->train();
         }
     }
@@ -317,71 +389,51 @@ int main() {
     size_t total_predictions = 0;
     double total_processing_time = 0.0;
     
-    // Online learning phase - processes sequentially
-    const size_t data_size = all_data[0].size();
-    size_t prev_memory = get_memory_usage();
-    
-    for (size_t t = predictor_config.train_size; t < data_size; ++t) {
+    while (data_stream.read_next_line(line_values)) {
         int freq_before = get_cpu_freq();
         float temp_before = get_cpu_temp();
         auto start_time = std::chrono::high_resolution_clock::now();
         auto cpu_stats_before = get_cpu_stats();
         
-        std::cout << "\nTimestep " << t 
+        std::cout << "\nTimestep " << data_stream.get_current_line() 
                   << " (CPU Freq: " << freq_before/1000 << " MHz"
                   << ", Temp: " << temp_before << "°C)" << std::endl;
         
         double timestep_total = 0.0;
         
+        // Process all models for this timestep
         for (size_t i = 0; i < models.size(); ++i) {
             auto model_start = std::chrono::high_resolution_clock::now();
             auto stats_before = get_system_stats();
-            size_t model_memory_before = get_memory_usage();
             
             try {
                 // Process single new value
-                const float measured_value = all_data[i][t].value;
-                all_data[i][t].is_anomaly = models[i]->is_anomalous(measured_value);
-                models[i]->clean();
+                const float measured_value = (i < line_values.size()) ? line_values[i] : -999.0f;
+                bool is_anomaly = models[i]->is_anomalous(measured_value);
                 
-                // Log memory delta for this model
-                size_t model_memory_after = get_memory_usage();
-                long memory_delta = (long)model_memory_after - (long)model_memory_before;
+                auto model_end = std::chrono::high_resolution_clock::now();
+                double model_time = std::chrono::duration<double>(
+                    model_end - model_start).count();
                 
-                std::cout << csv_parameters[i] << ": " 
-                          << "Time=" << std::chrono::duration<double>(
-                             std::chrono::high_resolution_clock::now() - model_start).count() << "s"
-                          << ", MemDelta=" << memory_delta / 1024.0 << "MB";
+                timestep_total += model_time;
                 
-                if (memory_delta > 1024 * 100) { // Log warning if memory increase > 100KB
-                    std::cout << " [WARNING: High memory usage]";
-                }
+                // Enhanced embedded system logging
+                auto stats_after = get_system_stats();
+                double system_time = 
+                    (stats_after.system_time.tv_sec - stats_before.system_time.tv_sec) +
+                    (stats_after.system_time.tv_usec - stats_before.system_time.tv_usec) / 1e6;
+                
+                std::cout << " (Sys=" << system_time << "s"
+                          << ", CSw=" << (stats_after.voluntary_switches - stats_before.voluntary_switches)
+                          << "v/" << (stats_after.involuntary_switches - stats_before.involuntary_switches)
+                          << "i)" << std::endl;
                 
             } catch (const std::exception& e) {
                 std::cerr << "Error processing " << csv_parameters[i] 
-                          << " at time " << t << ": " << e.what() << std::endl;
+                          << " at time " << data_stream.get_current_line() << ": " << e.what() << std::endl;
             }
-            
-            auto model_end = std::chrono::high_resolution_clock::now();
-            double model_time = std::chrono::duration<double>(
-                model_end - model_start).count();
-            
-            timestep_total += model_time;
-            
-            // Enhanced embedded system logging
-            auto stats_after = get_system_stats();
-            double system_time = 
-                (stats_after.system_time.tv_sec - stats_before.system_time.tv_sec) +
-                (stats_after.system_time.tv_usec - stats_before.system_time.tv_usec) / 1e6;
-            
-            std::cout << " (Sys=" << system_time << "s"
-                      << ", CSw=" << (stats_after.voluntary_switches - stats_before.voluntary_switches)
-                      << "v/" << (stats_after.involuntary_switches - stats_before.involuntary_switches)
-                      << "i)" << std::endl;
         }
         
-        // Log overall timestep statistics
-        size_t current_memory = get_memory_usage();
         float temp_after = get_cpu_temp();
         int freq_after = get_cpu_freq();
         auto cpu_stats_after = get_cpu_stats();
@@ -389,8 +441,6 @@ int main() {
         
         std::cout << "\nTimestep Summary:" << std::endl;
         std::cout << "- Total time: " << timestep_total << "s" << std::endl;
-        std::cout << "- Memory: " << current_memory / 1024.0 << "MB (Δ"
-                  << (long)(current_memory - prev_memory) / 1024.0 << "MB)" << std::endl;
         std::cout << "- CPU Freq: " << freq_after/1000 << "MHz (Δ"
                   << (freq_after - freq_before)/1000 << "MHz)" << std::endl;
         std::cout << "- CPU Temp: " << temp_after << "°C (Δ"
@@ -398,7 +448,6 @@ int main() {
         std::cout << "- CPU Usage: " << cpu_usage << "%" << std::endl;
         std::cout << "----------------------------------------" << std::endl;
         
-        prev_memory = current_memory;
         
         total_predictions++;
         total_processing_time += timestep_total;
@@ -415,7 +464,6 @@ int main() {
     std::cout << "Overall average time per model: " 
               << (total_processing_time / total_predictions / models.size()) 
               << " seconds" << std::endl;
-    std::cout << "Memory usage: " << get_memory_usage() / 1024.0 << " MB" << std::endl;
     
     
     return 0;

@@ -6,7 +6,6 @@
 #include "config.hpp"
 
 #include <vector>
-#include <memory>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -15,14 +14,6 @@
 class AdapAD {
 public:
 
-    size_t get_memory_usage() {
-        size_t total = 0;
-        
-        total += observed_vals.capacity() * sizeof(float);
-        total += predicted_vals.capacity() * sizeof(float);
-        
-        return total;
-    }
     std::unique_ptr<NormalDataPredictor> data_predictor;
     std::unique_ptr<AnomalousThresholdGenerator> generator;
     std::vector<std::vector<std::vector<float>>> prepare_data_for_prediction(size_t supposed_anomalous_pos);
@@ -72,7 +63,6 @@ private:
     // Helper methods
     void learn_error_pattern(const std::vector<std::vector<std::vector<float>>>& trainX,
                            const std::vector<float>& trainY);
-    void update_generator(const std::vector<float>& past_errors, float recent_error);
     void logging(bool is_anomalous_ret);
     float normalize_data(float val);
     float reverse_normalized_data(float val);
@@ -89,10 +79,5 @@ private:
 
     std::string parameter_name;
 
-    size_t get_current_memory() {
-        struct rusage rusage;
-        getrusage(RUSAGE_SELF, &rusage);
-        return (size_t)rusage.ru_maxrss;
-    }
 };
 #endif // ADAPAD_HPP
