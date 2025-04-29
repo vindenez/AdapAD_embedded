@@ -37,13 +37,15 @@ Run
 ./adapad
 ```
 
-## Runtime on ARM Cortex-A7 528 MHz
+## Performance on ARM Cortex-A7 528 MHz
 
-0.76 Seconds turnaround time (prediction/forward pass and update/backprop) per time step.
+Training time:           2.55s
+
+Decision-making time: 0.028 Seconds per time step. (Online learning stage - this includes prediction/forward pass and complete backpropagation)
 
 ## Memory usage
 
-2.5 MB
+2 MB - Measured with heaptrack on host system (ubuntu)
 
 
 ## Model comparsion - Tide pressure validation dataset
