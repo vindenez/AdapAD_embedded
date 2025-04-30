@@ -1,6 +1,6 @@
-An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems with limited computational resources. AdapAD is an prediction-based AD model using LSTM for automatic data quality control.
+An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems with limited computational resources. AdapAD is an prediction-based AD algorithm that aims to detect anomalous measurements in real-time on univariate time series data.
 
-The model utilizes online learning to adapt to concept-drift and to detect anomalous measurements from real-time univariate time series data.
+The algorithm was developed for marine sensor measurements as it utilizes online learning to adapt to concept-drift.
 
 ## Performance on ARM Cortex-A7 528 MHz
 
