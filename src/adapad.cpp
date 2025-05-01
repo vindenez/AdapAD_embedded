@@ -79,24 +79,17 @@ bool AdapAD::is_anomalous(float observed_val) {
             throw std::runtime_error("Not enough observed values");
         }
 
-        auto past_observations = prepare_data_for_prediction(observed_vals.size());
+        // Get the previous lookback_len values for prediction
+        auto past_observations = prepare_data_for_prediction(observed_vals.size() - 1);
 
         if (past_observations.empty() || past_observations[0].empty() || 
             past_observations[0][0].size() != predictor_config.lookback_len) {
             throw std::runtime_error("Invalid past_observations dimensions");
         }
         
-        // Initialize layer cache before prediction
-        if (!data_predictor->is_layer_cache_initialized()) {
-            data_predictor->initialize_layer_cache();
-        }
-        if (!generator->is_layer_cache_initialized()) {
-            generator->initialize_layer_cache();
-        }
-        
-        // Store predictor forward pass results
-        auto predictor_output = data_predictor->forward(past_observations);
-        auto predicted_val = data_predictor->get_final_prediction(predictor_output);
+        // Get prediction
+        auto prediction = data_predictor->forward(past_observations);
+        auto predicted_val = data_predictor->get_final_prediction(prediction);
         
         // Validate vector sizes before push_back
         if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
@@ -105,7 +98,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         
         predicted_vals.push_back(predicted_val[0]);
         
-        // Calculate error in normalized space to match thresholds
+        // Calculate error between prediction made at t-1 and actual value at t
         float prediction_error = NormalDataPredictionErrorCalculator::calc_error(
             predicted_val[0], normalized);  
         
@@ -138,11 +131,11 @@ bool AdapAD::is_anomalous(float observed_val) {
 
                 // Use stored forward pass results for predictor update
                 data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
-                                    past_observations, {normalized}, predictor_output);
+                                    past_observations, {normalized}, prediction);
                 
                 if (is_anomalous_ret || threshold > minimal_threshold) {
                     // Use stored forward pass results for generator update
-                    generator->update(predictor_config.epoch_update, predictor_config.lr_update,
+                    generator->update(predictor_config.epoch_update_generator, predictor_config.lr_update_generator,
                                     past_errors, prediction_error, generator_output);
                 }
             }

@@ -118,6 +118,10 @@ public:
     bool is_training() const { return training_mode; }
     bool is_online_learning() const { return online_learning_mode; }
 
+    void set_is_cache_initialized(bool value) { is_cache_initialized = value; }
+    
+    bool is_layer_cache_initialized() const { return is_cache_initialized; }
+
 
     // Model save/load methods
     void save_weights(std::ofstream& file);
@@ -154,13 +158,6 @@ public:
 
     // Clear update state and reinitialize gradients
     void clear_update_state();
-
-    bool is_layer_cache_initialized() const {
-        return !layer_cache.empty() && 
-               layer_cache.size() == num_layers &&
-               !layer_cache[0].empty() &&
-               layer_cache[0][0].size() == seq_length;
-    }
 
 private:
     unsigned random_seed;
@@ -247,15 +244,26 @@ private:
 
     void apply_sgd_update(std::vector<std::vector<float>>& weights,
                         std::vector<std::vector<float>>& grads,
-                        float learning_rate);
+                        float learning_rate,
+                        float momentum = 0.9f);
     
     void apply_sgd_update(std::vector<float>& biases,
                         std::vector<float>& grads,
-                        float learning_rate);
+                        float learning_rate,
+                        float momentum = 0.9f);
 
     bool training_mode = true;
     bool online_learning_mode = false;
 
+    bool is_cache_initialized = false;
+
     size_t current_cache_size = 0;  
     
+    // Momentum velocity terms
+    std::vector<std::vector<std::vector<float>>> velocity_weight_ih;  // [num_layers][4*hidden_size][input_size]
+    std::vector<std::vector<std::vector<float>>> velocity_weight_hh;  // [num_layers][4*hidden_size][hidden_size]
+    std::vector<std::vector<float>> velocity_bias_ih;                 // [num_layers][4*hidden_size]
+    std::vector<std::vector<float>> velocity_bias_hh;                 // [num_layers][4*hidden_size]
+    std::vector<std::vector<float>> velocity_fc_weight;              // [num_classes][hidden_size]
+    std::vector<float> velocity_fc_bias;                             // [num_classes]
 };

@@ -15,7 +15,7 @@ public:
     
     float generate(const std::vector<float>& prediction_errors, float minimal_threshold);
     
-    void update(int epoch_update, float lr_update,
+    void update(int epoch_update, float lr_update_generator,
                 const std::vector<float>& past_errors, float recent_error,
                 const LSTMPredictor::LSTMOutput& forward_output);
     

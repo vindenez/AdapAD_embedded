@@ -21,6 +21,9 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit,
         lookback_len     // seq_length
     ));
 
+    // Initialize layer cache
+    predictor->initialize_layer_cache();
+
     // Pre-allocate vectors for update
     update_input.resize(1);
     update_input[0].resize(1);
@@ -87,8 +90,6 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2l
         }
     }
 
-    // Clean up after training
-    predictor->clear_training_state();
     predictor->learn();
     
     // Convert windows to 3D

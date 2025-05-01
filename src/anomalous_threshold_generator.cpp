@@ -19,6 +19,9 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(
         true            // batch_first
     ));
 
+    // Initialize layer cache
+    generator->initialize_layer_cache();
+
     // Pre-allocate vectors for update
     update_input.resize(1);
     update_input[0].resize(1);
@@ -146,8 +149,6 @@ AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>
         }
     }
 
-    // Clean up after training
-    generator->clear_training_state();
     generator->learn();
 
     // Return processed windows in the expected format
