@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <memory>
 #include <sys/resource.h>
 
 class AdapAD {

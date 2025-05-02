@@ -4,6 +4,7 @@
 #include "lstm_predictor.hpp"
 #include <vector>
 #include <fstream>
+#include <memory>
 
 class AnomalousThresholdGenerator {
 public:

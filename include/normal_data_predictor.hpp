@@ -5,6 +5,7 @@
 #include <vector>
 #include "lstm_predictor.hpp"
 #include <fstream>
+#include <memory>
 
 class NormalDataPredictor {
 public:

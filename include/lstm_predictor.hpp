@@ -1,3 +1,5 @@
+
+
 #pragma once
 #include <vector>
 #include <cmath>
@@ -63,6 +65,10 @@ public:
     
     float compute_loss(const std::vector<float>& output,
                       const std::vector<float>& target);
+
+    std::vector<float> compute_mse_loss_gradient(
+            const std::vector<float>& output,
+            const std::vector<float>& target);
 
     std::vector<float> get_final_prediction(const LSTMOutput& lstm_output);
 
@@ -270,3 +276,4 @@ private:
     std::vector<std::vector<float>> velocity_fc_weight;              // [num_classes][hidden_size]
     std::vector<float> velocity_fc_bias;                             // [num_classes]
 };
+
