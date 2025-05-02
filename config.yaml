@@ -23,8 +23,8 @@ anomaly_detection:
   threshold_multiplier: 1.0
 
 system:
+  use_neon: true
   random_seed: 42
-  verbose_output: true
   
 data:
   paths:

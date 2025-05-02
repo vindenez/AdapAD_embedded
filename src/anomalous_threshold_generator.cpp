@@ -9,15 +9,14 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(
     int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
     : lookback_len(lookback_len),
       prediction_len(prediction_len) {
-    
-    generator.reset(new LSTMPredictor(
+      
+    generator = LSTMPredictorFactory::create_predictor(
         prediction_len,  // num_classes
         lookback_len,    // input_size
         lstm_unit,       // hidden_size
         lstm_layer,      // num_layers
-        lookback_len,    // seq_length
-        true            // batch_first
-    ));
+        lookback_len,    // lookback_len
+        true);           // batch_first
 
     // Initialize layer cache
     generator->initialize_layer_cache();

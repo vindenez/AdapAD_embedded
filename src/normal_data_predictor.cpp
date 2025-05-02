@@ -8,18 +8,18 @@
 #include <fstream>
 #include <sys/resource.h>
 
-NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, 
-                                       int lookback_len, int prediction_len)
+NormalDataPredictor::NormalDataPredictor(
+    int lstm_layer, int lstm_unit, int lookback_len, int prediction_len)
     : lookback_len(lookback_len),
       prediction_len(prediction_len) {
-    
-    predictor.reset(new LSTMPredictor(
+      
+    predictor = LSTMPredictorFactory::create_predictor(
         prediction_len,  // num_classes
         lookback_len,    // input_size
         lstm_unit,       // hidden_size
         lstm_layer,      // num_layers
-        lookback_len     // seq_length
-    ));
+        lookback_len,    // lookback_len
+        true);           // batch_first
 
     // Initialize layer cache
     predictor->initialize_layer_cache();

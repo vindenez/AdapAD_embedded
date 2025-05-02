@@ -117,8 +117,8 @@ public:
 
     // System
     unsigned int random_seed;
-    bool verbose_output;
-
+    bool use_neon;
+    
     // Model state configuration
     bool save_enabled;
     bool load_enabled;

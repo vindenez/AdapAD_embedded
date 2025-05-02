@@ -1,5 +1,3 @@
-
-
 #pragma once
 #include <vector>
 #include <cmath>
@@ -13,7 +11,7 @@ class LSTMPredictor {
 public:
 
     struct LSTMLayer {
-        // [i,f,g,o] gates stacked vertically: (4*hidden_size, input_size)
+        // [i,f,g,o] gates are stacked
         std::vector<std::vector<float>> weight_ih;  // (4*hidden_size, input_size)
         std::vector<std::vector<float>> weight_hh;  // (4*hidden_size, hidden_size)
         std::vector<float> bias_ih;                 // (4*hidden_size)
@@ -37,15 +35,17 @@ public:
     LSTMPredictor(int num_classes, int input_size, int hidden_size, 
                   int num_layers, int lookback_len, 
                   bool batch_first = true);
-    
+
+    virtual LSTMOutput forward(const std::vector<std::vector<std::vector<float>>>& x,
+                    const std::vector<std::vector<float>>* initial_hidden = nullptr,
+                    const std::vector<std::vector<float>>* initial_cell = nullptr);
+
+    virtual std::vector<float> get_final_prediction(const LSTMOutput& lstm_output);
+
     void set_random_seed(unsigned seed) {
         random_seed = seed;
         initialize_weights();
     }
-    
-    LSTMOutput forward(const std::vector<std::vector<std::vector<float>>>& x,
-                      const std::vector<std::vector<float>>* initial_hidden = nullptr,
-                      const std::vector<std::vector<float>>* initial_cell = nullptr);
     
     // Weight setters for loading pretrained models
     void set_lstm_weights(int layer, const std::vector<std::vector<float>>& w_ih,
@@ -58,19 +58,14 @@ public:
     void reset_states();
 
     // Training methods
-    void train_step(const std::vector<std::vector<std::vector<float>>>& x,
+    virtual void train_step(const std::vector<std::vector<std::vector<float>>>& x,
                    const std::vector<float>& target,
                    const LSTMOutput& lstm_output,
                    float learning_rate);
     
-    float compute_loss(const std::vector<float>& output,
-                      const std::vector<float>& target);
-
-    std::vector<float> compute_mse_loss_gradient(
-            const std::vector<float>& output,
-            const std::vector<float>& target);
-
-    std::vector<float> get_final_prediction(const LSTMOutput& lstm_output);
+    virtual std::vector<float> compute_mse_loss_gradient(
+        const std::vector<float>& output,
+        const std::vector<float>& target);
 
     #ifdef TESTING
     float get_weight(int layer, int gate, int input_idx) const {
@@ -168,7 +163,7 @@ public:
 
 
 
-private:
+protected:
     unsigned random_seed;
     // Model dimensions
     int num_classes;
@@ -211,23 +206,21 @@ private:
     // Helper functions
     float sigmoid(float x);
     float tanh_custom(float x);
-    std::vector<float> lstm_cell_forward(
-        const std::vector<float>& input,
-        std::vector<float>& h_state,
-        std::vector<float>& c_state,
-        const LSTMLayer& layer);
+    virtual std::vector<float> lstm_cell_forward(const std::vector<float>& input,
+                                                std::vector<float>& h_state,
+                                                std::vector<float>& c_state,
+                                                const LSTMLayer& layer);
     
     // Training helper functions
-    void backward_linear_layer(const std::vector<float>& grad_output,
+    virtual void backward_linear_layer(const std::vector<float>& grad_output,
                              const std::vector<float>& last_hidden,
                              std::vector<std::vector<float>>& weight_grad,
                              std::vector<float>& bias_grad,
                              std::vector<float>& input_grad);
     
-    std::vector<LSTMGradients> backward_lstm_layer(
-        const std::vector<float>& grad_output,
-        const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
-        float learning_rate);
+    virtual std::vector<LSTMGradients> backward_lstm_layer(const std::vector<float>& grad_output,
+                                                const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
+                                                float learning_rate);
 
     int current_layer = 0;
     size_t current_batch{0};  
@@ -251,12 +244,12 @@ private:
     std::vector<float> m_fc_bias;
     std::vector<float> v_fc_bias;
 
-    void apply_sgd_update(std::vector<std::vector<float>>& weights,
+    virtual void apply_sgd_update(std::vector<std::vector<float>>& weights,
                         std::vector<std::vector<float>>& grads,
                         float learning_rate,
                         float momentum = 0.9f);
     
-    void apply_sgd_update(std::vector<float>& biases,
+    virtual void apply_sgd_update(std::vector<float>& biases,
                         std::vector<float>& grads,
                         float learning_rate,
                         float momentum = 0.9f);
@@ -276,4 +269,3 @@ private:
     std::vector<std::vector<float>> velocity_fc_weight;              // [num_classes][hidden_size]
     std::vector<float> velocity_fc_bias;                             // [num_classes]
 };
-

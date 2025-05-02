@@ -1,15 +1,15 @@
 #ifndef NORMAL_DATA_PREDICTOR_HPP
 #define NORMAL_DATA_PREDICTOR_HPP
 
-#include "lstm_predictor.hpp"
+#include "lstm_predictor_factory.hpp"
 #include <vector>
-#include "lstm_predictor.hpp"
 #include <fstream>
 #include <memory>
 
 class NormalDataPredictor {
 public:
-    NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
+    NormalDataPredictor(int lstm_layer, int lstm_unit, 
+                        int lookback_len, int prediction_len);
     
     std::pair<std::vector<std::vector<float>>, std::vector<float>>
     create_sliding_windows(const std::vector<float>& data);
@@ -84,8 +84,6 @@ public:
     }
 
 private:
-    int lookback_len;
-    int prediction_len;
     std::unique_ptr<LSTMPredictor> predictor;
     
     // Pre-allocated vectors for update
@@ -93,5 +91,8 @@ private:
     std::vector<float> update_target;
     std::vector<float> update_pred;
     LSTMPredictor::LSTMOutput update_output;
+
+    int lookback_len;
+    int prediction_len;
 };
 #endif // NORMAL_DATA_PREDICTOR_HPP

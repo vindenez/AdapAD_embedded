@@ -55,8 +55,7 @@ bool Config::load(const std::string& yaml_path) {
 
         // Load system settings
         random_seed = get_int("system.random_seed", 42);
-        verbose_output = get_bool("system.verbose_output", true);
-
+        use_neon = get_bool("system.use_neon", true);
         // Load anomaly detection parameters
         threshold_multiplier = get_float("anomaly_detection.threshold_multiplier", 1.0f);
 

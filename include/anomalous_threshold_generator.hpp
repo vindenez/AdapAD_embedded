@@ -1,7 +1,7 @@
 #ifndef ANOMALOUS_THRESHOLD_GENERATOR_HPP
 #define ANOMALOUS_THRESHOLD_GENERATOR_HPP
 
-#include "lstm_predictor.hpp"
+#include "lstm_predictor_factory.hpp"
 #include <vector>
 #include <fstream>
 #include <memory>
@@ -9,7 +9,7 @@
 class AnomalousThresholdGenerator {
 public:
     AnomalousThresholdGenerator(int lstm_layer, int lstm_unit, 
-                               int lookback_len, int prediction_len);
+                              int lookback_len, int prediction_len);
     
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
     train(int epoch, float lr, const std::vector<float>& data2learn);
@@ -81,8 +81,6 @@ public:
     }
 
 private:
-    int lookback_len;
-    int prediction_len;
     std::unique_ptr<LSTMPredictor> generator;
     
     // Pre-allocated vectors for update
@@ -93,6 +91,10 @@ private:
     
     std::pair<std::vector<std::vector<float>>, std::vector<float>>
     create_sliding_windows(const std::vector<float>& data);
+
+    int lookback_len;
+    int prediction_len;
 };
 
 #endif // ANOMALOUS_THRESHOLD_GENERATOR_HPP
+
