@@ -71,45 +71,40 @@ float AnomalousThresholdGenerator::generate(
 
 void AnomalousThresholdGenerator::update(
     int epoch_update, float lr_update,
-    const std::vector<float>& past_errors, float recent_error,
-    const LSTMPredictor::LSTMOutput& forward_output) {
+    const std::vector<float>& past_errors, float recent_error) {
     
     // Copy data to pre-allocated input
-    std::copy(past_errors.begin(), past_errors.end(), 
+    std::copy(past_errors.begin(), past_errors.end(),
               update_input[0][0].begin());
     
     // Set target
     update_target[0] = recent_error;
     
-    // Use the provided forward pass results
-    update_output = forward_output;
-    update_pred = generator->get_final_prediction(update_output);
-    
-    // Calculate initial loss
-    float initial_loss = 0.0f;
-    float diff = update_pred[0] - recent_error;
-    initial_loss = diff * diff;
-    
     // Training loop with early stopping based on loss progression
-    float prev_loss = initial_loss;
-    int epochs_completed = 0;
+    std::vector<float> loss_history;
+    
+    generator->train();  // Ensure training mode is enabled
     
     for (int e = 0; e < epoch_update; ++e) {
-        // Train step using the same forward pass
-        generator->train_step(update_input, update_target, update_output, lr_update);
+        // Perform forward pass to get fresh output for this epoch
+        auto output = generator->forward(update_input);
         
-        // Early stopping if loss increases
-        if (e > 0 && initial_loss > prev_loss) {
+        // Get prediction and compute loss
+        auto pred = generator->get_final_prediction(output);
+        float current_loss = 0.0f;
+        float diff = pred[0] - recent_error;
+        current_loss = diff * diff;
+        
+        // Early stopping logic
+        if (e > 0 && current_loss > loss_history.back()) {
             break;
         }
+        loss_history.push_back(current_loss);
         
-        prev_loss = initial_loss;
-        epochs_completed++;
+        // Train step using fresh forward pass result
+        generator->train_step(update_input, update_target, output, lr_update);
+        
     }
-    
-    // Clear temporary data but preserve states
-    generator->clear_temporary_data();
-    generator->clear_update_state();
 }
 
 std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>

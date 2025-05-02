@@ -129,61 +129,42 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
     
     return result;
 }
-
 void NormalDataPredictor::update(int epoch_update, float lr_update,
                                const std::vector<std::vector<std::vector<float>>>& past_observations,
-                               const std::vector<float>& recent_observation,
-                               const LSTMPredictor::LSTMOutput& forward_output) {
+                               const std::vector<float>& recent_observation) {
     // Validate input dimensions
-    if (past_observations.empty() || past_observations[0].empty() || 
+    if (past_observations.empty() || past_observations[0].empty() ||
         past_observations[0][0].size() != lookback_len) {
         throw std::runtime_error("Invalid past_observations dimensions in update");
     }
-
     if (recent_observation.empty()) {
         throw std::runtime_error("Empty recent_observation in update");
     }
 
     // Copy data to pre-allocated input
-    std::copy(past_observations[0][0].begin(), past_observations[0][0].end(), 
+    std::copy(past_observations[0][0].begin(), past_observations[0][0].end(),
               update_input[0][0].begin());
     
     // Copy target to pre-allocated vector
-    std::copy(recent_observation.begin(), recent_observation.end(), 
+    std::copy(recent_observation.begin(), recent_observation.end(),
               update_target.begin());
     
-    // Use the provided forward pass results
-    update_output = forward_output;
-    update_pred = predictor->get_final_prediction(update_output);
-    
-    // Calculate initial loss
-    float initial_loss = 0.0f;
-    for (size_t i = 0; i < update_pred.size(); ++i) {
-        float diff = update_pred[i] - update_target[i];
-        initial_loss += diff * diff;
-    }
-    initial_loss /= static_cast<float>(update_pred.size());
-    
-    // Training loop with early stopping based on loss progression
-    float prev_loss = initial_loss;
-    int epochs_completed = 0;
+    predictor->train();  // Ensure training mode is enabled
     
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
-        // Update step for online learning using the same forward pass
-        predictor->train_step(update_input, update_target, update_output, lr_update);
+        // Perform forward pass to get fresh output for this epoch
+        auto output = predictor->forward(update_input);
         
-        // Early stopping if loss increases
-        if (epoch > 0 && initial_loss > prev_loss) {
-            break;
+        // Get prediction and compute loss
+        auto pred = predictor->get_final_prediction(output);
+        float current_loss = 0.0f;
+        for (size_t i = 0; i < pred.size(); ++i) {
+            float diff = pred[i] - update_target[i];
+            current_loss += diff * diff;
         }
-        
-        prev_loss = initial_loss;
-        epochs_completed++;
+        // Update step using fresh forward pass output
+        predictor->train_step(update_input, update_target, output, lr_update);
     }
-    
-    // Clear temporary data but preserve states
-    predictor->clear_temporary_data();
-    predictor->clear_update_state();
 }
 
 void NormalDataPredictor::save_weights(std::ofstream& file) {

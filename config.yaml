@@ -1,10 +1,10 @@
 training:
   epochs:
-    train: 200
+    train: 100
     update: 50
     update_generator: 5
   learning_rates:
-    train: 0.0005
+    train: 0.002
     update: 0.001
     update_generator: 0.0001
 

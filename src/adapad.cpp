@@ -104,10 +104,21 @@ bool AdapAD::is_anomalous(float observed_val) {
         
         predictive_errors.push_back(prediction_error);
         
-        // Check range first
+        // Check range and handle out-of-range values
         if (!is_inside_range(normalized)) {
             is_anomalous_ret = true;
             anomalies.push_back(observed_vals.size());
+            
+            // Log out-of-range value as -999 (matching Python implementation)
+            f_log.open(f_name, std::ios_base::app);
+            f_log << "-999,"
+                  << reverse_normalized_data(predicted_val[0]) << ","
+                  << reverse_normalized_data(predicted_val[0] - minimal_threshold) << ","
+                  << reverse_normalized_data(predicted_val[0] + minimal_threshold) << ","
+                  << "True" << ","
+                  << prediction_error << ","
+                  << minimal_threshold << "\n";
+            f_log.close();
         } else {
             // Only process thresholds and errors for in-range values
             float threshold = minimal_threshold;
@@ -129,32 +140,29 @@ bool AdapAD::is_anomalous(float observed_val) {
                     anomalies.push_back(observed_vals.size());
                 }
 
-                // Use stored forward pass results for predictor update
-                data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
-                                    past_observations, {normalized}, prediction);
-                data_predictor->clear_layer_cache();
-                
-                if (is_anomalous_ret || threshold > minimal_threshold) {
-                    // Use stored forward pass results for generator update
-                    generator->update(predictor_config.epoch_update_generator, predictor_config.lr_update_generator,
-                                    past_errors, prediction_error, generator_output);
-                    generator->clear_layer_cache();
+                // Only update models if not in default normal state
+                if (!is_default_normal()) {
+                    data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update, past_observations, {normalized});
+                    
+                    if (is_anomalous_ret || threshold > minimal_threshold) {
+                        generator->update(predictor_config.epoch_update_generator, predictor_config.lr_update_generator, past_errors, prediction_error);
+                    }
                 }
             }
             
             thresholds.push_back(threshold);
+            
+            // Log in-range value
+            f_log.open(f_name, std::ios_base::app);
+            f_log << observed_val << ","
+                  << reverse_normalized_data(predicted_val[0]) << ","
+                  << reverse_normalized_data(predicted_val[0] - (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
+                  << reverse_normalized_data(predicted_val[0] + (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
+                  << (is_anomalous_ret ? "True" : "False") << ","
+                  << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << ","
+                  << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";
+            f_log.close();
         }
-        
-        // Log results
-        f_log.open(f_name, std::ios_base::app);
-        f_log << observed_val << ","
-              << reverse_normalized_data(predicted_val[0]) << ","
-              << reverse_normalized_data(predicted_val[0] - (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
-              << reverse_normalized_data(predicted_val[0] + (thresholds.empty() ? minimal_threshold : thresholds.back())) << ","
-              << (is_anomalous_ret ? "True" : "False") << ","
-              << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << ","
-              << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";
-        f_log.close();
         
         // Check if we should save the model based on update count
         if (config.save_enabled && ++update_count >= config.save_interval) {
@@ -179,39 +187,34 @@ bool AdapAD::is_anomalous(float observed_val) {
 void AdapAD::clean() {
     size_t window_size = predictor_config.lookback_len;
     
-    // More aggressive management of observed values - keep only window_size elements
     if (observed_vals.size() > window_size) {
         std::vector<float> recent_vals(observed_vals.end() - window_size, observed_vals.end());
         observed_vals.swap(recent_vals);
-        observed_vals.shrink_to_fit();  // Force memory release
+        observed_vals.shrink_to_fit();  
     }
     
-    // Manage prediction values with similar approach
     if (predicted_vals.size() > window_size) {
         std::vector<float> recent_preds(predicted_vals.end() - window_size, predicted_vals.end());
         predicted_vals.swap(recent_preds);
-        predicted_vals.shrink_to_fit();  // Force memory release
+        predicted_vals.shrink_to_fit();  
     }
     
-    // Same for predictive errors
     if (predictive_errors.size() > window_size) {
         std::vector<float> recent_errors(predictive_errors.end() - window_size, predictive_errors.end());
         predictive_errors.swap(recent_errors);
-        predictive_errors.shrink_to_fit();  // Force memory release
+        predictive_errors.shrink_to_fit();  
     }
     
-    // And thresholds
     if (thresholds.size() > window_size) {
         std::vector<float> recent_thresholds(thresholds.end() - window_size, thresholds.end());
         thresholds.swap(recent_thresholds);
-        thresholds.shrink_to_fit();  // Force memory release
+        thresholds.shrink_to_fit();  
     }
     
-    // Manage anomalies list
-    if (anomalies.size() > 100) { // Limit stored anomalies
+    if (anomalies.size() > 100) { 
         std::vector<size_t> recent_anomalies(anomalies.end() - 100, anomalies.end());
         anomalies.swap(recent_anomalies);
-        anomalies.shrink_to_fit();  // Force memory release
+        anomalies.shrink_to_fit(); 
     }
 }
 
@@ -275,22 +278,6 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
         observed_vals.end() - predictor_config.lookback_len - 1,
         observed_vals.end() - 1
     );
-    
-    // Only try to use predicted values if we have them
-    if (!predicted_vals.empty() && predicted_vals.size() >= predictor_config.lookback_len) {
-        // Get predicted values 
-        std::vector<float> predicted(
-            predicted_vals.end() - predictor_config.lookback_len,
-            predicted_vals.end()
-        );
-        
-        // Replace out-of-range values 
-        for (int i = 0; i < predictor_config.lookback_len; ++i) {
-            if (!is_inside_range(x_temp[x_temp.size() - i - 1])) {
-                x_temp[x_temp.size() - i - 1] = predicted[predicted.size() - i - 1];
-            }
-        }
-    }
     
     // Create tensor matching PyTorch's reshape(1, -1) 
     std::vector<std::vector<std::vector<float>>> input_tensor(1);

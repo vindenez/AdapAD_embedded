@@ -159,6 +159,9 @@ public:
     // Clear update state and reinitialize gradients
     void clear_update_state();
 
+
+
+
 private:
     unsigned random_seed;
     // Model dimensions

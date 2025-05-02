@@ -162,7 +162,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(
         cache_entry = &layer_cache[current_layer][current_batch][current_timestep];
         
         // Resize vectors to exact needed size
-        cache_entry->input.resize(expected_layer_input);
+        cache_entry->input.resize(weight_input_size);
         cache_entry->prev_hidden.resize(hidden_size);
         cache_entry->prev_cell.resize(hidden_size);
         cache_entry->cell_state.resize(hidden_size);
@@ -588,9 +588,11 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         if (target.size() != num_classes) {
             throw std::invalid_argument("Target size mismatch");
         }
+
         
         // Get final prediction (no forward pass needed)
         auto output = get_final_prediction(lstm_output);
+
 
         // Compute gradients
         auto grad_output = compute_mse_loss_gradient(output, target);
@@ -603,6 +605,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         std::vector<float> fc_bias_grad;
         std::vector<float> lstm_grad;
         backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
+        
 
         // Update FC layer weights using SGD with momentum
         apply_sgd_update(fc_weight, fc_weight_grad, learning_rate, 0.9f);
@@ -619,14 +622,6 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             if (layer >= lstm_gradients.size()) {
                 throw std::runtime_error("Gradient index out of bounds: " + std::to_string(layer));
             }
-            
-            // Verify dimensions before updates
-            if (lstm_layers[layer].weight_ih.size() != lstm_gradients[layer].weight_ih_grad.size() ||
-                lstm_layers[layer].weight_hh.size() != lstm_gradients[layer].weight_hh_grad.size() ||
-                lstm_layers[layer].bias_ih.size() != lstm_gradients[layer].bias_ih_grad.size() ||
-                lstm_layers[layer].bias_hh.size() != lstm_gradients[layer].bias_hh_grad.size()) {
-                throw std::runtime_error("Gradient dimension mismatch in layer " + std::to_string(layer));
-            }
 
             apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad, learning_rate, 0.9f);
             apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad, learning_rate, 0.9f);
@@ -634,22 +629,9 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad, learning_rate, 0.9f);
         }
 
-        // Clear gradients
-        if (online_learning_mode) {
-            for (auto& grad : last_gradients) {
-                for (auto& row : grad.weight_ih_grad) {
-                    std::fill(row.begin(), row.end(), 0.0f);
-                }
-                for (auto& row : grad.weight_hh_grad) {
-                    std::fill(row.begin(), row.end(), 0.0f);
-                }
-                std::fill(grad.bias_ih_grad.begin(), grad.bias_ih_grad.end(), 0.0f);
-                std::fill(grad.bias_hh_grad.begin(), grad.bias_hh_grad.end(), 0.0f);
-            }
-        }
+        clear_update_state();
         
     } catch (const std::exception& e) {
-        // Clean up on error
         clear_training_state();
         throw;
     }
@@ -890,7 +872,7 @@ void LSTMPredictor::load_biases(std::ifstream& file) {
 
 void LSTMPredictor::initialize_layer_cache() {
     if (is_layer_cache_initialized()) {
-        return;  // Cache already initialized
+        return; 
     }
     
     std::cout << "Initializing layer cache..." << std::endl;
@@ -1107,9 +1089,42 @@ void LSTMPredictor::clear_training_state() {
     current_timestep = 0;
     current_batch = 0;
     current_cache_size = 0;
+}
+
+void LSTMPredictor::clear_update_state() {
+    // Clear gradients
+    for (auto& gradient : last_gradients) {
+        for (auto& row : gradient.weight_ih_grad) {
+            std::fill(row.begin(), row.end(), 0.0f);
+        }
+        for (auto& row : gradient.weight_hh_grad) {
+            std::fill(row.begin(), row.end(), 0.0f);
+        }
+        std::fill(gradient.bias_ih_grad.begin(), gradient.bias_ih_grad.end(), 0.0f);
+        std::fill(gradient.bias_hh_grad.begin(), gradient.bias_hh_grad.end(), 0.0f);
+    }
     
-    // Reinitialize the cache to ensure it's properly structured
-    initialize_layer_cache();
+    // Zero out cache values without reinitializing structure
+    for (auto& layer : layer_cache) {
+        for (auto& batch : layer) {
+            for (auto& seq : batch) {
+                std::fill(seq.input.begin(), seq.input.end(), 0.0f);
+                std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
+                std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
+                std::fill(seq.cell_state.begin(), seq.cell_state.end(), 0.0f);
+                std::fill(seq.input_gate.begin(), seq.input_gate.end(), 0.0f);
+                std::fill(seq.forget_gate.begin(), seq.forget_gate.end(), 0.0f);
+                std::fill(seq.cell_candidate.begin(), seq.cell_candidate.end(), 0.0f);
+                std::fill(seq.output_gate.begin(), seq.output_gate.end(), 0.0f);
+                std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
+            }
+        }
+    }
+    
+    // Reset position trackers
+    current_layer = 0;
+    current_timestep = 0;
+    current_batch = 0;
 }
 
 
@@ -1174,21 +1189,18 @@ void LSTMPredictor::apply_sgd_update(
     // Determine which velocity terms to use based on the biases being updated
     std::vector<float>* velocity_terms = nullptr;
     
-    // Check if this is the FC layer bias
     if (biases.size() == num_classes) {
         velocity_terms = &velocity_fc_bias;
     }
-    // Check if this is an LSTM layer bias
     else if (biases.size() == 4 * hidden_size) {
-        // Find which LSTM layer this bias belongs to
         for (int layer = 0; layer < num_layers; ++layer) {
             if (&biases == &lstm_layers[layer].bias_ih) {
                 velocity_terms = &velocity_bias_ih[layer];
-                current_layer = layer;  // Set current layer for proper indexing
+                current_layer = layer;  
                 break;
             } else if (&biases == &lstm_layers[layer].bias_hh) {
                 velocity_terms = &velocity_bias_hh[layer];
-                current_layer = layer;  // Set current layer for proper indexing
+                current_layer = layer;  
                 break;
             }
         }
@@ -1298,19 +1310,4 @@ void LSTMPredictor::clear_layer_cache() {
     
     // Set cache as initialized
     set_is_cache_initialized(true);
-}
-
-void LSTMPredictor::clear_update_state() {
-    // Clear existing data
-    clear_temporary_data();
-    
-    // Reinitialize gradients with correct sizes
-    last_gradients.resize(num_layers);
-    for (auto& grad : last_gradients) {
-        int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
-        grad.weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
-        grad.weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
-        grad.bias_ih_grad.resize(4 * hidden_size, 0.0f);
-        grad.bias_hh_grad.resize(4 * hidden_size, 0.0f);
-    }
 }
