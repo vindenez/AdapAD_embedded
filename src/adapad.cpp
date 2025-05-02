@@ -132,11 +132,13 @@ bool AdapAD::is_anomalous(float observed_val) {
                 // Use stored forward pass results for predictor update
                 data_predictor->update(predictor_config.epoch_update, predictor_config.lr_update,
                                     past_observations, {normalized}, prediction);
+                data_predictor->clear_layer_cache();
                 
                 if (is_anomalous_ret || threshold > minimal_threshold) {
                     // Use stored forward pass results for generator update
                     generator->update(predictor_config.epoch_update_generator, predictor_config.lr_update_generator,
                                     past_errors, prediction_error, generator_output);
+                    generator->clear_layer_cache();
                 }
             }
             

@@ -56,6 +56,12 @@ public:
         }
     }
 
+    void clear_layer_cache() {
+        if (predictor) {
+            predictor->clear_layer_cache();
+        }
+    }
+
     void clear_training_state();
 
     // Add this method to expose training mode status

@@ -58,6 +58,12 @@ public:
         }
     }
 
+    void clear_layer_cache() {
+        if (generator) {
+            generator->clear_layer_cache();
+        }
+    }
+
     void clear_training_state();
 
     bool is_training() const { 

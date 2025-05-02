@@ -634,9 +634,8 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad, learning_rate, 0.9f);
         }
 
-        // Only clear temporary data, not the entire state
+        // Clear gradients
         if (online_learning_mode) {
-            // Clear gradients but maintain structure
             for (auto& grad : last_gradients) {
                 for (auto& row : grad.weight_ih_grad) {
                     std::fill(row.begin(), row.end(), 0.0f);
@@ -646,23 +645,6 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
                 }
                 std::fill(grad.bias_ih_grad.begin(), grad.bias_ih_grad.end(), 0.0f);
                 std::fill(grad.bias_hh_grad.begin(), grad.bias_hh_grad.end(), 0.0f);
-            }
-            
-            // Clear layer cache but maintain structure
-            for (auto& layer : layer_cache) {
-                for (auto& batch : layer) {
-                    for (auto& seq : batch) {
-                        std::fill(seq.input.begin(), seq.input.end(), 0.0f);
-                        std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
-                        std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
-                        std::fill(seq.cell_state.begin(), seq.cell_state.end(), 0.0f);
-                        std::fill(seq.input_gate.begin(), seq.input_gate.end(), 0.0f);
-                        std::fill(seq.forget_gate.begin(), seq.forget_gate.end(), 0.0f);
-                        std::fill(seq.cell_candidate.begin(), seq.cell_candidate.end(), 0.0f);
-                        std::fill(seq.output_gate.begin(), seq.output_gate.end(), 0.0f);
-                        std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
-                    }
-                }
             }
         }
         
@@ -1288,13 +1270,6 @@ void LSTMPredictor::clear_temporary_data() {
             grad.bias_hh_grad.swap(empty);
         }
     }
-    
-    // Reset current position trackers
-    current_layer = 0;
-    current_timestep = 0;
-    current_batch = 0;
-    current_cache_size = 0;
-    
 }
 
 void LSTMPredictor::clear_layer_cache() {
