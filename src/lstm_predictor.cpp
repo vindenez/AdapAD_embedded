@@ -355,7 +355,7 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward(
         
     } catch (const std::exception& e) {
         // Clean up on error
-        clear_training_state();
+        clear_update_state();
         throw;
     }
 }
@@ -628,7 +628,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
         clear_update_state();
         
     } catch (const std::exception& e) {
-        clear_training_state();
+        clear_update_state();
         throw;
     }
 }
@@ -1016,64 +1016,7 @@ void LSTMPredictor::load_layer_cache(std::ifstream& file) {
 
 
 
-void LSTMPredictor::clear_training_state() {
-    // Clear layer cache but maintain structure with minimal sizes
-    for (auto& layer : layer_cache) {
-        for (auto& batch : layer) {
-            batch.resize(std::min(batch.size(), static_cast<size_t>(seq_length)));
-            
-            for (auto& seq : batch) {
-                int expected_input_size = (current_layer == 0) ? input_size : hidden_size;
-                seq.input.resize(expected_input_size);
-                seq.prev_hidden.resize(hidden_size);
-                seq.prev_cell.resize(hidden_size);
-                seq.cell_state.resize(hidden_size);
-                seq.input_gate.resize(hidden_size);
-                seq.forget_gate.resize(hidden_size);
-                seq.cell_candidate.resize(hidden_size);
-                seq.output_gate.resize(hidden_size);
-                seq.hidden_state.resize(hidden_size);
-                
-                std::fill(seq.input.begin(), seq.input.end(), 0.0f);
-                std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
-                std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
-                std::fill(seq.cell_state.begin(), seq.cell_state.end(), 0.0f);
-                std::fill(seq.input_gate.begin(), seq.input_gate.end(), 0.0f);
-                std::fill(seq.forget_gate.begin(), seq.forget_gate.end(), 0.0f);
-                std::fill(seq.cell_candidate.begin(), seq.cell_candidate.end(), 0.0f);
-                std::fill(seq.output_gate.begin(), seq.output_gate.end(), 0.0f);
-                std::fill(seq.hidden_state.begin(), seq.hidden_state.end(), 0.0f);
-            }
-        }
-        layer.resize(1);
-    }
-    
-    // Clear gradients used for testing but maintain structure
-    for (auto& gradient : last_gradients) {
-        int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
-        
-        for (auto& row : gradient.weight_ih_grad) {
-            row.resize(input_size_layer);
-            std::fill(row.begin(), row.end(), 0.0f);
-        }
-        
-        for (auto& row : gradient.weight_hh_grad) {
-            row.resize(hidden_size);
-            std::fill(row.begin(), row.end(), 0.0f);
-        }
-        
-        std::fill(gradient.bias_ih_grad.begin(), gradient.bias_ih_grad.end(), 0.0f);
-        std::fill(gradient.bias_hh_grad.begin(), gradient.bias_hh_grad.end(), 0.0f);
-    }
-    
-    current_layer = 0;
-    current_timestep = 0;
-    current_batch = 0;
-    current_cache_size = 0;
-}
-
 void LSTMPredictor::clear_update_state() {
-    // Clear gradients
     for (auto& gradient : last_gradients) {
         for (auto& row : gradient.weight_ih_grad) {
             std::fill(row.begin(), row.end(), 0.0f);
@@ -1214,84 +1157,6 @@ void LSTMPredictor::apply_sgd_update(
     }
 }
 
-void LSTMPredictor::reset_layer_cache() {
-    // Clear existing cache
-    {
-        std::vector<std::vector<std::vector<LSTMCacheEntry>>> empty;
-        layer_cache.swap(empty);
-    }
-    
-    // Initialize with minimal structure
-    layer_cache.resize(num_layers);
-    for (int layer = 0; layer < num_layers; ++layer) {
-        layer_cache[layer].resize(1);  // One batch
-        layer_cache[layer][0].resize(seq_length);  // Sequence length
-        
-        // Initialize each cache entry with properly sized vectors
-        for (auto& seq : layer_cache[layer][0]) {
-            int expected_input_size = (layer == 0) ? input_size : hidden_size;
-            seq.input.resize(expected_input_size, 0.0f);
-            seq.prev_hidden.resize(hidden_size, 0.0f);
-            seq.prev_cell.resize(hidden_size, 0.0f);
-            seq.cell_state.resize(hidden_size, 0.0f);
-            seq.input_gate.resize(hidden_size, 0.0f);
-            seq.forget_gate.resize(hidden_size, 0.0f);
-            seq.cell_candidate.resize(hidden_size, 0.0f);
-            seq.output_gate.resize(hidden_size, 0.0f);
-            seq.hidden_state.resize(hidden_size, 0.0f);
-        }
-    }
-    
-    // Reset current position trackers
-    current_layer = 0;
-    current_timestep = 0;
-    current_batch = 0;
-    current_cache_size = 0;
-}
-
-void LSTMPredictor::clear_temporary_data() {
-    // Clear gradients with swap
-    for (auto& grad : last_gradients) {
-        {
-            std::vector<std::vector<float>> empty;
-            grad.weight_ih_grad.swap(empty);
-            grad.weight_hh_grad.swap(empty);
-        }
-        {
-            std::vector<float> empty;
-            grad.bias_ih_grad.swap(empty);
-            grad.bias_hh_grad.swap(empty);
-        }
-    }
-}
-
-void LSTMPredictor::clear_layer_cache() {
-    // Clear existing cache
-    clear_temporary_data();
-    
-    // Reinitialize with minimal structure
-    layer_cache.resize(num_layers);
-    for (int layer = 0; layer < num_layers; ++layer) {
-        layer_cache[layer].resize(1);  // One batch
-        layer_cache[layer][0].resize(seq_length);  // Sequence length
-        
-        for (auto& seq : layer_cache[layer][0]) {
-            int expected_input_size = (layer == 0) ? input_size : hidden_size;
-            seq.input.resize(expected_input_size, 0.0f);
-            seq.prev_hidden.resize(hidden_size, 0.0f);
-            seq.prev_cell.resize(hidden_size, 0.0f);
-            seq.cell_state.resize(hidden_size, 0.0f);
-            seq.input_gate.resize(hidden_size, 0.0f);
-            seq.forget_gate.resize(hidden_size, 0.0f);
-            seq.cell_candidate.resize(hidden_size, 0.0f);
-            seq.output_gate.resize(hidden_size, 0.0f);
-            seq.hidden_state.resize(hidden_size, 0.0f);
-        }
-    }
-    
-    // Set cache as initialized
-    set_is_cache_initialized(true);
-}
 
 std::vector<float> LSTMPredictor::compute_mse_loss_gradient(
     const std::vector<float>& output, 

@@ -45,26 +45,7 @@ public:
     void load_layer_cache(std::ifstream& file);
     void initialize_layer_cache();
     bool is_layer_cache_initialized() const { return generator->is_layer_cache_initialized(); }
-
-    void clear_temporary_cache() {
-        if (generator) {
-            generator->clear_temporary_cache();
-        }
-    }
-
-    void reset_layer_cache() {
-        if (generator) {
-            generator->reset_layer_cache();
-        }
-    }
-
-    void clear_layer_cache() {
-        if (generator) {
-            generator->clear_layer_cache();
-        }
-    }
-
-    void clear_training_state();
+    void clear_update_state();
 
     bool is_training() const { 
         return generator ? generator->is_training() : false; 

@@ -144,23 +144,7 @@ public:
         }
     }
 
-    void clear_training_state();
-
-    void clear_temporary_cache();
-
-    // Clear all temporary data and maintain minimal structure
-    void clear_temporary_data();
-
-    // Reset layer cache between timesteps
-    void reset_layer_cache();
-
-    // Clear layer cache and reinitialize with minimal structure
-    void clear_layer_cache();
-
-    // Clear update state and reinitialize gradients
     void clear_update_state();
-
-
 
 
 protected:

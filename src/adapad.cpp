@@ -510,8 +510,8 @@ void AdapAD::save_models() {
         file.close();
         
         // Force cleanup after saving
-        data_predictor->clear_training_state();
-        generator->clear_training_state();
+        data_predictor->clear_update_state();
+        generator->clear_update_state();
         
     } catch (const std::exception& e) {
         std::cerr << "Error saving model state: " << e.what() << std::endl;
@@ -607,8 +607,8 @@ void AdapAD::load_models(const std::string& timestamp, const std::vector<float>&
             generator->reset_states();
             
             // Clean up memory
-            data_predictor->clear_training_state();
-            generator->clear_training_state();
+            data_predictor->clear_update_state();
+            generator->clear_update_state();
             
             std::cout << "Initializing observed values..." << std::endl;
             // Initialize observed_vals with exactly lookback_len points

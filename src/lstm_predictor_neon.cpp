@@ -14,7 +14,6 @@
 #include <arm_neon.h>
 #endif
 
-// NEON-optimized sigmoid function
 float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     // Constants
     float32x4_t v_one = vdupq_n_f32(1.0f);
@@ -43,7 +42,6 @@ float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     return v_result;
 }
 
-// NEON-optimized tanh function
 float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
     // Constants
     float32x4_t v_min = vdupq_n_f32(-10.0f);  // Clamp to avoid numerical issues
@@ -191,7 +189,7 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
     // Initialize gates with biases
     std::vector<float> gates(4 * hidden_size);
 
-    // Add biases using NEON
+    // Add biases 
     for (int h = 0; h + 3 < hidden_size; h += 4) {
         // Load bias vectors
         float32x4_t v_bias_ih_i = vld1q_f32(&layer.bias_ih[h]);
@@ -386,7 +384,6 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
         size_t batch_size = x.size();
         size_t seq_len = x[0].size();
         
-        // Initialize output structure with NEON-optimized zero initialization
         LSTMOutput output;
         output.sequence_output.resize(batch_size);
         
@@ -395,7 +392,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
             for (auto& seq : batch) {
                 seq.resize(hidden_size);
                 
-                // Use NEON to initialize with zeros in blocks of 4
+                // Initializing with zeros in blocks of 4
                 size_t i = 0;
                 float32x4_t v_zero = vdupq_n_f32(0.0f);
                 
@@ -426,7 +423,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
                 std::vector<float> layer_input = x[batch][t];
                 std::vector<std::vector<float>> layer_outputs(num_layers + 1);
                 
-                // NEON-optimized vector copy
+                // Copy vector
                 layer_outputs[0].resize(layer_input.size());
                 
                 size_t i = 0;
@@ -464,7 +461,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
                         
                         auto& cache_entry = layer_cache[current_layer][current_batch][current_timestep];
                         
-                        // NEON-optimized resize and initialize to zero
+                        // Resize and initialize to zero
                         cache_entry.input.resize(expected_input_size);
                         cache_entry.prev_hidden.resize(hidden_size);
                         cache_entry.prev_cell.resize(hidden_size);
@@ -476,7 +473,6 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
                         cache_entry.hidden_state.resize(hidden_size);
                     }
                     
-                    // Use NEON-optimized lstm_cell (already implemented)
                     layer_outputs[layer + 1] = lstm_cell_forward(
                         layer_outputs[layer],
                         h_state[layer],
@@ -485,7 +481,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
                     );
                 }
                 
-                // NEON-optimized copy of final layer output to sequence output
+                // Copy final layer output to sequence output
                 size_t j = 0;
                 for (; j + 3 < hidden_size; j += 4) {
                     float32x4_t v_output = vld1q_f32(&layer_outputs[num_layers][j]);
@@ -506,7 +502,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
         
     } catch (const std::exception& e) {
         // Clean up on error
-        clear_training_state();
+        clear_update_state();
         throw;
     }
 }
@@ -538,7 +534,7 @@ void LSTMPredictorNEON::backward_linear_layer(
     bias_grad = grad_output;  // Copy gradient directly for bias
     input_grad.resize(hidden_size, 0.0f);
     
-    // Compute weight gradients using NEON
+    // Compute weight gradients
     for (int i = 0; i < num_classes; ++i) {
         // Broadcast grad_output[i] to a vector of 4 identical values
         float32x4_t v_grad_output_i = vdupq_n_f32(grad_output[i]);
@@ -815,7 +811,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
     return layer_grads;
 }
 
-// NEON-optimized SGD update for weight matrices
+// SGD update for weight matrices
 void LSTMPredictorNEON::apply_sgd_update(
     std::vector<std::vector<float>>& weights,
     std::vector<std::vector<float>>& grads,
@@ -839,7 +835,7 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 
     // NEON constants for vectorized operations
-    float32x4_t v_momentum = vdupq_n_f32(momentum);           // Load momentum as vector
+    float32x4_t v_momentum = vdupq_n_f32(momentum);          // Load momentum as vector
     float32x4_t v_neg_lr = vdupq_n_f32(-learning_rate);      // Negative learning rate
     float32x4_t v_clip_max = vdupq_n_f32(1.0f);              // Clip max value
     float32x4_t v_clip_min = vdupq_n_f32(-1.0f);             // Clip min value
@@ -848,7 +844,7 @@ void LSTMPredictorNEON::apply_sgd_update(
     for (size_t i = 0; i < weights.size(); ++i) {
         size_t j = 0;
 
-        // Process 4 elements at once with NEON
+        // Process 4 elements at once 
         for (; j + 3 < weights[i].size(); j += 4) {
             // Load gradients and velocity
             float32x4_t v_grad = vld1q_f32(&grads[i][j]);
@@ -893,7 +889,7 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 }
 
-// NEON-optimized SGD update for bias vectors
+// SGD update for bias vectors
 void LSTMPredictorNEON::apply_sgd_update(
     std::vector<float>& biases,
     std::vector<float>& grads,
@@ -976,7 +972,6 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 }
 
-// NEON-optimized MSE loss gradient computation
 std::vector<float> LSTMPredictorNEON::compute_mse_loss_gradient(
     const std::vector<float>& output,
     const std::vector<float>& target) {
@@ -988,7 +983,7 @@ std::vector<float> LSTMPredictorNEON::compute_mse_loss_gradient(
     std::vector<float> gradient(output.size());
 
     size_t i = 0;
-    // Process 4 elements at a time using NEON
+    // Process 4 elements at a time
     for (; i + 3 < output.size(); i += 4) {
         // Load output and target vectors
         float32x4_t v_output = vld1q_f32(&output[i]);
@@ -1009,7 +1004,6 @@ std::vector<float> LSTMPredictorNEON::compute_mse_loss_gradient(
     return gradient;
 }
 
-// NEON-optimized final prediction computation
 std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
 
@@ -1049,7 +1043,6 @@ std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lst
     return final_output;
 }
 
-// NEON-optimized training step
 void LSTMPredictorNEON::train_step(
     const std::vector<std::vector<std::vector<float>>>& x,
     const std::vector<float>& target,
@@ -1093,16 +1086,15 @@ void LSTMPredictorNEON::train_step(
         std::vector<float> lstm_grad;
         backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
 
-        // 5. Update FC layer weights with NEON
+        // 5. Update FC layer weights
         apply_sgd_update(fc_weight, fc_weight_grad, learning_rate, 0.9f);
         apply_sgd_update(fc_bias, fc_bias_grad, learning_rate, 0.9f);
 
         // 6. Backward pass through LSTM layers
         auto lstm_gradients = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
 
-        // 7. Update LSTM layer parameters with NEON
+        // 7. Update LSTM layer parameters
         for (int layer = 0; layer < num_layers; ++layer) {
-            // Bounds checking
             if (layer >= lstm_layers.size()) {
                 throw std::runtime_error("Layer index out of bounds: " + std::to_string(layer));
             }
@@ -1110,7 +1102,7 @@ void LSTMPredictorNEON::train_step(
                 throw std::runtime_error("Gradient index out of bounds: " + std::to_string(layer));
             }
 
-            // Update weights and biases using NEON
+            // Update weights and biases
             apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad, learning_rate, 0.9f);
             apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad, learning_rate, 0.9f);
             apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad, learning_rate, 0.9f);
@@ -1121,7 +1113,7 @@ void LSTMPredictorNEON::train_step(
         clear_update_state();
 
     } catch (const std::exception& e) {
-        clear_training_state();
+        clear_update_state();
         throw;
     }
 }

@@ -5,7 +5,7 @@ training:
     update_generator: 5
   learning_rates:
     train: 0.002
-    update: 0.001
+    update: 0.002
     update_generator: 0.0001
 
 model:

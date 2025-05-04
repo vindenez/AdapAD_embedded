@@ -49,21 +49,7 @@ public:
     void save_layer_cache(std::ofstream& file) const;
     void load_layer_cache(std::ifstream& file);
     void initialize_layer_cache();
-
-    void clear_temporary_cache() {
-        if (predictor) {
-            predictor->clear_temporary_cache();
-        }
-    }
-
-    void clear_layer_cache() {
-        if (predictor) {
-            predictor->clear_layer_cache();
-        }
-    }
-
-    void clear_training_state();
-
+    void clear_update_state();
     // Add this method to expose training mode status
     bool is_training() const { 
         return predictor ? predictor->is_training() : false; 

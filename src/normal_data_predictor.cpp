@@ -215,9 +215,9 @@ void NormalDataPredictor::initialize_layer_cache() {
     }
 }
 
-void NormalDataPredictor::clear_training_state() {
+void NormalDataPredictor::clear_update_state() {
     if (predictor) {
-        predictor->clear_training_state();
+        predictor->clear_update_state();
     } else {
         throw std::runtime_error("Predictor not initialized");
     }
