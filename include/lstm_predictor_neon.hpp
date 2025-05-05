@@ -50,9 +50,8 @@ private:
     float32x4_t sigmoid_neon(float32x4_t x);
     float32x4_t tanh_neon(float32x4_t x);
 
-    std::vector<float> compute_mse_loss_gradient(
-        const std::vector<float>& output,
-        const std::vector<float>& target) override;
+    std::vector<float> mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target) override;
+    float mse_loss(const std::vector<float>& prediction, const std::vector<float>& target) override;
 
     // NEON-optimized gate operations
     void apply_gate_operations_neon(

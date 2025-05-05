@@ -129,6 +129,7 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
     
     return result;
 }
+
 void NormalDataPredictor::update(int epoch_update, float lr_update,
                                const std::vector<std::vector<std::vector<float>>>& past_observations,
                                const std::vector<float>& recent_observation) {
@@ -148,8 +149,6 @@ void NormalDataPredictor::update(int epoch_update, float lr_update,
     // Copy target to pre-allocated vector
     std::copy(recent_observation.begin(), recent_observation.end(),
               update_target.begin());
-    
-    predictor->train();  // Ensure training mode is enabled
     
     for (int epoch = 0; epoch < epoch_update; ++epoch) {
         // Perform forward pass to get fresh output for this epoch

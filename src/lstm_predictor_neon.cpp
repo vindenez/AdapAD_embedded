@@ -972,38 +972,6 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 }
 
-std::vector<float> LSTMPredictorNEON::compute_mse_loss_gradient(
-    const std::vector<float>& output,
-    const std::vector<float>& target) {
-
-    if (output.size() != target.size()) {
-        throw std::runtime_error("Output and target size mismatch in compute_mse_loss_gradient");
-    }
-
-    std::vector<float> gradient(output.size());
-
-    size_t i = 0;
-    // Process 4 elements at a time
-    for (; i + 3 < output.size(); i += 4) {
-        // Load output and target vectors
-        float32x4_t v_output = vld1q_f32(&output[i]);
-        float32x4_t v_target = vld1q_f32(&target[i]);
-
-        // Calculate gradient: output - target
-        float32x4_t v_gradient = vsubq_f32(v_output, v_target);
-
-        // Store result
-        vst1q_f32(&gradient[i], v_gradient);
-    }
-
-    // Handle remaining elements
-    for (; i < output.size(); ++i) {
-        gradient[i] = output[i] - target[i];
-    }
-
-    return gradient;
-}
-
 std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
 
@@ -1075,7 +1043,7 @@ void LSTMPredictorNEON::train_step(
         auto output = get_final_prediction(lstm_output);
 
         // 2. Compute gradient of loss w.r.t. output
-        auto grad_output = compute_mse_loss_gradient(output, target);
+        auto grad_output = mse_loss_gradient(output, target);
 
         // 3. Get final hidden state
         const auto& last_hidden = lstm_output.sequence_output.back().back();
@@ -1194,4 +1162,70 @@ void LSTMPredictorNEON::apply_gate_operations_neon(
             cache_entry->hidden_state[h] = new_h;
         }
     }
+}
+
+std::vector<float> LSTMPredictorNEON::mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target) {
+    if (output.size() != target.size()) {
+        throw std::runtime_error("Output and target size mismatch in mse_loss_gradient");
+    }
+
+    std::vector<float> gradient(output.size());
+
+    size_t i = 0;
+    // Process 4 elements at a time
+    for (; i + 3 < output.size(); i += 4) {
+        // Load output and target vectors
+        float32x4_t v_output = vld1q_f32(&output[i]);
+        float32x4_t v_target = vld1q_f32(&target[i]);
+
+        // Calculate gradient: output - target
+        float32x4_t v_gradient = vsubq_f32(v_output, v_target);
+
+        // Store result
+        vst1q_f32(&gradient[i], v_gradient);
+    }
+
+    // Handle remaining elements
+    for (; i < output.size(); ++i) {
+        gradient[i] = output[i] - target[i];
+    }
+
+    return gradient;
+}
+
+float LSTMPredictorNEON::mse_loss(const std::vector<float>& prediction, const std::vector<float>& target) {
+    if (prediction.size() != target.size()) {
+        throw std::runtime_error("Prediction and target size mismatch in mse_loss");
+    }
+    
+    float32x4_t v_sum = vdupq_n_f32(0.0f);
+    size_t i = 0;
+    
+    // Process 4 elements at a time
+    for (; i + 3 < prediction.size(); i += 4) {
+        // Load prediction and target vectors
+        float32x4_t v_pred = vld1q_f32(&prediction[i]);
+        float32x4_t v_target = vld1q_f32(&target[i]);
+        
+        // Calculate difference
+        float32x4_t v_diff = vsubq_f32(v_pred, v_target);
+        
+        // Square the difference and accumulate
+        v_sum = vmlaq_f32(v_sum, v_diff, v_diff);
+    }
+    
+    // Sum up the vector to get final result
+    float32x2_t v_sum_low = vget_low_f32(v_sum);
+    float32x2_t v_sum_high = vget_high_f32(v_sum);
+    v_sum_low = vadd_f32(v_sum_low, v_sum_high);
+    float32x2_t v_final = vpadd_f32(v_sum_low, v_sum_low);
+    float loss = vget_lane_f32(v_final, 0);
+    
+    // Handle remaining elements
+    for (; i < prediction.size(); ++i) {
+        float diff = prediction[i] - target[i];
+        loss += diff * diff;
+    }
+    
+    return loss;
 }

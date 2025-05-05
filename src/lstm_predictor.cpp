@@ -591,7 +591,7 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
 
 
         // Compute gradients
-        auto grad_output = compute_mse_loss_gradient(output, target);
+        auto grad_output = mse_loss_gradient(output, target);
 
         // Extract final hidden state
         const auto& last_hidden = lstm_output.sequence_output.back().back();
@@ -1158,7 +1158,7 @@ void LSTMPredictor::apply_sgd_update(
 }
 
 
-std::vector<float> LSTMPredictor::compute_mse_loss_gradient(
+std::vector<float> LSTMPredictor::mse_loss_gradient(
     const std::vector<float>& output, 
     const std::vector<float>& target) {
     
@@ -1167,4 +1167,13 @@ std::vector<float> LSTMPredictor::compute_mse_loss_gradient(
         gradient[i] = 2.0f * (output[i] - target[i]) / output.size();
     }
     return gradient;
+}
+
+float LSTMPredictor::mse_loss(const std::vector<float>& prediction, const std::vector<float>& target) {
+    float loss = 0.0f;
+    for (std::size_t i = 0; i < prediction.size(); ++i) {
+        float diff = prediction[i] - target[i];
+        loss += diff * diff;
+    }
+    return loss / prediction.size();
 }

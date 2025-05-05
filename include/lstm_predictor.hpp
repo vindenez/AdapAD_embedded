@@ -63,9 +63,8 @@ public:
                    const LSTMOutput& lstm_output,
                    float learning_rate);
     
-    virtual std::vector<float> compute_mse_loss_gradient(
-        const std::vector<float>& output,
-        const std::vector<float>& target);
+    virtual std::vector<float> mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target);
+    virtual float mse_loss(const std::vector<float>& prediction, const std::vector<float>& target);
 
     #ifdef TESTING
     float get_weight(int layer, int gate, int input_idx) const {
