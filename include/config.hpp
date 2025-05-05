@@ -1,76 +1,76 @@
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
-#include <string>
-#include <map>
-#include <vector>
 #include "yaml_handler.hpp"
-#include <algorithm> 
+#include <algorithm>
+#include <map>
+#include <string>
+#include <vector>
 // Configuration structure for predictor settings
 struct PredictorConfig {
-    int lookback_len;      // Lookback length for LSTM
-    int prediction_len;    // Prediction length
-    int train_size;        // Size of the training set
-    int num_layers;        // Number of LSTM layers
-    int hidden_size;       // Hidden size for LSTM
-    int num_classes;       // Number of output classes (usually 1 for regression tasks)
-    int input_size;        // Input size for LSTM, can be set to lookback_len
+    int lookback_len;   // Lookback length for LSTM
+    int prediction_len; // Prediction length
+    int train_size;     // Size of the training set
+    int num_layers;     // Number of LSTM layers
+    int hidden_size;    // Hidden size for LSTM
+    int num_classes;    // Number of output classes (usually 1 for regression tasks)
+    int input_size;     // Input size for LSTM, can be set to lookback_len
     int epoch_train;
     float lr_train;
     int epoch_update;
-    int epoch_update_generator;    
+    int epoch_update_generator;
     float lr_update;
-    float lr_update_generator;     
+    float lr_update_generator;
 };
 
 // Configuration structure for value ranges
 struct ValueRangeConfig {
-    float lower_bound;     // Lower bound of sensor values
-    float upper_bound;     // Upper bound of sensor values
+    float lower_bound; // Lower bound of sensor values
+    float upper_bound; // Upper bound of sensor values
 };
 
 class Config {
-private:
+  private:
     Config() {
         save_enabled = false;
-        load_enabled = false;   
-        save_interval = 48;    
+        load_enabled = false;
+        save_interval = 48;
         save_path = "model_states/";
     }
     std::map<std::string, std::string> config_map;
-    Config(const Config&) = delete;
-    Config& operator=(const Config&) = delete;
+    Config(const Config &) = delete;
+    Config &operator=(const Config &) = delete;
 
     // Helper methods for accessing config values
-    float get_float(const std::string& key, float default_value = 0.0f);
-    int get_int(const std::string& key, int default_value = 0);
-    std::string get_string(const std::string& key, const std::string& default_value = "");
-    bool get_bool(const std::string& key, bool default_value = false);
+    float get_float(const std::string &key, float default_value = 0.0f);
+    int get_int(const std::string &key, int default_value = 0);
+    std::string get_string(const std::string &key, const std::string &default_value = "");
+    bool get_bool(const std::string &key, bool default_value = false);
 
-public:
-    static Config& getInstance() {
+  public:
+    static Config &getInstance() {
         static Config instance;
         return instance;
     }
 
-    bool load(const std::string& yaml_path);
+    bool load(const std::string &yaml_path);
     void apply_data_source_config();
 
     // Get list of parameters for a given source
-    std::vector<std::string> get_parameters(const std::string& source) const {
+    std::vector<std::string> get_parameters(const std::string &source) const {
         std::vector<std::string> params;
         std::string base_key = "data.parameters." + source;
-        
+
         // Iterate through config_map to find matching parameters
-        for (const auto& pair : config_map) {
-            const std::string& key = pair.first;
+        for (const auto &pair : config_map) {
+            const std::string &key = pair.first;
             // Check if key starts with the base_key
             if (key.compare(0, base_key.length(), base_key) == 0) {
                 // Extract parameter name
                 size_t pos = key.find('.', base_key.length() + 1);
                 if (pos != std::string::npos) {
-                    std::string param = key.substr(base_key.length() + 1, 
-                                                 pos - base_key.length() - 1);
+                    std::string param =
+                        key.substr(base_key.length() + 1, pos - base_key.length() - 1);
                     // Add parameter if not already in list
                     if (std::find(params.begin(), params.end(), param) == params.end()) {
                         params.push_back(param);
@@ -78,7 +78,7 @@ public:
                 }
             }
         }
-        
+
         return params;
     }
 
@@ -92,9 +92,9 @@ public:
     int epoch_train;
     float lr_train;
     int epoch_update;
-    int epoch_update_generator;    // New
+    int epoch_update_generator; // New
     float lr_update;
-    float lr_update_generator;     // New
+    float lr_update_generator; // New
     int update_G_epoch;
     float update_G_lr;
 
@@ -118,7 +118,7 @@ public:
     // System
     unsigned int random_seed;
     bool use_neon;
-    
+
     // Model state configuration
     bool save_enabled;
     bool load_enabled;
@@ -126,13 +126,11 @@ public:
     std::string save_path;
 
     // Add public method to access config map
-    const std::map<std::string, std::string>& get_config_map() const {
-        return config_map;
-    }
+    const std::map<std::string, std::string> &get_config_map() const { return config_map; }
 };
 
 // Declare the configuration functions
 PredictorConfig init_predictor_config();
-ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold);
+ValueRangeConfig init_value_range_config(const std::string &data_source, float &minimal_threshold);
 
 #endif // CONFIG_HPP

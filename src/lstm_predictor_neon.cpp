@@ -1,14 +1,13 @@
 #include "lstm_predictor_neon.hpp"
-#include "matrix_utils.hpp"
 #include "config.hpp"
-#include "model_state.hpp"
+#include "matrix_utils.hpp"
 
-#include <random>
 #include <algorithm>
-#include <iostream>
-#include <fstream>
+#include <cxxabi.h>
 #include <execinfo.h>
-#include <cxxabi.h> 
+#include <fstream>
+#include <iostream>
+#include <random>
 
 #if USE_NEON
 #include <arm_neon.h>
@@ -17,7 +16,7 @@
 float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     // Constants
     float32x4_t v_one = vdupq_n_f32(1.0f);
-    float32x4_t v_min = vdupq_n_f32(-10.0f);  // Clamp to avoid numerical issues
+    float32x4_t v_min = vdupq_n_f32(-10.0f); // Clamp to avoid numerical issues
     float32x4_t v_max = vdupq_n_f32(10.0f);
 
     // Clamp input to avoid overflow/underflow
@@ -44,7 +43,7 @@ float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
 
 float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
     // Constants
-    float32x4_t v_min = vdupq_n_f32(-10.0f);  // Clamp to avoid numerical issues
+    float32x4_t v_min = vdupq_n_f32(-10.0f); // Clamp to avoid numerical issues
     float32x4_t v_max = vdupq_n_f32(10.0f);
 
     // Clamp input to avoid overflow/underflow
@@ -59,51 +58,51 @@ float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
     tanh_values[3] = std::tanh(vgetq_lane_f32(x, 3));
 
     float32x4_t v_tanh_values = vld1q_f32(tanh_values);
-    
+
     return v_tanh_values;
 }
 
-LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden_size, 
-                            int num_layers, int lookback_len, 
-                            bool batch_first)
+LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden_size,
+                                     int num_layers, int lookback_len, bool batch_first)
     : LSTMPredictor(num_classes, input_size, hidden_size, num_layers, lookback_len, batch_first) {
-    
+
     std::cout << "Initializing LSTM Predictor with:" << std::endl;
     std::cout << "- num_classes: " << num_classes << std::endl;
     std::cout << "- input_size: " << input_size << std::endl;
     std::cout << "- hidden_size: " << hidden_size << std::endl;
     std::cout << "- num_layers: " << num_layers << std::endl;
     std::cout << "- lookback_len: " << lookback_len << std::endl;
-    
+
     // Pre-allocate LSTM layers
     lstm_layers.resize(num_layers);
     last_gradients.resize(num_layers);
-    
+
     // Initialize velocity terms
     velocity_weight_ih.resize(num_layers);
     velocity_weight_hh.resize(num_layers);
     velocity_bias_ih.resize(num_layers);
     velocity_bias_hh.resize(num_layers);
-    
+
     for (int layer = 0; layer < num_layers; ++layer) {
         int input_size_layer = (layer == 0) ? input_size : hidden_size;
-        velocity_weight_ih[layer].resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
+        velocity_weight_ih[layer].resize(4 * hidden_size,
+                                         std::vector<float>(input_size_layer, 0.0f));
         velocity_weight_hh[layer].resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
         velocity_bias_ih[layer].resize(4 * hidden_size, 0.0f);
         velocity_bias_hh[layer].resize(4 * hidden_size, 0.0f);
     }
-    
+
     velocity_fc_weight.resize(num_classes, std::vector<float>(hidden_size, 0.0f));
     velocity_fc_bias.resize(num_classes, 0.0f);
-    
+
     // Pre-allocate layer cache with minimal structure
     layer_cache.resize(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
-        layer_cache[layer].resize(1);  // One batch
-        layer_cache[layer][0].resize(lookback_len);  // Sequence length
-        
+        layer_cache[layer].resize(1);               // One batch
+        layer_cache[layer][0].resize(lookback_len); // Sequence length
+
         // Pre-allocate each cache entry with properly sized vectors
-        for (auto& seq : layer_cache[layer][0]) {
+        for (auto &seq : layer_cache[layer][0]) {
             int expected_input_size = (layer == 0) ? input_size : hidden_size;
             seq.input.resize(expected_input_size, 0.0f);
             seq.prev_hidden.resize(hidden_size, 0.0f);
@@ -116,32 +115,31 @@ LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden
             seq.hidden_state.resize(hidden_size, 0.0f);
         }
     }
-    
+
     // Pre-allocate gradients
-    for (auto& grad : last_gradients) {
+    for (auto &grad : last_gradients) {
         int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
         grad.weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
         grad.weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
         grad.bias_ih_grad.resize(4 * hidden_size, 0.0f);
         grad.bias_hh_grad.resize(4 * hidden_size, 0.0f);
     }
-    
+
     // Pre-allocate states
     h_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
     c_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
-    
+
     // Initialize weights
     initialize_weights();
     reset_states();
-    
+
     std::cout << "LSTM Predictor initialization complete" << std::endl;
 }
 
-std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
-    const std::vector<float>& input,
-    std::vector<float>& h_state,
-    std::vector<float>& c_state,
-    const LSTMLayer& layer) {
+std::vector<float> LSTMPredictorNEON::lstm_cell_forward(const std::vector<float> &input,
+                                                        std::vector<float> &h_state,
+                                                        std::vector<float> &c_state,
+                                                        const LSTMLayer &layer) {
 
     // Verify dimensions
     int expected_layer_input = (current_layer == 0) ? input_size : hidden_size;
@@ -152,13 +150,15 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
     if (input.size() != expected_layer_input) {
         throw std::runtime_error("Input size mismatch in lstm_cell_forward_neon");
     }
-    
+
     // Resize state vectors if needed
-    if (h_state.size() != hidden_size) h_state.resize(hidden_size, 0.0f);
-    if (c_state.size() != hidden_size) c_state.resize(hidden_size, 0.0f);
+    if (h_state.size() != hidden_size)
+        h_state.resize(hidden_size, 0.0f);
+    if (c_state.size() != hidden_size)
+        c_state.resize(hidden_size, 0.0f);
 
     // Cache entry for training mode
-    LSTMCacheEntry* cache_entry = nullptr;
+    LSTMCacheEntry *cache_entry = nullptr;
     if (training_mode) {
         // Validate cache access
         if (current_layer >= layer_cache.size() ||
@@ -166,9 +166,9 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
             current_timestep >= layer_cache[current_layer][current_batch].size()) {
             throw std::runtime_error("Invalid cache access");
         }
-        
+
         cache_entry = &layer_cache[current_layer][current_batch][current_timestep];
-        
+
         // Resize cache vectors
         cache_entry->input.resize(expected_layer_input);
         cache_entry->prev_hidden.resize(hidden_size);
@@ -179,17 +179,17 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
         cache_entry->cell_candidate.resize(hidden_size);
         cache_entry->output_gate.resize(hidden_size);
         cache_entry->hidden_state.resize(hidden_size);
-        
+
         // Cache input and previous states
         std::copy(input.begin(), input.end(), cache_entry->input.begin());
         std::copy(h_state.begin(), h_state.end(), cache_entry->prev_hidden.begin());
         std::copy(c_state.begin(), c_state.end(), cache_entry->prev_cell.begin());
     }
-    
+
     // Initialize gates with biases
     std::vector<float> gates(4 * hidden_size);
 
-    // Add biases 
+    // Add biases
     for (int h = 0; h + 3 < hidden_size; h += 4) {
         // Load bias vectors
         float32x4_t v_bias_ih_i = vld1q_f32(&layer.bias_ih[h]);
@@ -216,12 +216,15 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
 
     // Handle remaining elements
     for (int h = (hidden_size / 4) * 4; h < hidden_size; ++h) {
-        gates[h] = layer.bias_ih[h] + layer.bias_hh[h];                                                         // input gate
-        gates[hidden_size + h] = layer.bias_ih[hidden_size + h] + layer.bias_hh[hidden_size + h];               // forget gate
-        gates[2 * hidden_size + h] = layer.bias_ih[2 * hidden_size + h] + layer.bias_hh[2 * hidden_size + h];   // cell candidate
-        gates[3 * hidden_size + h] = layer.bias_ih[3 * hidden_size + h] + layer.bias_hh[3 * hidden_size + h];   // output gate
+        gates[h] = layer.bias_ih[h] + layer.bias_hh[h]; // input gate
+        gates[hidden_size + h] =
+            layer.bias_ih[hidden_size + h] + layer.bias_hh[hidden_size + h]; // forget gate
+        gates[2 * hidden_size + h] = layer.bias_ih[2 * hidden_size + h] +
+                                     layer.bias_hh[2 * hidden_size + h]; // cell candidate
+        gates[3 * hidden_size + h] =
+            layer.bias_ih[3 * hidden_size + h] + layer.bias_hh[3 * hidden_size + h]; // output gate
     }
-    
+
     // Input to hidden contribution
     for (size_t i = 0; i < input.size(); ++i) {
         // Broadcast input element
@@ -250,7 +253,7 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
             }
         }
     }
-    
+
     // Hidden to hidden contribution
     for (size_t i = 0; i < hidden_size; ++i) {
         // Broadcast h_state element
@@ -337,7 +340,7 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
         // Update cell state
         float new_cell = f_t * c_state[h] + i_t * cell_candidate;
         c_state[h] = new_cell;
-        
+
         // Update hidden state
         float new_hidden = o_t * tanh_custom(new_cell);
         h_state[h] = new_hidden;
@@ -353,13 +356,13 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
             cache_entry->hidden_state[h] = new_hidden;
         }
     }
-    
+
     return output;
 }
-LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
-    const std::vector<std::vector<std::vector<float>>>& x,
-    const std::vector<std::vector<float>>* initial_hidden,
-    const std::vector<std::vector<float>>* initial_cell) {
+LSTMPredictor::LSTMOutput
+LSTMPredictorNEON::forward(const std::vector<std::vector<std::vector<float>>> &x,
+                           const std::vector<std::vector<float>> *initial_hidden,
+                           const std::vector<std::vector<float>> *initial_cell) {
 
     // Verify input dimensions (same as base class)
     for (size_t batch = 0; batch < x.size(); ++batch) {
@@ -369,87 +372,87 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
             }
         }
     }
-    
+
     try {
         // Initialize layer cache if not already initialized
         if (!is_layer_cache_initialized()) {
             initialize_layer_cache();
         }
-        
+
         // Verify cache is properly initialized
         if (layer_cache.size() != num_layers) {
             throw std::runtime_error("Layer cache not properly initialized");
         }
-        
+
         size_t batch_size = x.size();
         size_t seq_len = x[0].size();
-        
+
         LSTMOutput output;
         output.sequence_output.resize(batch_size);
-        
-        for (auto& batch : output.sequence_output) {
+
+        for (auto &batch : output.sequence_output) {
             batch.resize(seq_len);
-            for (auto& seq : batch) {
+            for (auto &seq : batch) {
                 seq.resize(hidden_size);
-                
+
                 // Initializing with zeros in blocks of 4
                 size_t i = 0;
                 float32x4_t v_zero = vdupq_n_f32(0.0f);
-                
+
                 for (; i + 3 < hidden_size; i += 4) {
                     vst1q_f32(&seq[i], v_zero);
                 }
-                
+
                 // Handle remaining elements
                 for (; i < hidden_size; ++i) {
                     seq[i] = 0.0f;
                 }
             }
         }
-        
+
         // Process each batch
         for (size_t batch = 0; batch < batch_size; ++batch) {
             current_batch = batch;
-            
+
             // Reset states if no initial states provided
             if (!initial_hidden || !initial_cell) {
                 reset_states();
             }
-            
+
             // Process each time step
             for (size_t t = 0; t < seq_len; ++t) {
                 current_timestep = t;
-                
+
                 std::vector<float> layer_input = x[batch][t];
                 std::vector<std::vector<float>> layer_outputs(num_layers + 1);
-                
+
                 // Copy vector
                 layer_outputs[0].resize(layer_input.size());
-                
+
                 size_t i = 0;
                 for (; i + 3 < layer_input.size(); i += 4) {
                     float32x4_t v_input = vld1q_f32(&layer_input[i]);
                     vst1q_f32(&layer_outputs[0][i], v_input);
                 }
-                
+
                 // Handle remaining elements
                 for (; i < layer_input.size(); ++i) {
                     layer_outputs[0][i] = layer_input[i];
                 }
-                
+
                 // Process through LSTM layers
                 for (int layer = 0; layer < num_layers; ++layer) {
                     current_layer = layer;
-                    
+
                     // Get correct input size for this layer
                     int expected_input_size = (layer == 0) ? input_size : hidden_size;
-                    
+
                     // Verify dimensions
                     if (layer_outputs[layer].size() != expected_input_size) {
-                        throw std::runtime_error("Layer input dimension mismatch at layer " + 
-                                               std::to_string(static_cast<long long>(layer)));
+                        throw std::runtime_error("Layer input dimension mismatch at layer " +
+                                                 std::to_string(static_cast<long long>(layer)));
                     }
-                    
+
                     // Ensure cache entry exists and is properly sized if in training mode
                     if (training_mode) {
                         // Validate indices before accessing cache
@@ -458,9 +461,10 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
                             current_timestep >= layer_cache[current_layer][current_batch].size()) {
                             throw std::runtime_error("Invalid cache access");
                         }
-                        
-                        auto& cache_entry = layer_cache[current_layer][current_batch][current_timestep];
-                        
+
+                        auto &cache_entry =
+                            layer_cache[current_layer][current_batch][current_timestep];
+
                         // Resize and initialize to zero
                         cache_entry.input.resize(expected_input_size);
                         cache_entry.prev_hidden.resize(hidden_size);
@@ -472,93 +476,86 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
                         cache_entry.output_gate.resize(hidden_size);
                         cache_entry.hidden_state.resize(hidden_size);
                     }
-                    
+
                     layer_outputs[layer + 1] = lstm_cell_forward(
-                        layer_outputs[layer],
-                        h_state[layer],
-                        c_state[layer],
-                        lstm_layers[layer]
-                    );
+                        layer_outputs[layer], h_state[layer], c_state[layer], lstm_layers[layer]);
                 }
-                
+
                 // Copy final layer output to sequence output
                 size_t j = 0;
                 for (; j + 3 < hidden_size; j += 4) {
                     float32x4_t v_output = vld1q_f32(&layer_outputs[num_layers][j]);
                     vst1q_f32(&output.sequence_output[batch][t][j], v_output);
                 }
-                
+
                 // Handle remaining elements
                 for (; j < hidden_size; ++j) {
                     output.sequence_output[batch][t][j] = layer_outputs[num_layers][j];
                 }
             }
         }
-        
+
         output.final_hidden = h_state;
         output.final_cell = c_state;
-        
+
         return output;
-        
-    } catch (const std::exception& e) {
+
+    } catch (const std::exception &e) {
         // Clean up on error
         clear_update_state();
         throw;
     }
 }
 
-void LSTMPredictorNEON::backward_linear_layer(
-    const std::vector<float>& grad_output,
-    const std::vector<float>& last_hidden,
-    std::vector<std::vector<float>>& weight_grad,
-    std::vector<float>& bias_grad,
-    std::vector<float>& input_grad) {
-    
+void LSTMPredictorNEON::backward_linear_layer(const std::vector<float> &grad_output,
+                                              const std::vector<float> &last_hidden,
+                                              std::vector<std::vector<float>> &weight_grad,
+                                              std::vector<float> &bias_grad,
+                                              std::vector<float> &input_grad) {
+
     // Check dimensions (same as base class)
     if (grad_output.size() != num_classes) {
         throw std::invalid_argument(
             "grad_output size mismatch: " + std::to_string(grad_output.size()) +
-            " != " + std::to_string(num_classes)
-        );
+            " != " + std::to_string(num_classes));
     }
-    
+
     if (last_hidden.size() != hidden_size) {
         throw std::invalid_argument(
             "last_hidden size mismatch: " + std::to_string(last_hidden.size()) +
-            " != " + std::to_string(hidden_size)
-        );
+            " != " + std::to_string(hidden_size));
     }
-    
+
     // Initialize gradients with correct dimensions
     weight_grad.resize(num_classes, std::vector<float>(hidden_size, 0.0f));
-    bias_grad = grad_output;  // Copy gradient directly for bias
+    bias_grad = grad_output; // Copy gradient directly for bias
     input_grad.resize(hidden_size, 0.0f);
-    
+
     // Compute weight gradients
     for (int i = 0; i < num_classes; ++i) {
         // Broadcast grad_output[i] to a vector of 4 identical values
         float32x4_t v_grad_output_i = vdupq_n_f32(grad_output[i]);
-        
+
         int j = 0;
         // Process 4 hidden units at a time
         for (; j + 3 < hidden_size; j += 4) {
             // Load 4 values from last_hidden
             float32x4_t v_last_hidden = vld1q_f32(&last_hidden[j]);
-            
+
             // Multiply gradient with last hidden (element-wise)
             float32x4_t v_result = vmulq_f32(v_grad_output_i, v_last_hidden);
-            
+
             // Store the result to weight_grad
             vst1q_f32(&weight_grad[i][j], v_result);
         }
-        
+
         // Handle remaining elements
         for (; j < hidden_size; ++j) {
             weight_grad[i][j] = grad_output[i] * last_hidden[j];
         }
     }
-    
-    // Compute input gradients 
+
+    // Compute input gradients
     // input_grad = fc_weight^T * grad_output
     float32x4_t v_zeros = vdupq_n_f32(0.0f);
     int i = 0;
@@ -568,11 +565,11 @@ void LSTMPredictorNEON::backward_linear_layer(
     for (; i < hidden_size; ++i) {
         input_grad[i] = 0.0f;
     }
-    
+
     for (int j = 0; j < num_classes; ++j) {
         // Broadcast grad_output[j]
         float32x4_t v_grad_j = vdupq_n_f32(grad_output[j]);
-        
+
         i = 0;
         for (; i + 3 < hidden_size; i += 4) {
             float32x4_t v_input_grad = vld1q_f32(&input_grad[i]);
@@ -580,7 +577,7 @@ void LSTMPredictorNEON::backward_linear_layer(
             v_input_grad = vmlaq_f32(v_input_grad, v_weights, v_grad_j);
             vst1q_f32(&input_grad[i], v_input_grad);
         }
-        
+
         // Handle remaining elements
         for (; i < hidden_size; ++i) {
             input_grad[i] += fc_weight[j][i] * grad_output[j];
@@ -589,10 +586,9 @@ void LSTMPredictorNEON::backward_linear_layer(
 }
 
 std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer(
-    const std::vector<float>& grad_output,
-    const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
-    float learning_rate) {
-    
+    const std::vector<float> &grad_output,
+    const std::vector<std::vector<std::vector<LSTMCacheEntry>>> &cache, float learning_rate) {
+
     // Dimension validation
     if (grad_output.size() != hidden_size) {
         throw std::runtime_error("grad_output size mismatch in backward_lstm_layer_neon");
@@ -600,34 +596,36 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
     if (cache.size() != num_layers) {
         throw std::runtime_error("cache layer count mismatch in backward_lstm_layer_neon");
     }
-    
+
     // Initialize gradients for each layer
     std::vector<LSTMGradients> layer_grads(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
         int input_size_layer = (layer == 0) ? input_size : hidden_size;
-        layer_grads[layer].weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
-        layer_grads[layer].weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
+        layer_grads[layer].weight_ih_grad.resize(4 * hidden_size,
+                                                 std::vector<float>(input_size_layer, 0.0f));
+        layer_grads[layer].weight_hh_grad.resize(4 * hidden_size,
+                                                 std::vector<float>(hidden_size, 0.0f));
         layer_grads[layer].bias_ih_grad.resize(4 * hidden_size, 0.0f);
         layer_grads[layer].bias_hh_grad.resize(4 * hidden_size, 0.0f);
     }
-    
+
     // Initialize dh_next and dc_next for each layer
     std::vector<std::vector<float>> dh_next(num_layers, std::vector<float>(hidden_size, 0.0f));
     std::vector<std::vector<float>> dc_next(num_layers, std::vector<float>(hidden_size, 0.0f));
-    
+
     // Start from last layer and move backward
     for (int layer = num_layers - 1; layer >= 0; --layer) {
         // Get dh and dc for this layer
         std::vector<float> dh = dh_next[layer];
         std::vector<float> dc = dc_next[layer];
-        
+
         // Validate cache access
         if (current_batch >= cache[layer].size()) {
             throw std::runtime_error("Cache batch index out of bounds");
         }
-        
-        const auto& layer_cache = cache[layer][current_batch];
-        
+
+        const auto &layer_cache = cache[layer][current_batch];
+
         // If this is the last layer, add grad_output to dh
         if (layer == num_layers - 1) {
             // Use NEON to add grad_output to dh
@@ -647,8 +645,8 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
 
         // Process each time step in reverse order
         for (int t = layer_cache.size() - 1; t >= 0; --t) {
-            const auto& cache_entry = layer_cache[t];
-            
+            const auto &cache_entry = layer_cache[t];
+
             // Initialize dh_prev and dc_prev
             std::vector<float> dh_prev(hidden_size, 0.0f);
             std::vector<float> dc_prev(hidden_size, 0.0f);
@@ -708,7 +706,8 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
                 // Cell candidate gradient: dgt = dct * it * (1 - gt²)
                 float32x4_t v_g_squared = vmulq_f32(v_cell_candidate, v_cell_candidate);
                 float32x4_t v_one_minus_g_squared = vsubq_f32(v_one, v_g_squared);
-                float32x4_t v_dg_t = vmulq_f32(v_dc_t, vmulq_f32(v_input_gate, v_one_minus_g_squared));
+                float32x4_t v_dg_t =
+                    vmulq_f32(v_dc_t, vmulq_f32(v_input_gate, v_one_minus_g_squared));
 
                 // Store gate gradients temporarily to use later
                 float di_t[4], df_t[4], dg_t[4], do_t[4], dc_t[4];
@@ -734,16 +733,20 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
             for (; h < hidden_size; ++h) {
                 float tanh_c = tanh_custom(cache_entry.cell_state[h]);
                 float dho = dh[h];
-                
+
                 // Cell state gradient
                 float dc_t = dho * cache_entry.output_gate[h] * (1.0f - tanh_c * tanh_c);
                 dc_t += dc[h];
 
                 // Gate gradients
-                float do_t = dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
-                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] * (1.0f - cache_entry.input_gate[h]);
-                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] * (1.0f - cache_entry.forget_gate[h]);
-                float dg_t = dc_t * cache_entry.input_gate[h] * (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
+                float do_t =
+                    dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
+                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] *
+                             (1.0f - cache_entry.input_gate[h]);
+                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] *
+                             (1.0f - cache_entry.forget_gate[h]);
+                float dg_t = dc_t * cache_entry.input_gate[h] *
+                             (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
 
                 // Accumulate bias gradients
                 layer_grads[layer].bias_ih_grad[h] += di_t;
@@ -756,20 +759,25 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
             }
 
             // Accumulate weight gradients and compute dh_prev
-            // This section is harder to vectorize due to the nested loops and non-contiguous memory
+            // This section is harder to vectorize due to the nested loops and
+            // non-contiguous memory
             int input_size_layer = (layer == 0) ? input_size : hidden_size;
 
             for (int h = 0; h < hidden_size; ++h) {
                 float tanh_c = tanh_custom(cache_entry.cell_state[h]);
                 float dho = dh[h];
-                
+
                 // Recompute gradients (more compact than storing all of them)
                 float dc_t = dho * cache_entry.output_gate[h] * (1.0f - tanh_c * tanh_c) + dc[h];
-                float do_t = dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
-                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] * (1.0f - cache_entry.input_gate[h]);
-                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] * (1.0f - cache_entry.forget_gate[h]);
-                float dg_t = dc_t * cache_entry.input_gate[h] * (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
-                
+                float do_t =
+                    dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
+                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] *
+                             (1.0f - cache_entry.input_gate[h]);
+                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] *
+                             (1.0f - cache_entry.forget_gate[h]);
+                float dg_t = dc_t * cache_entry.input_gate[h] *
+                             (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
+
                 // Accumulate weight gradients
                 for (int j = 0; j < input_size_layer; ++j) {
                     float input_j = cache_entry.input[j];
@@ -778,7 +786,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
                     layer_grads[layer].weight_ih_grad[2 * hidden_size + h][j] += dg_t * input_j;
                     layer_grads[layer].weight_ih_grad[3 * hidden_size + h][j] += do_t * input_j;
                 }
-                
+
                 // Accumulate hidden-hidden weight gradients and dh_prev
                 for (int j = 0; j < hidden_size; ++j) {
                     float h_prev_j = cache_entry.prev_hidden[j];
@@ -786,7 +794,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
                     layer_grads[layer].weight_hh_grad[hidden_size + h][j] += df_t * h_prev_j;
                     layer_grads[layer].weight_hh_grad[2 * hidden_size + h][j] += dg_t * h_prev_j;
                     layer_grads[layer].weight_hh_grad[3 * hidden_size + h][j] += do_t * h_prev_j;
-                    
+
                     // Accumulate dh_prev
                     dh_prev[j] += di_t * lstm_layers[layer].weight_hh[h][j];
                     dh_prev[j] += df_t * lstm_layers[layer].weight_hh[hidden_size + h][j];
@@ -794,32 +802,30 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
                     dh_prev[j] += do_t * lstm_layers[layer].weight_hh[3 * hidden_size + h][j];
                 }
             }
-            
+
             // Update gradients for next timestep
             dh = dh_prev;
             dc = dc_prev;
         }
-        
+
         // Pass gradients to next layer
         if (layer > 0) {
             dh_next[layer - 1] = dh;
             dc_next[layer - 1] = dc;
         }
     }
-    
+
     last_gradients = layer_grads;
     return layer_grads;
 }
 
 // SGD update for weight matrices
-void LSTMPredictorNEON::apply_sgd_update(
-    std::vector<std::vector<float>>& weights,
-    std::vector<std::vector<float>>& grads,
-    float learning_rate,
-    float momentum) {
+void LSTMPredictorNEON::apply_sgd_update(std::vector<std::vector<float>> &weights,
+                                         std::vector<std::vector<float>> &grads,
+                                         float learning_rate, float momentum) {
 
     // Find which velocity terms to use based on dimensions
-    std::vector<std::vector<float>>* velocity_terms = nullptr;
+    std::vector<std::vector<float>> *velocity_terms = nullptr;
     if (weights.size() == num_classes && weights[0].size() == hidden_size) {
         velocity_terms = &velocity_fc_weight;
     } else if (weights.size() == 4 * hidden_size) {
@@ -835,16 +841,16 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 
     // NEON constants for vectorized operations
-    float32x4_t v_momentum = vdupq_n_f32(momentum);          // Load momentum as vector
-    float32x4_t v_neg_lr = vdupq_n_f32(-learning_rate);      // Negative learning rate
-    float32x4_t v_clip_max = vdupq_n_f32(1.0f);              // Clip max value
-    float32x4_t v_clip_min = vdupq_n_f32(-1.0f);             // Clip min value
+    float32x4_t v_momentum = vdupq_n_f32(momentum);     // Load momentum as vector
+    float32x4_t v_neg_lr = vdupq_n_f32(-learning_rate); // Negative learning rate
+    float32x4_t v_clip_max = vdupq_n_f32(1.0f);         // Clip max value
+    float32x4_t v_clip_min = vdupq_n_f32(-1.0f);        // Clip min value
 
     // Process each row of weights
     for (size_t i = 0; i < weights.size(); ++i) {
         size_t j = 0;
 
-        // Process 4 elements at once 
+        // Process 4 elements at once
         for (; j + 3 < weights[i].size(); j += 4) {
             // Load gradients and velocity
             float32x4_t v_grad = vld1q_f32(&grads[i][j]);
@@ -890,19 +896,15 @@ void LSTMPredictorNEON::apply_sgd_update(
 }
 
 // SGD update for bias vectors
-void LSTMPredictorNEON::apply_sgd_update(
-    std::vector<float>& biases,
-    std::vector<float>& grads,
-    float learning_rate,
-    float momentum) {
+void LSTMPredictorNEON::apply_sgd_update(std::vector<float> &biases, std::vector<float> &grads,
+                                         float learning_rate, float momentum) {
 
     // Find which velocity terms to use
-    std::vector<float>* velocity_terms = nullptr;
+    std::vector<float> *velocity_terms = nullptr;
 
     if (biases.size() == num_classes) {
         velocity_terms = &velocity_fc_bias;
-    }
-    else if (biases.size() == 4 * hidden_size) {
+    } else if (biases.size() == 4 * hidden_size) {
         for (int layer = 0; layer < num_layers; ++layer) {
             if (&biases == &lstm_layers[layer].bias_ih) {
                 velocity_terms = &velocity_bias_ih[layer];
@@ -972,11 +974,11 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 }
 
-std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lstm_output) {
+std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput &lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
 
     // Get final hidden state
-    const auto& final_hidden = lstm_output.sequence_output.back().back();
+    const auto &final_hidden = lstm_output.sequence_output.back().back();
 
     // For each output class
     for (int i = 0; i < num_classes; ++i) {
@@ -1011,11 +1013,9 @@ std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lst
     return final_output;
 }
 
-void LSTMPredictorNEON::train_step(
-    const std::vector<std::vector<std::vector<float>>>& x,
-    const std::vector<float>& target,
-    const LSTMOutput& lstm_output,
-    float learning_rate) {
+void LSTMPredictorNEON::train_step(const std::vector<std::vector<std::vector<float>>> &x,
+                                   const std::vector<float> &target, const LSTMOutput &lstm_output,
+                                   float learning_rate) {
 
     try {
         // Validate input dimensions
@@ -1046,7 +1046,7 @@ void LSTMPredictorNEON::train_step(
         auto grad_output = mse_loss_gradient(output, target);
 
         // 3. Get final hidden state
-        const auto& last_hidden = lstm_output.sequence_output.back().back();
+        const auto &last_hidden = lstm_output.sequence_output.back().back();
 
         // 4. Backward pass through FC layer
         std::vector<std::vector<float>> fc_weight_grad;
@@ -1071,27 +1071,30 @@ void LSTMPredictorNEON::train_step(
             }
 
             // Update weights and biases
-            apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad, learning_rate, 0.9f);
-            apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad, learning_rate, 0.9f);
-            apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad, learning_rate, 0.9f);
-            apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad, learning_rate, 0.9f);
+            apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad,
+                             learning_rate, 0.9f);
+            apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad,
+                             learning_rate, 0.9f);
+            apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad,
+                             learning_rate, 0.9f);
+            apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad,
+                             learning_rate, 0.9f);
         }
 
         // 8. Clear temporary state
         clear_update_state();
 
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         clear_update_state();
         throw;
     }
 }
 
-void LSTMPredictorNEON::apply_gate_operations_neon(
-    std::vector<float>& gates,
-    std::vector<float>& h_state,
-    std::vector<float>& c_state,
-    LSTMCacheEntry* cache_entry,
-    size_t hidden_size) {
+void LSTMPredictorNEON::apply_gate_operations_neon(std::vector<float> &gates,
+                                                   std::vector<float> &h_state,
+                                                   std::vector<float> &c_state,
+                                                   LSTMCacheEntry *cache_entry,
+                                                   size_t hidden_size) {
 
     // Process 4 elements at a time
     for (size_t h = 0; h + 3 < hidden_size; h += 4) {
@@ -1164,7 +1167,8 @@ void LSTMPredictorNEON::apply_gate_operations_neon(
     }
 }
 
-std::vector<float> LSTMPredictorNEON::mse_loss_gradient(const std::vector<float>& output, const std::vector<float>& target) {
+std::vector<float> LSTMPredictorNEON::mse_loss_gradient(const std::vector<float> &output,
+                                                        const std::vector<float> &target) {
     if (output.size() != target.size()) {
         throw std::runtime_error("Output and target size mismatch in mse_loss_gradient");
     }
@@ -1193,39 +1197,40 @@ std::vector<float> LSTMPredictorNEON::mse_loss_gradient(const std::vector<float>
     return gradient;
 }
 
-float LSTMPredictorNEON::mse_loss(const std::vector<float>& prediction, const std::vector<float>& target) {
+float LSTMPredictorNEON::mse_loss(const std::vector<float> &prediction,
+                                  const std::vector<float> &target) {
     if (prediction.size() != target.size()) {
         throw std::runtime_error("Prediction and target size mismatch in mse_loss");
     }
-    
+
     float32x4_t v_sum = vdupq_n_f32(0.0f);
     size_t i = 0;
-    
+
     // Process 4 elements at a time
     for (; i + 3 < prediction.size(); i += 4) {
         // Load prediction and target vectors
         float32x4_t v_pred = vld1q_f32(&prediction[i]);
         float32x4_t v_target = vld1q_f32(&target[i]);
-        
+
         // Calculate difference
         float32x4_t v_diff = vsubq_f32(v_pred, v_target);
-        
+
         // Square the difference and accumulate
         v_sum = vmlaq_f32(v_sum, v_diff, v_diff);
     }
-    
+
     // Sum up the vector to get final result
     float32x2_t v_sum_low = vget_low_f32(v_sum);
     float32x2_t v_sum_high = vget_high_f32(v_sum);
     v_sum_low = vadd_f32(v_sum_low, v_sum_high);
     float32x2_t v_final = vpadd_f32(v_sum_low, v_sum_low);
     float loss = vget_lane_f32(v_final, 0);
-    
+
     // Handle remaining elements
     for (; i < prediction.size(); ++i) {
         float diff = prediction[i] - target[i];
         loss += diff * diff;
     }
-    
+
     return loss;
 }
