@@ -62,7 +62,7 @@ public:
     }
 
 private:
-    std::unique_ptr<LSTMPredictor> generator;
+    std::unique_ptr<ILSTMPredictor> generator;
     
     // Pre-allocated vectors for update
     std::vector<std::vector<std::vector<float>>> update_input;

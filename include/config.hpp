@@ -64,14 +64,11 @@ public:
         // Iterate through config_map to find matching parameters
         for (const auto& pair : config_map) {
             const std::string& key = pair.first;
-            // Check if key starts with the base_key
             if (key.compare(0, base_key.length(), base_key) == 0) {
-                // Extract parameter name
                 size_t pos = key.find('.', base_key.length() + 1);
                 if (pos != std::string::npos) {
                     std::string param = key.substr(base_key.length() + 1, 
                                                  pos - base_key.length() - 1);
-                    // Add parameter if not already in list
                     if (std::find(params.begin(), params.end(), param) == params.end()) {
                         params.push_back(param);
                     }
@@ -92,9 +89,9 @@ public:
     int epoch_train;
     float lr_train;
     int epoch_update;
-    int epoch_update_generator;    // New
+    int epoch_update_generator;    
     float lr_update;
-    float lr_update_generator;     // New
+    float lr_update_generator;     
     int update_G_epoch;
     float update_G_lr;
 
@@ -116,22 +113,21 @@ public:
     float upper_bound;
 
     // System
-    unsigned int random_seed;
     bool use_neon;
-    
+    bool use_16bit;
+    unsigned int random_seed;
     // Model state configuration
     bool save_enabled;
     bool load_enabled;
     int save_interval;
     std::string save_path;
 
-    // Add public method to access config map
+    // Public method to access config map
     const std::map<std::string, std::string>& get_config_map() const {
         return config_map;
     }
 };
 
-// Declare the configuration functions
 PredictorConfig init_predictor_config();
 ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold);
 

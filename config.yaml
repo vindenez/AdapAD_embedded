@@ -24,6 +24,7 @@ anomaly_detection:
 
 system:
   use_neon: true
+  use_16bit: true
   random_seed: 42
   
 data:

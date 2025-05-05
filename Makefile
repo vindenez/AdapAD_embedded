@@ -32,7 +32,7 @@ ifeq ($(OS),Darwin)
     # macOS settings
     ifeq ($(ARCH),arm64)
         # For M1/M2 Mac (ARM64)
-        CXXFLAGS += -march=armv8-a+fp+simd+crypto+crc
+        CXXFLAGS += -march=armv8-a+fp+simd+crypto+crc+fp16
         GTEST_ROOT = /opt/homebrew
     else
         # For Intel Mac

@@ -4,10 +4,10 @@
 #include <cmath>
 #include <arm_neon.h>
 
-class LSTMPredictorNEON : public LSTMPredictor {
+class LSTMPredictor32bNEON : public LSTMPredictor {
 public:
     // Constructor
-    LSTMPredictorNEON(int num_classes, int input_size, int hidden_size, 
+    LSTMPredictor32bNEON(int num_classes, int input_size, int hidden_size, 
                   int num_layers, int lookback_len, 
                   bool batch_first = true);
 
@@ -43,7 +43,7 @@ public:
         std::vector<float>& input_grad) override;
     
     // Add virtual destructor
-    virtual ~LSTMPredictorNEON() = default;
+    virtual ~LSTMPredictor32bNEON() = default;
 
 private:
     // NEON-optimized activation functions

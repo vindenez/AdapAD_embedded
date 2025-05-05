@@ -1,4 +1,4 @@
-#include "lstm_predictor_neon.hpp"
+#include "lstm_predictor_32b_neon.hpp"
 #include "matrix_utils.hpp"
 #include "config.hpp"
 #include "model_state.hpp"
@@ -14,10 +14,10 @@
 #include <arm_neon.h>
 #endif
 
-float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
+float32x4_t LSTMPredictor32bNEON::sigmoid_neon(float32x4_t x) {
     // Constants
     float32x4_t v_one = vdupq_n_f32(1.0f);
-    float32x4_t v_min = vdupq_n_f32(-10.0f);  // Clamp to avoid numerical issues
+    float32x4_t v_min = vdupq_n_f32(-10.0f); 
     float32x4_t v_max = vdupq_n_f32(10.0f);
 
     // Clamp input to avoid overflow/underflow
@@ -42,7 +42,7 @@ float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     return v_result;
 }
 
-float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
+float32x4_t LSTMPredictor32bNEON::tanh_neon(float32x4_t x) {
     // Constants
     float32x4_t v_min = vdupq_n_f32(-10.0f);  // Clamp to avoid numerical issues
     float32x4_t v_max = vdupq_n_f32(10.0f);
@@ -63,7 +63,7 @@ float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
     return v_tanh_values;
 }
 
-LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden_size, 
+LSTMPredictor32bNEON::LSTMPredictor32bNEON(int num_classes, int input_size, int hidden_size, 
                             int num_layers, int lookback_len, 
                             bool batch_first)
     : LSTMPredictor(num_classes, input_size, hidden_size, num_layers, lookback_len, batch_first) {
@@ -137,7 +137,7 @@ LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden
     std::cout << "LSTM Predictor initialization complete" << std::endl;
 }
 
-std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
+std::vector<float> LSTMPredictor32bNEON::lstm_cell_forward(
     const std::vector<float>& input,
     std::vector<float>& h_state,
     std::vector<float>& c_state,
@@ -356,7 +356,7 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(
     
     return output;
 }
-LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
+LSTMPredictor::LSTMOutput LSTMPredictor32bNEON::forward(
     const std::vector<std::vector<std::vector<float>>>& x,
     const std::vector<std::vector<float>>* initial_hidden,
     const std::vector<std::vector<float>>* initial_cell) {
@@ -507,7 +507,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward(
     }
 }
 
-void LSTMPredictorNEON::backward_linear_layer(
+void LSTMPredictor32bNEON::backward_linear_layer(
     const std::vector<float>& grad_output,
     const std::vector<float>& last_hidden,
     std::vector<std::vector<float>>& weight_grad,
@@ -588,7 +588,7 @@ void LSTMPredictorNEON::backward_linear_layer(
     }
 }
 
-std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer(
+std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor32bNEON::backward_lstm_layer(
     const std::vector<float>& grad_output,
     const std::vector<std::vector<std::vector<LSTMCacheEntry>>>& cache,
     float learning_rate) {
@@ -812,7 +812,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
 }
 
 // SGD update for weight matrices
-void LSTMPredictorNEON::apply_sgd_update(
+void LSTMPredictor32bNEON::apply_sgd_update(
     std::vector<std::vector<float>>& weights,
     std::vector<std::vector<float>>& grads,
     float learning_rate,
@@ -890,7 +890,7 @@ void LSTMPredictorNEON::apply_sgd_update(
 }
 
 // SGD update for bias vectors
-void LSTMPredictorNEON::apply_sgd_update(
+void LSTMPredictor32bNEON::apply_sgd_update(
     std::vector<float>& biases,
     std::vector<float>& grads,
     float learning_rate,
@@ -972,7 +972,7 @@ void LSTMPredictorNEON::apply_sgd_update(
     }
 }
 
-std::vector<float> LSTMPredictorNEON::compute_mse_loss_gradient(
+std::vector<float> LSTMPredictor32bNEON::compute_mse_loss_gradient(
     const std::vector<float>& output,
     const std::vector<float>& target) {
 
@@ -1004,7 +1004,7 @@ std::vector<float> LSTMPredictorNEON::compute_mse_loss_gradient(
     return gradient;
 }
 
-std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lstm_output) {
+std::vector<float> LSTMPredictor32bNEON::get_final_prediction(const LSTMOutput& lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
 
     // Get final hidden state
@@ -1043,7 +1043,7 @@ std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput& lst
     return final_output;
 }
 
-void LSTMPredictorNEON::train_step(
+void LSTMPredictor32bNEON::train_step(
     const std::vector<std::vector<std::vector<float>>>& x,
     const std::vector<float>& target,
     const LSTMOutput& lstm_output,
@@ -1118,7 +1118,7 @@ void LSTMPredictorNEON::train_step(
     }
 }
 
-void LSTMPredictorNEON::apply_gate_operations_neon(
+void LSTMPredictor32bNEON::apply_gate_operations_neon(
     std::vector<float>& gates,
     std::vector<float>& h_state,
     std::vector<float>& c_state,
