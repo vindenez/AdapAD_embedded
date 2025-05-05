@@ -4,9 +4,9 @@ The algorithm was developed for marine sensor measurements as it utilizes online
 
 ## Performance on ARM Cortex-A7 528 MHz
 
-Training time:           2.55s
+Training time: 25s
 
-Decision-making time: 0.028 Seconds per time step. (Online learning stage - this includes prediction/forward pass and complete backpropagation)
+Decision-making time: 1.8-2.1 Seconds per time step. (Online learning stage - this includes prediction/forward pass and complete backpropagation)
 
 ## Memory usage
 
