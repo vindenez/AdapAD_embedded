@@ -1,12 +1,12 @@
 training:
   epochs:
-    train: 20
-    update: 30
-    update_generator: 30
+    train: 100
+    update: 50
+    update_generator: 5
   learning_rates:
-    train: 0.01
-    update: 0.014
-    update_generator: 0.0002
+    train: 0.002
+    update: 0.002
+    update_generator: 0.0001
 
 model:
   save_enabled: false
@@ -23,8 +23,8 @@ anomaly_detection:
   threshold_multiplier: 1.0
 
 system:
+  use_neon: true
   random_seed: 42
-  verbose_output: true
 
 data:
   paths:

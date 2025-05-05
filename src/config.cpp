@@ -3,30 +3,30 @@
 #include <iostream>
 #include <sstream>
 
-float Config::get_float(const std::string& key, float default_value) {
+float Config::get_float(const std::string &key, float default_value) {
     auto it = config_map.find(key);
     return it != config_map.end() ? std::stof(it->second) : default_value;
 }
 
-int Config::get_int(const std::string& key, int default_value) {
+int Config::get_int(const std::string &key, int default_value) {
     auto it = config_map.find(key);
     return it != config_map.end() ? std::stoi(it->second) : default_value;
 }
 
-std::string Config::get_string(const std::string& key, const std::string& default_value) {
+std::string Config::get_string(const std::string &key, const std::string &default_value) {
     auto it = config_map.find(key);
     return it != config_map.end() ? it->second : default_value;
 }
 
-bool Config::get_bool(const std::string& key, bool default_value) {
+bool Config::get_bool(const std::string &key, bool default_value) {
     auto it = config_map.find(key);
     return it != config_map.end() ? (it->second == "true") : default_value;
 }
 
-bool Config::load(const std::string& yaml_path) {
+bool Config::load(const std::string &yaml_path) {
     try {
         config_map = YAMLHandler::parse(yaml_path);
-        
+
         // Load data paths
         data_source = get_string("data.source");
         data_source_path = get_string("data.paths.training");
@@ -55,8 +55,7 @@ bool Config::load(const std::string& yaml_path) {
 
         // Load system settings
         random_seed = get_int("system.random_seed", 42);
-        verbose_output = get_bool("system.verbose_output", true);
-
+        use_neon = get_bool("system.use_neon", true);
         // Load anomaly detection parameters
         threshold_multiplier = get_float("anomaly_detection.threshold_multiplier", 1.0f);
 
@@ -69,7 +68,7 @@ bool Config::load(const std::string& yaml_path) {
         input_size = lookback_len;
 
         return true;
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << "Error loading config: " << e.what() << std::endl;
         return false;
     }
@@ -77,7 +76,7 @@ bool Config::load(const std::string& yaml_path) {
 
 void Config::apply_data_source_config() {
     std::string prefix = "data.sources." + data_source + ".";
-    
+
     // Override bounds
     lower_bound = get_float(prefix + "bounds.lower");
     upper_bound = get_float(prefix + "bounds.upper");
@@ -97,8 +96,8 @@ void Config::apply_data_source_config() {
 }
 
 PredictorConfig init_predictor_config() {
-    const auto& config = Config::getInstance();
-    
+    const auto &config = Config::getInstance();
+
     PredictorConfig predictor_config;
     predictor_config.lookback_len = config.lookback_len;
     predictor_config.prediction_len = config.prediction_len;
@@ -117,18 +116,18 @@ PredictorConfig init_predictor_config() {
     return predictor_config;
 }
 
-ValueRangeConfig init_value_range_config(const std::string& data_source, float& minimal_threshold) {
+ValueRangeConfig init_value_range_config(const std::string &data_source, float &minimal_threshold) {
     ValueRangeConfig config;
-    const Config& cfg = Config::getInstance();
-    
+    const Config &cfg = Config::getInstance();
+
     // Get bounds
     std::string lower_key = data_source + ".bounds.lower";
     std::string upper_key = data_source + ".bounds.upper";
     std::string threshold_key = data_source + ".minimal_threshold";
-    
+
     config.lower_bound = std::stof(cfg.get_config_map().at(lower_key));
     config.upper_bound = std::stof(cfg.get_config_map().at(upper_key));
     minimal_threshold = std::stof(cfg.get_config_map().at(threshold_key));
-    
+
     return config;
 }

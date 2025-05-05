@@ -2,11 +2,11 @@ training:
   epochs:
     train: 100
     update: 50
-    update_generator: 50
+    update_generator: 5
   learning_rates:
-    train: 0.01
-    update: 0.014
-    update_generator: 0.0002
+    train: 0.002
+    update: 0.002
+    update_generator: 0.0001
 
 model:
   save_enabled: false
@@ -23,8 +23,8 @@ anomaly_detection:
   threshold_multiplier: 1.0
 
 system:
+  use_neon: true
   random_seed: 42
-  verbose_output: true
   
 data:
   paths:
@@ -36,7 +36,7 @@ data:
         bounds:
           lower: 713.0
           upper: 763.0
-        minimal_threshold: 0.0038
+        minimal_threshold: 0.0026
     Austevoll_nord:
       conductivity_conductivity:
         bounds:
