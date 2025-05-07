@@ -76,7 +76,7 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float> &data2l
 
             epoch_loss += sample_loss;
 
-            // Train step for each sample - now passing the output
+            // Train step for each sample 
             predictor->train_step(input_tensor, target, output, lr);
         }
 
@@ -103,7 +103,6 @@ NormalDataPredictor::train(int epoch, float lr, const std::vector<float> &data2l
 }
 
 float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<float>>> &observed) {
-    bool was_training = predictor->is_training();
     predictor->eval();
 
     // Reshape input to match Python version: (batch=1, features=lookback_len)
@@ -120,9 +119,7 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
     auto pred = predictor->get_final_prediction(output);
     float result = std::max(0.0f, pred[0]);
 
-    if (was_training) {
-        predictor->train();
-    }
+    predictor->learn();
 
     return result;
 }
@@ -153,11 +150,7 @@ void NormalDataPredictor::update(
 
         // Get prediction and compute loss
         auto pred = predictor->get_final_prediction(output);
-        float current_loss = 0.0f;
-        for (size_t i = 0; i < pred.size(); ++i) {
-            float diff = pred[i] - update_target[i];
-            current_loss += diff * diff;
-        }
+
         // Update step using fresh forward pass output
         predictor->train_step(update_input, update_target, output, lr_update);
     }

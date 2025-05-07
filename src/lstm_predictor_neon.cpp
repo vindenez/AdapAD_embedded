@@ -16,17 +16,16 @@
 float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     // Constants
     float32x4_t v_one = vdupq_n_f32(1.0f);
-    float32x4_t v_min = vdupq_n_f32(-10.0f); // Clamp to avoid numerical issues
+    float32x4_t v_min = vdupq_n_f32(-10.0f); 
     float32x4_t v_max = vdupq_n_f32(10.0f);
 
     // Clamp input to avoid overflow/underflow
     x = vmaxq_f32(x, v_min);
     x = vminq_f32(x, v_max);
 
-    // Compute negative x
     float32x4_t v_neg_x = vnegq_f32(x);
 
-    // For now, calculate each element individually
+    // Calculate each element individually
     float exp_values[4];
     exp_values[0] = std::exp(vgetq_lane_f32(v_neg_x, 0));
     exp_values[1] = std::exp(vgetq_lane_f32(v_neg_x, 1));
@@ -34,7 +33,7 @@ float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     exp_values[3] = std::exp(vgetq_lane_f32(v_neg_x, 3));
     float32x4_t v_exp_neg_x = vld1q_f32(exp_values);
 
-    // Calculate sigmoid: 1 / (1 + exp(-x))
+    // Sigmoid: 1 / (1 + exp(-x))
     float32x4_t v_denom = vaddq_f32(v_one, v_exp_neg_x);
     float32x4_t v_result = vdivq_f32(v_one, v_denom);
 
@@ -42,8 +41,7 @@ float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
 }
 
 float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
-    // Constants
-    float32x4_t v_min = vdupq_n_f32(-10.0f); // Clamp to avoid numerical issues
+    float32x4_t v_min = vdupq_n_f32(-10.0f); 
     float32x4_t v_max = vdupq_n_f32(10.0f);
 
     // Clamp input to avoid overflow/underflow
@@ -98,8 +96,8 @@ LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden
     // Pre-allocate layer cache with minimal structure
     layer_cache.resize(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
-        layer_cache[layer].resize(1);               // One batch
-        layer_cache[layer][0].resize(lookback_len); // Sequence length
+        layer_cache[layer].resize(1);               
+        layer_cache[layer][0].resize(lookback_len); 
 
         // Pre-allocate each cache entry with properly sized vectors
         for (auto &seq : layer_cache[layer][0]) {
@@ -706,8 +704,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
                 // Cell candidate gradient: dgt = dct * it * (1 - gt²)
                 float32x4_t v_g_squared = vmulq_f32(v_cell_candidate, v_cell_candidate);
                 float32x4_t v_one_minus_g_squared = vsubq_f32(v_one, v_g_squared);
-                float32x4_t v_dg_t =
-                    vmulq_f32(v_dc_t, vmulq_f32(v_input_gate, v_one_minus_g_squared));
+                float32x4_t v_dg_t = vmulq_f32(v_dc_t, vmulq_f32(v_input_gate, v_one_minus_g_squared));
 
                 // Store gate gradients temporarily to use later
                 float di_t[4], df_t[4], dg_t[4], do_t[4], dc_t[4];
@@ -759,8 +756,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
             }
 
             // Accumulate weight gradients and compute dh_prev
-            // This section is harder to vectorize due to the nested loops and
-            // non-contiguous memory
+            // Difficult to vectorize this part due to the nested loops and non-contiguous memory
             int input_size_layer = (layer == 0) ? input_size : hidden_size;
 
             for (int h = 0; h < hidden_size; ++h) {
@@ -769,14 +765,10 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
 
                 // Recompute gradients (more compact than storing all of them)
                 float dc_t = dho * cache_entry.output_gate[h] * (1.0f - tanh_c * tanh_c) + dc[h];
-                float do_t =
-                    dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
-                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] *
-                             (1.0f - cache_entry.input_gate[h]);
-                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] *
-                             (1.0f - cache_entry.forget_gate[h]);
-                float dg_t = dc_t * cache_entry.input_gate[h] *
-                             (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
+                float do_t = dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
+                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] * (1.0f - cache_entry.input_gate[h]);
+                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] * (1.0f - cache_entry.forget_gate[h]);
+                float dg_t = dc_t * cache_entry.input_gate[h] * (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
 
                 // Accumulate weight gradients
                 for (int j = 0; j < input_size_layer; ++j) {

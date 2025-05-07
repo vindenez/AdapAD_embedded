@@ -481,15 +481,10 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
                 dc_t += dc[h]; // Add gradient from future timestep
 
                 // 2. Gate gradients
-                float do_t =
-                    dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
-                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] *
-                             (1.0f - cache_entry.input_gate[h]);
-                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] *
-                             (1.0f - cache_entry.forget_gate[h]);
-                float dcell_candidate =
-                    dc_t * cache_entry.input_gate[h] *
-                    (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
+                float do_t = dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
+                float di_t = dc_t * cache_entry.cell_candidate[h] * cache_entry.input_gate[h] * (1.0f - cache_entry.input_gate[h]);
+                float df_t = dc_t * cache_entry.prev_cell[h] * cache_entry.forget_gate[h] * (1.0f - cache_entry.forget_gate[h]);
+                float dcell_candidate = dc_t * cache_entry.input_gate[h] * (1.0f - cache_entry.cell_candidate[h] * cache_entry.cell_candidate[h]);
 
                 // 3. Accumulate weight gradients
                 int input_size_layer = (layer == 0) ? input_size : hidden_size;
@@ -497,8 +492,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
                     float input_j = cache_entry.input[j];
                     layer_grads[layer].weight_ih_grad[h][j] += di_t * input_j;
                     layer_grads[layer].weight_ih_grad[hidden_size + h][j] += df_t * input_j;
-                    layer_grads[layer].weight_ih_grad[2 * hidden_size + h][j] +=
-                        dcell_candidate * input_j;
+                    layer_grads[layer].weight_ih_grad[2 * hidden_size + h][j] += dcell_candidate * input_j;
                     layer_grads[layer].weight_ih_grad[3 * hidden_size + h][j] += do_t * input_j;
                 }
 
@@ -507,15 +501,13 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
                     float h_prev_j = cache_entry.prev_hidden[j];
                     layer_grads[layer].weight_hh_grad[h][j] += di_t * h_prev_j;
                     layer_grads[layer].weight_hh_grad[hidden_size + h][j] += df_t * h_prev_j;
-                    layer_grads[layer].weight_hh_grad[2 * hidden_size + h][j] +=
-                        dcell_candidate * h_prev_j;
+                    layer_grads[layer].weight_hh_grad[2 * hidden_size + h][j] += dcell_candidate * h_prev_j;
                     layer_grads[layer].weight_hh_grad[3 * hidden_size + h][j] += do_t * h_prev_j;
 
                     // Accumulate gradients for next timestep's hidden state
                     dh_prev[j] += di_t * lstm_layers[layer].weight_hh[h][j];
                     dh_prev[j] += df_t * lstm_layers[layer].weight_hh[hidden_size + h][j];
-                    dh_prev[j] +=
-                        dcell_candidate * lstm_layers[layer].weight_hh[2 * hidden_size + h][j];
+                    dh_prev[j] += dcell_candidate * lstm_layers[layer].weight_hh[2 * hidden_size + h][j];
                     dh_prev[j] += do_t * lstm_layers[layer].weight_hh[3 * hidden_size + h][j];
                 }
 
