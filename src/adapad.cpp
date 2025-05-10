@@ -1,7 +1,6 @@
 #include "adapad.hpp"
 #include "config.hpp"
 #include "matrix_utils.hpp"
-#include "normal_data_prediction_error_calculator.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -89,8 +88,7 @@ bool AdapAD::is_anomalous(float observed_val) {
         predicted_vals.push_back(predicted_val[0]);
 
         // Calculate error between prediction made at t-1 and actual value at t
-        float prediction_error =
-            NormalDataPredictionErrorCalculator::calc_error(predicted_val[0], normalized);
+        float prediction_error = calc_error(predicted_val[0], normalized);
 
         predictive_errors.push_back(prediction_error);
 
@@ -244,6 +242,28 @@ bool AdapAD::is_default_normal() {
     return cnt > predictor_config.train_size / 2;
 }
 
+float AdapAD::calc_error(float predicted_val, float observed_val) {
+    float diff = predicted_val - observed_val;
+    return diff * diff;
+}
+
+std::vector<float> AdapAD::calc_error(const std::vector<float> &observed_vals,
+                                        const std::vector<float> &predicted_vals) {
+
+    if (observed_vals.size() != predicted_vals.size()) {
+        throw std::runtime_error("Observed and predicted values must have same length");
+    }
+
+    std::vector<float> errors;
+    errors.reserve(observed_vals.size());
+
+    for (std::size_t i = 0; i < observed_vals.size(); i++) {
+        errors.push_back(calc_error(predicted_vals[i], observed_vals[i]));
+    }
+
+    return errors;
+}
+
 void AdapAD::logging(bool is_anomalous_ret) {
     f_log.open(f_name, std::ios_base::app);
 
@@ -285,8 +305,7 @@ void AdapAD::train() {
     generator->reset_states();
 
     // Train data predictor and get training data
-    std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> training_data =
-        data_predictor->train(config.epoch_train, config.lr_train, observed_vals);
+    std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>> training_data = data_predictor->train(config.epoch_train, config.lr_train, observed_vals);
     auto &trainX = training_data.first;
     auto &trainY = training_data.second;
 
@@ -319,7 +338,7 @@ void AdapAD::train() {
     }
 
     // Train generator
-    generator->reset_states();
+    generator->clear_update_state();
     generator->train(config.epoch_train, config.lr_train, predictive_errors);
 
     // End timing
@@ -349,52 +368,6 @@ void AdapAD::train() {
     }
 }
 
-void AdapAD::learn_error_pattern(const std::vector<std::vector<std::vector<float>>> &trainX,
-                                 const std::vector<float> &trainY) {
-
-    // Calculate predictions
-    predicted_vals.clear();
-    for (size_t i = 0; i < trainX.size(); i++) {
-        auto reshaped_input = std::vector<std::vector<std::vector<float>>>(1);
-        reshaped_input[0] = trainX[i];
-        float pred = data_predictor->predict(reshaped_input);
-        predicted_vals.push_back(pred);
-    }
-
-    // Get tail of predicted values
-    auto recent_predicted =
-        std::vector<float>(predicted_vals.end() - trainY.size(), predicted_vals.end());
-
-    // Calculate errors
-    predictive_errors = NormalDataPredictionErrorCalculator::calc_error(trainY, recent_predicted);
-
-    // Train generator using batch learning approach
-    std::pair<std::vector<std::vector<float>>, std::vector<float>> batch_data =
-        create_sliding_windows(predictive_errors, predictor_config.lookback_len,
-                               predictor_config.prediction_len);
-    auto &batch_x = batch_data.first;
-    auto &batch_y = batch_data.second;
-
-    for (int epoch = 0; epoch < config.epoch_train; epoch++) {
-        for (size_t i = 0; i < batch_x.size(); i++) {
-            auto input = std::vector<std::vector<std::vector<float>>>(1);
-            input[0].push_back(batch_x[i]);
-            auto target = std::vector<float>{batch_y[i]};
-
-            // Add forward pass and pass output to train_step
-            auto output = generator->forward(input);
-            generator->train_step(input, target, output, config.lr_train);
-        }
-    }
-
-    // Log results
-    for (size_t i = 0; i < trainY.size(); i++) {
-        f_log.open(f_name, std::ios_base::app);
-        f_log << reverse_normalized_data(trainY[i]) << ","
-              << reverse_normalized_data(predicted_vals[i]) << ",,,,\n";
-        f_log.close();
-    }
-}
 
 float AdapAD::simplify_error(const std::vector<float> &errors, float N_sigma) {
     if (errors.empty()) {
@@ -418,10 +391,6 @@ float AdapAD::simplify_error(const std::vector<float> &errors, float N_sigma) {
 
 void AdapAD::save_models() {
     try {
-        // Reset states before saving to minimize memory usage
-        data_predictor->reset_states();
-        generator->reset_states();
-
         // Create directory if it doesn't exist
         if (mkdir(config.save_path.c_str(), 0777) == -1) {
             if (errno != EEXIST) {
@@ -471,9 +440,20 @@ void AdapAD::save_models() {
         file.write(reinterpret_cast<const char *>(&value_range_config.lower_bound), sizeof(float));
         file.write(reinterpret_cast<const char *>(&value_range_config.upper_bound), sizeof(float));
 
-        // Save layer cache states
-        data_predictor->save_layer_cache(file);
-        generator->save_layer_cache(file);
+        // Save critical configuration parameters
+        file.write(reinterpret_cast<const char *>(&config.LSTM_size), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&config.LSTM_size_layer), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&config.lookback_len), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&config.prediction_len), sizeof(int));
+
+        // Save non-critical configuration parameters
+        file.write(reinterpret_cast<const char *>(&config.epoch_train), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&config.epoch_update), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&config.epoch_update_generator), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&config.lr_train), sizeof(float));
+        file.write(reinterpret_cast<const char *>(&config.lr_update), sizeof(float));
+        file.write(reinterpret_cast<const char *>(&config.lr_update_generator), sizeof(float));
+        file.write(reinterpret_cast<const char *>(&config.threshold_multiplier), sizeof(float));
 
         // Save predictor weights and biases directly to file
         data_predictor->save_weights(file);
@@ -494,15 +474,6 @@ void AdapAD::save_models() {
     } catch (const std::exception &e) {
         std::cerr << "Error saving model state: " << e.what() << std::endl;
         throw;
-    }
-}
-
-void AdapAD::reset_model_states() {
-    if (data_predictor) {
-        data_predictor->reset_states();
-    }
-    if (generator) {
-        generator->reset_states();
     }
 }
 
@@ -527,51 +498,102 @@ void AdapAD::load_models(const std::string &timestamp, const std::vector<float> 
 
         try {
             std::cout << "Loading metadata..." << std::endl;
-            // Load metadata first
-            float temp_minimal_threshold;
-            float temp_lower_bound;
-            float temp_upper_bound;
-
-            file.read(reinterpret_cast<char *>(&temp_minimal_threshold), sizeof(float));
-            file.read(reinterpret_cast<char *>(&temp_lower_bound), sizeof(float));
-            file.read(reinterpret_cast<char *>(&temp_upper_bound), sizeof(float));
 
             if (!file.good()) {
                 throw std::runtime_error("Failed to read metadata");
             }
 
-            std::cout << "Updating configuration values..." << std::endl;
-            // Only update values after successful read
-            minimal_threshold = temp_minimal_threshold;
-            value_range_config.lower_bound = temp_lower_bound;
-            value_range_config.upper_bound = temp_upper_bound;
+            float saved_minimal_threshold, saved_lower_bound, saved_upper_bound;
+            file.read(reinterpret_cast<char *>(&saved_minimal_threshold), sizeof(float));
+            file.read(reinterpret_cast<char *>(&saved_lower_bound), sizeof(float));
+            file.read(reinterpret_cast<char *>(&saved_upper_bound), sizeof(float));
 
-            // Clean up state before initializing
-            data_predictor->reset_states();
-            generator->reset_states();
+            // Load critical configuration parameters
+            int saved_lstm_size, saved_lstm_layers, saved_lookback_len, saved_prediction_len;
+            file.read(reinterpret_cast<char *>(&saved_lstm_size), sizeof(int));
+            file.read(reinterpret_cast<char *>(&saved_lstm_layers), sizeof(int));
+            file.read(reinterpret_cast<char *>(&saved_lookback_len), sizeof(int));
+            file.read(reinterpret_cast<char *>(&saved_prediction_len), sizeof(int));
 
-            std::cout << "Initializing layer caches..." << std::endl;
+            // Check for critical configuration changes
+            if (saved_lstm_size != config.LSTM_size ||
+                saved_lstm_layers != config.LSTM_size_layer ||
+                saved_lookback_len != config.lookback_len ||
+                saved_prediction_len != config.prediction_len) {
+                
+                std::cerr << "Critical model configuration has changed. Cannot load model." << std::endl;
+                std::cerr << "Saved model: LSTM_size=" << saved_lstm_size 
+                          << ", LSTM_layers=" << saved_lstm_layers
+                          << ", lookback_len=" << saved_lookback_len
+                          << ", prediction_len=" << saved_prediction_len << std::endl;
+                std::cerr << "Current config: LSTM_size=" << config.LSTM_size 
+                          << ", LSTM_layers=" << config.LSTM_size_layer
+                          << ", lookback_len=" << config.lookback_len
+                          << ", prediction_len=" << config.prediction_len << std::endl;
+                          
+                throw std::runtime_error("Critical model configuration has changed");
+            }
+
+            // Load non-critical configuration parameters
+            int saved_epoch_train, saved_epoch_update, saved_epoch_update_generator;
+            float saved_lr_train, saved_lr_update, saved_lr_update_generator, saved_threshold_multiplier;
+            file.read(reinterpret_cast<char *>(&saved_epoch_train), sizeof(int));
+            file.read(reinterpret_cast<char *>(&saved_epoch_update), sizeof(int));
+            file.read(reinterpret_cast<char *>(&saved_epoch_update_generator), sizeof(int));
+            file.read(reinterpret_cast<char *>(&saved_lr_train), sizeof(float));
+            file.read(reinterpret_cast<char *>(&saved_lr_update), sizeof(float));
+            file.read(reinterpret_cast<char *>(&saved_lr_update_generator), sizeof(float));
+            file.read(reinterpret_cast<char *>(&saved_threshold_multiplier), sizeof(float));
+            
+
+            // Log non-critical configuration changes
+            if (saved_epoch_train != config.epoch_train) {
+                std::cout << "Config updated: training.epochs.train changed from " 
+                          << saved_epoch_train << " to " << config.epoch_train << std::endl;
+            }
+            if (saved_epoch_update != config.epoch_update) {
+                std::cout << "Config updated: training.epochs.update changed from " 
+                          << saved_epoch_update << " to " << config.epoch_update << std::endl;
+            }
+            if (saved_epoch_update_generator != config.epoch_update_generator) {
+                std::cout << "Config updated: training.epochs.update_generator changed from " 
+                          << saved_epoch_update_generator << " to " << config.epoch_update_generator << std::endl;
+            }
+            if (saved_lr_train != config.lr_train) {
+                std::cout << "Config updated: training.learning_rates.train changed from " 
+                          << saved_lr_train << " to " << config.lr_train << std::endl;
+            }
+            if (saved_lr_update != config.lr_update) {
+                std::cout << "Config updated: training.learning_rates.update changed from " 
+                          << saved_lr_update << " to " << config.lr_update << std::endl;
+            }
+            if (saved_lr_update_generator != config.lr_update_generator) {
+                std::cout << "Config updated: training.learning_rates.update_generator changed from " 
+                          << saved_lr_update_generator << " to " << config.lr_update_generator << std::endl;
+            }
+            if (saved_threshold_multiplier != config.threshold_multiplier) {
+                std::cout << "Config updated: anomaly_detection.threshold_multiplier changed from " 
+                          << saved_threshold_multiplier << " to " << config.threshold_multiplier << std::endl;
+            }
+            if (saved_minimal_threshold != minimal_threshold) {
+                std::cout << "Config updated: anomaly_detection.minimal_threshold changed from " 
+                          << saved_minimal_threshold << " to " << minimal_threshold << std::endl;
+            }
+            if (saved_lower_bound != value_range_config.lower_bound) {
+                std::cout << "Config updated: anomaly_detection.value_range.lower changed from " 
+                          << saved_lower_bound << " to " << value_range_config.lower_bound << std::endl;
+            }
+            if (saved_upper_bound != value_range_config.upper_bound) {
+                std::cout << "Config updated: anomaly_detection.value_range.upper changed from " 
+                          << saved_upper_bound << " to " << value_range_config.upper_bound << std::endl;
+            }
+
+            std::cout << "Initializing layer caches." << std::endl;
             // Initialize layer caches
             data_predictor->initialize_layer_cache();
             generator->initialize_layer_cache();
 
-            std::cout << "Loading layer cache states..." << std::endl;
-            // Load layer cache states
-            try {
-                data_predictor->load_layer_cache(file);
-            } catch (const std::exception &e) {
-                throw std::runtime_error("Failed to load data predictor cache: " +
-                                         std::string(e.what()));
-            }
-
-            try {
-                generator->load_layer_cache(file);
-            } catch (const std::exception &e) {
-                throw std::runtime_error("Failed to load generator cache: " +
-                                         std::string(e.what()));
-            }
-
-            std::cout << "Loading weights and biases..." << std::endl;
+            std::cout << "Loading weights and biases." << std::endl;
             // Load weights and biases
             try {
                 data_predictor->load_weights(file);
@@ -582,16 +604,10 @@ void AdapAD::load_models(const std::string &timestamp, const std::vector<float> 
                 throw std::runtime_error("Failed to load weights/biases: " + std::string(e.what()));
             }
 
-            std::cout << "Resetting model states..." << std::endl;
-            // Reset states after loading
-            data_predictor->reset_states();
-            generator->reset_states();
-
-            // Clean up memory
             data_predictor->clear_update_state();
             generator->clear_update_state();
 
-            std::cout << "Initializing observed values..." << std::endl;
+            std::cout << "Initializing observed values." << std::endl;
             // Initialize observed_vals with exactly lookback_len points
             observed_vals.clear();
             for (size_t i = 0; i < predictor_config.lookback_len; i++) {

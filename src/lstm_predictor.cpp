@@ -348,29 +348,6 @@ LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
     }
 }
 
-// Setter methods for loading trained weights
-void LSTMPredictor::set_lstm_weights(int layer, const std::vector<std::vector<float>> &w_ih,
-                                     const std::vector<std::vector<float>> &w_hh) {
-    if (layer < num_layers) {
-        lstm_layers[layer].weight_ih = w_ih;
-        lstm_layers[layer].weight_hh = w_hh;
-    }
-}
-
-void LSTMPredictor::set_lstm_bias(int layer, const std::vector<float> &b_ih,
-                                  const std::vector<float> &b_hh) {
-    if (layer < num_layers) {
-        lstm_layers[layer].bias_ih = b_ih;
-        lstm_layers[layer].bias_hh = b_hh;
-    }
-}
-
-void LSTMPredictor::set_fc_weights(const std::vector<std::vector<float>> &weights,
-                                   const std::vector<float> &bias) {
-    fc_weight = weights;
-    fc_bias = bias;
-}
-
 void LSTMPredictor::backward_linear_layer(const std::vector<float> &grad_output,
                                           const std::vector<float> &last_hidden,
                                           std::vector<std::vector<float>> &weight_grad,
@@ -867,128 +844,6 @@ void LSTMPredictor::initialize_layer_cache() {
     std::cout << "Layer cache initialization complete" << std::endl;
 }
 
-void LSTMPredictor::save_layer_cache(std::ofstream &file) const {
-    try {
-        // Save layer cache dimensions
-        size_t num_batches = layer_cache.empty() ? 0 : layer_cache[0].size();
-        file.write(reinterpret_cast<const char *>(&num_batches), sizeof(size_t));
-
-        if (num_batches > 0) {
-            size_t num_timesteps = layer_cache[0][0].size();
-            file.write(reinterpret_cast<const char *>(&num_timesteps), sizeof(size_t));
-
-            // Save each cache entry
-            for (const auto &layer : layer_cache) {
-                for (const auto &batch : layer) {
-                    for (const auto &entry : batch) {
-                        // Save vectors from LSTMCacheEntry
-                        auto save_vector = [&file](const std::vector<float> &vec) {
-                            size_t size = vec.size();
-                            file.write(reinterpret_cast<const char *>(&size), sizeof(size_t));
-                            if (size > 0) {
-                                file.write(reinterpret_cast<const char *>(vec.data()),
-                                           size * sizeof(float));
-                            }
-                        };
-
-                        save_vector(entry.input);
-                        save_vector(entry.prev_hidden);
-                        save_vector(entry.prev_cell);
-                        save_vector(entry.cell_state);
-                        save_vector(entry.input_gate);
-                        save_vector(entry.forget_gate);
-                        save_vector(entry.cell_candidate);
-                        save_vector(entry.output_gate);
-                        save_vector(entry.hidden_state);
-                    }
-                }
-            }
-        }
-
-        // Save h_state and c_state
-        size_t state_layers = h_state.size();
-        file.write(reinterpret_cast<const char *>(&state_layers), sizeof(size_t));
-        for (size_t i = 0; i < state_layers; ++i) {
-            size_t state_size = h_state[i].size();
-            file.write(reinterpret_cast<const char *>(&state_size), sizeof(size_t));
-            file.write(reinterpret_cast<const char *>(h_state[i].data()),
-                       state_size * sizeof(float));
-            file.write(reinterpret_cast<const char *>(c_state[i].data()),
-                       state_size * sizeof(float));
-        }
-
-    } catch (const std::exception &e) {
-        throw std::runtime_error("Error saving layer cache: " + std::string(e.what()));
-    }
-}
-
-void LSTMPredictor::load_layer_cache(std::ifstream &file) {
-    try {
-        // Load layer cache dimensions
-        size_t num_batches;
-        file.read(reinterpret_cast<char *>(&num_batches), sizeof(size_t));
-
-        if (num_batches > 0) {
-            size_t num_timesteps;
-            file.read(reinterpret_cast<char *>(&num_timesteps), sizeof(size_t));
-
-            // Resize layer cache
-            layer_cache.resize(num_layers);
-            for (auto &layer : layer_cache) {
-                layer.resize(num_batches);
-                for (auto &batch : layer) {
-                    batch.resize(num_timesteps);
-                }
-            }
-
-            // Load each cache entry
-            for (auto &layer : layer_cache) {
-                for (auto &batch : layer) {
-                    for (auto &entry : batch) {
-                        // Load vectors into LSTMCacheEntry
-                        auto load_vector = [&file](std::vector<float> &vec) {
-                            size_t size;
-                            file.read(reinterpret_cast<char *>(&size), sizeof(size_t));
-                            vec.resize(size);
-                            if (size > 0) {
-                                file.read(reinterpret_cast<char *>(vec.data()),
-                                          size * sizeof(float));
-                            }
-                        };
-
-                        load_vector(entry.input);
-                        load_vector(entry.prev_hidden);
-                        load_vector(entry.prev_cell);
-                        load_vector(entry.cell_state);
-                        load_vector(entry.input_gate);
-                        load_vector(entry.forget_gate);
-                        load_vector(entry.cell_candidate);
-                        load_vector(entry.output_gate);
-                        load_vector(entry.hidden_state);
-                    }
-                }
-            }
-        }
-
-        // Load h_state and c_state
-        size_t state_layers;
-        file.read(reinterpret_cast<char *>(&state_layers), sizeof(size_t));
-        h_state.resize(state_layers);
-        c_state.resize(state_layers);
-        for (size_t i = 0; i < state_layers; ++i) {
-            size_t state_size;
-            file.read(reinterpret_cast<char *>(&state_size), sizeof(size_t));
-            h_state[i].resize(state_size);
-            c_state[i].resize(state_size);
-            file.read(reinterpret_cast<char *>(h_state[i].data()), state_size * sizeof(float));
-            file.read(reinterpret_cast<char *>(c_state[i].data()), state_size * sizeof(float));
-        }
-
-    } catch (const std::exception &e) {
-        throw std::runtime_error("Error loading layer cache: " + std::string(e.what()));
-    }
-}
-
 void LSTMPredictor::clear_update_state() {
     for (auto &gradient : last_gradients) {
         for (auto &row : gradient.weight_ih_grad) {
@@ -1138,4 +993,261 @@ float LSTMPredictor::mse_loss(const std::vector<float> &prediction,
         loss += diff * diff;
     }
     return loss / prediction.size();
+}
+
+void LSTMPredictor::set_lstm_weights(int layer, const std::vector<std::vector<float>> &w_ih,
+                                     const std::vector<std::vector<float>> &w_hh) {
+    if (layer < num_layers) {
+        lstm_layers[layer].weight_ih = w_ih;
+        lstm_layers[layer].weight_hh = w_hh;
+    }
+}
+
+void LSTMPredictor::set_lstm_bias(int layer, const std::vector<float> &b_ih,
+                                  const std::vector<float> &b_hh) {
+    if (layer < num_layers) {
+        lstm_layers[layer].bias_ih = b_ih;
+        lstm_layers[layer].bias_hh = b_hh;
+    }
+}
+
+void LSTMPredictor::set_fc_weights(const std::vector<std::vector<float>> &weights,
+                                   const std::vector<float> &bias) {
+    fc_weight = weights;
+    fc_bias = bias;
+}
+
+void LSTMPredictor::pre_allocate_vectors(
+    std::vector<std::vector<std::vector<float>>>& input,
+    std::vector<float>& target,
+    std::vector<float>& pred,
+    LSTMOutput& output,
+    int batch_size,
+    int seq_len,
+    int target_size
+) {
+    // Pre-allocate input tensor
+    input.resize(batch_size);
+    for (auto& batch : input) {
+        batch.resize(seq_len);
+        for (auto& seq : batch) {
+            seq.resize(input_size, 0.0f);
+        }
+    }
+
+    // Pre-allocate target and prediction vectors
+    target.resize(target_size, 0.0f);
+    pred.resize(target_size, 0.0f);
+
+    // Pre-allocate output structure
+    output.sequence_output.resize(batch_size);
+    for (auto& batch : output.sequence_output) {
+        batch.resize(seq_len);
+        for (auto& seq : batch) {
+            seq.resize(hidden_size, 0.0f);
+        }
+    }
+
+    // Pre-allocate hidden and cell states
+    output.final_hidden.resize(num_layers);
+    output.final_cell.resize(num_layers);
+    for (int i = 0; i < num_layers; ++i) {
+        output.final_hidden[i].resize(hidden_size, 0.0f);
+        output.final_cell[i].resize(hidden_size, 0.0f);
+    }
+}
+void LSTMPredictor::save_model_state(std::ofstream& file) {
+    try {
+        // Print configuration being saved for debugging
+        std::cout << "Saving LSTM model with config: classes=" << num_classes 
+                  << ", input=" << input_size
+                  << ", hidden=" << hidden_size
+                  << ", layers=" << num_layers
+                  << ", seq_len=" << seq_length << std::endl;
+                  
+        // Save model configuration
+        file.write(reinterpret_cast<const char*>(&num_classes), sizeof(int));
+        file.write(reinterpret_cast<const char*>(&input_size), sizeof(int));
+        file.write(reinterpret_cast<const char*>(&hidden_size), sizeof(int));
+        file.write(reinterpret_cast<const char*>(&num_layers), sizeof(int));
+        file.write(reinterpret_cast<const char*>(&seq_length), sizeof(int));
+        file.write(reinterpret_cast<const char*>(&batch_first), sizeof(bool));
+
+        // Save weights
+        save_weights(file);
+
+        // Save biases
+        save_biases(file);
+
+        // Save velocity terms for momentum
+        // Save LSTM layer velocities
+        for (int layer = 0; layer < num_layers; ++layer) {
+            // Save weight_ih velocity
+            size_t ih_rows = velocity_weight_ih[layer].size();
+            size_t ih_cols = velocity_weight_ih[layer][0].size();
+            file.write(reinterpret_cast<const char*>(&ih_rows), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(&ih_cols), sizeof(size_t));
+            for (const auto& row : velocity_weight_ih[layer]) {
+                file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
+            }
+
+            // Save weight_hh velocity
+            size_t hh_rows = velocity_weight_hh[layer].size();
+            size_t hh_cols = velocity_weight_hh[layer][0].size();
+            file.write(reinterpret_cast<const char*>(&hh_rows), sizeof(size_t));
+            file.write(reinterpret_cast<const char*>(&hh_cols), sizeof(size_t));
+            for (const auto& row : velocity_weight_hh[layer]) {
+                file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
+            }
+
+            // Save bias velocities
+            file.write(reinterpret_cast<const char*>(velocity_bias_ih[layer].data()), 
+                      velocity_bias_ih[layer].size() * sizeof(float));
+            file.write(reinterpret_cast<const char*>(velocity_bias_hh[layer].data()), 
+                      velocity_bias_hh[layer].size() * sizeof(float));
+        }
+
+        // Save FC layer velocities
+        size_t fc_rows = velocity_fc_weight.size();
+        size_t fc_cols = velocity_fc_weight[0].size();
+        file.write(reinterpret_cast<const char*>(&fc_rows), sizeof(size_t));
+        file.write(reinterpret_cast<const char*>(&fc_cols), sizeof(size_t));
+        for (const auto& row : velocity_fc_weight) {
+            file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
+        }
+        file.write(reinterpret_cast<const char*>(velocity_fc_bias.data()), 
+                  velocity_fc_bias.size() * sizeof(float));
+                  
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error saving model to stream: " + std::string(e.what()));
+    }
+}
+
+void LSTMPredictor::load_model_state(std::ifstream& file) {
+    try {
+        // Load model configuration
+        int loaded_num_classes, loaded_input_size, loaded_hidden_size, 
+            loaded_num_layers, loaded_seq_length;
+        bool loaded_batch_first;
+
+        file.read(reinterpret_cast<char*>(&loaded_num_classes), sizeof(int));
+        file.read(reinterpret_cast<char*>(&loaded_input_size), sizeof(int));
+        file.read(reinterpret_cast<char*>(&loaded_hidden_size), sizeof(int));
+        file.read(reinterpret_cast<char*>(&loaded_num_layers), sizeof(int));
+        file.read(reinterpret_cast<char*>(&loaded_seq_length), sizeof(int));
+        file.read(reinterpret_cast<char*>(&loaded_batch_first), sizeof(bool));
+        
+        // Print loaded and current config for debugging
+        std::cout << "Loaded model config: classes=" << loaded_num_classes 
+                  << ", input=" << loaded_input_size
+                  << ", hidden=" << loaded_hidden_size
+                  << ", layers=" << loaded_num_layers
+                  << ", seq_len=" << loaded_seq_length << std::endl;
+                  
+        std::cout << "Current model config: classes=" << num_classes 
+                  << ", input=" << input_size
+                  << ", hidden=" << hidden_size
+                  << ", layers=" << num_layers
+                  << ", seq_len=" << seq_length << std::endl;
+
+        // Check for obviously invalid values that would indicate corruption
+        if (loaded_num_classes <= 0 || loaded_num_classes > 1000 ||
+            loaded_input_size <= 0 || loaded_input_size > 1000 ||
+            loaded_hidden_size <= 0 || loaded_hidden_size > 10000 ||
+            loaded_num_layers <= 0 || loaded_num_layers > 100 ||
+            loaded_seq_length <= 0 || loaded_seq_length > 1000) {
+            
+            throw std::runtime_error("Model contains invalid configuration values. File is likely corrupted.");
+        }
+
+        // Verify critical LSTM structure parameters
+        if (loaded_hidden_size != hidden_size || loaded_num_layers != num_layers) {
+            std::stringstream error_msg;
+            error_msg << "Critical LSTM configuration mismatch: ";
+            if (loaded_hidden_size != hidden_size)
+                error_msg << "hidden_size: expected " << hidden_size << ", got " << loaded_hidden_size << "; ";
+            if (loaded_num_layers != num_layers)
+                error_msg << "num_layers: expected " << num_layers << ", got " << loaded_num_layers << "; ";
+            
+            throw std::runtime_error(error_msg.str());
+        }
+        
+        // Allow other parameters to be updated
+        if (loaded_num_classes != num_classes) {
+            std::cout << "Updating num_classes from " << num_classes 
+                      << " to " << loaded_num_classes << std::endl;
+            num_classes = loaded_num_classes;
+        }
+        
+        if (loaded_input_size != input_size) {
+            std::cout << "Updating input_size from " << input_size 
+                      << " to " << loaded_input_size << std::endl;
+            input_size = loaded_input_size;
+        }
+        
+        if (loaded_seq_length != seq_length) {
+            std::cout << "Updating seq_length from " << seq_length 
+                      << " to " << loaded_seq_length << std::endl;
+            seq_length = loaded_seq_length;
+        }
+        
+        if (loaded_batch_first != batch_first) {
+            std::cout << "Updating batch_first from " << batch_first 
+                      << " to " << loaded_batch_first << std::endl;
+            batch_first = loaded_batch_first;
+        }
+
+        // Load weights
+        load_weights(file);
+
+        // Load biases
+        load_biases(file);
+
+        // Load velocity terms for momentum
+        // Load LSTM layer velocities
+        for (int layer = 0; layer < num_layers; ++layer) {
+            // Load weight_ih velocity
+            size_t ih_rows, ih_cols;
+            file.read(reinterpret_cast<char*>(&ih_rows), sizeof(size_t));
+            file.read(reinterpret_cast<char*>(&ih_cols), sizeof(size_t));
+            velocity_weight_ih[layer].resize(ih_rows, std::vector<float>(ih_cols));
+            for (auto& row : velocity_weight_ih[layer]) {
+                file.read(reinterpret_cast<char*>(row.data()), ih_cols * sizeof(float));
+            }
+
+            // Load weight_hh velocity
+            size_t hh_rows, hh_cols;
+            file.read(reinterpret_cast<char*>(&hh_rows), sizeof(size_t));
+            file.read(reinterpret_cast<char*>(&hh_cols), sizeof(size_t));
+            velocity_weight_hh[layer].resize(hh_rows, std::vector<float>(hh_cols));
+            for (auto& row : velocity_weight_hh[layer]) {
+                file.read(reinterpret_cast<char*>(row.data()), hh_cols * sizeof(float));
+            }
+
+            // Load bias velocities
+            velocity_bias_ih[layer].resize(4 * hidden_size);
+            velocity_bias_hh[layer].resize(4 * hidden_size);
+            file.read(reinterpret_cast<char*>(velocity_bias_ih[layer].data()), 
+                     4 * hidden_size * sizeof(float));
+            file.read(reinterpret_cast<char*>(velocity_bias_hh[layer].data()), 
+                     4 * hidden_size * sizeof(float));
+        }
+
+        // Load FC layer velocities
+        size_t fc_rows, fc_cols;
+        file.read(reinterpret_cast<char*>(&fc_rows), sizeof(size_t));
+        file.read(reinterpret_cast<char*>(&fc_cols), sizeof(size_t));
+        velocity_fc_weight.resize(fc_rows, std::vector<float>(fc_cols));
+        for (auto& row : velocity_fc_weight) {
+            file.read(reinterpret_cast<char*>(row.data()), fc_cols * sizeof(float));
+        }
+        velocity_fc_bias.resize(num_classes);
+        file.read(reinterpret_cast<char*>(velocity_fc_bias.data()), 
+                 num_classes * sizeof(float));
+                 
+        clear_update_state();
+        
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Error loading model from stream: " + std::string(e.what()));
+    }
 }

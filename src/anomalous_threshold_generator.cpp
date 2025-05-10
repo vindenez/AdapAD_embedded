@@ -19,21 +19,9 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lstm_layer, int lst
     // Initialize layer cache
     generator->initialize_layer_cache();
 
-    // Pre-allocate vectors for update
-    update_input.resize(1);
-    update_input[0].resize(1);
-    update_input[0][0].resize(lookback_len, 0.0f);
-    update_target.resize(1, 0.0f);
-    update_pred.resize(1, 0.0f);
-    update_output.sequence_output.resize(1);
-    update_output.sequence_output[0].resize(1);
-    update_output.sequence_output[0][0].resize(prediction_len, 0.0f);
-    update_output.final_hidden.resize(lstm_layer);
-    update_output.final_cell.resize(lstm_layer);
-    for (int i = 0; i < lstm_layer; ++i) {
-        update_output.final_hidden[i].resize(lstm_unit, 0.0f);
-        update_output.final_cell[i].resize(lstm_unit, 0.0f);
-    }
+    // Pre-allocate vectors using the new method
+    generator->pre_allocate_vectors(update_input, update_target, update_pred, update_output,
+                                  1, 1, prediction_len);
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -156,7 +144,7 @@ void AnomalousThresholdGenerator::save_weights(std::ofstream &file) {
     if (generator) {
         generator->save_weights(file);
     } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Save weights: Generator not initialized");
     }
 }
 
@@ -164,7 +152,7 @@ void AnomalousThresholdGenerator::save_biases(std::ofstream &file) {
     if (generator) {
         generator->save_biases(file);
     } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Save biases: Generator not initialized");
     }
 }
 
@@ -172,7 +160,7 @@ void AnomalousThresholdGenerator::load_weights(std::ifstream &file) {
     if (generator) {
         generator->load_weights(file);
     } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Load weights: Generator not initialized");
     }
 }
 
@@ -180,23 +168,7 @@ void AnomalousThresholdGenerator::load_biases(std::ifstream &file) {
     if (generator) {
         generator->load_biases(file);
     } else {
-        throw std::runtime_error("Generator not initialized");
-    }
-}
-
-void AnomalousThresholdGenerator::save_layer_cache(std::ofstream &file) const {
-    if (generator) {
-        generator->save_layer_cache(file);
-    } else {
-        throw std::runtime_error("Generator not initialized");
-    }
-}
-
-void AnomalousThresholdGenerator::load_layer_cache(std::ifstream &file) {
-    if (generator) {
-        generator->load_layer_cache(file);
-    } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Load biases: Generator not initialized");
     }
 }
 
@@ -204,7 +176,7 @@ void AnomalousThresholdGenerator::initialize_layer_cache() {
     if (generator) {
         generator->initialize_layer_cache();
     } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Initialize layer cache: Generator not initialized");
     }
 }
 
@@ -212,7 +184,7 @@ void AnomalousThresholdGenerator::reset_states() {
     if (generator) {
         generator->reset_states();
     } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Reset states: Generator not initialized");
     }
 }
 
@@ -220,6 +192,24 @@ void AnomalousThresholdGenerator::clear_update_state() {
     if (generator) {
         generator->clear_update_state();
     } else {
-        throw std::runtime_error("Generator not initialized");
+        throw std::runtime_error("Clear update state: Generator not initialized");
     }
 }
+
+void AnomalousThresholdGenerator::save_model_state(std::ofstream &file) {
+    if (generator) {
+        generator->save_model_state(file);
+    } else {
+        throw std::runtime_error("Save model state: Generator not initialized");
+    }
+}
+
+void AnomalousThresholdGenerator::load_model_state(std::ifstream &file) {
+    if (generator) {
+        generator->load_model_state(file);
+    } else {
+        throw std::runtime_error("Load model state: Generator not initialized");
+    }
+}
+
+

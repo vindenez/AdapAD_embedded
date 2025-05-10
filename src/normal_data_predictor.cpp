@@ -1,7 +1,6 @@
 #include "normal_data_predictor.hpp"
 #include "config.hpp"
 #include "matrix_utils.hpp"
-#include "normal_data_prediction_error_calculator.hpp"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -22,21 +21,9 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int look
     // Initialize layer cache
     predictor->initialize_layer_cache();
 
-    // Pre-allocate vectors for update
-    update_input.resize(1);
-    update_input[0].resize(1);
-    update_input[0][0].resize(lookback_len, 0.0f);
-    update_target.resize(prediction_len, 0.0f);
-    update_pred.resize(prediction_len, 0.0f);
-    update_output.sequence_output.resize(1);
-    update_output.sequence_output[0].resize(1);
-    update_output.sequence_output[0][0].resize(prediction_len, 0.0f);
-    update_output.final_hidden.resize(lstm_layer);
-    update_output.final_cell.resize(lstm_layer);
-    for (int i = 0; i < lstm_layer; ++i) {
-        update_output.final_hidden[i].resize(lstm_unit, 0.0f);
-        update_output.final_cell[i].resize(lstm_unit, 0.0f);
-    }
+    // Pre-allocate vectors using the new method
+    predictor->pre_allocate_vectors(update_input, update_target, update_pred, update_output, 
+                                  1, 1, prediction_len);
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
@@ -160,7 +147,7 @@ void NormalDataPredictor::save_weights(std::ofstream &file) {
     if (predictor) {
         predictor->save_weights(file);
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Save weights: Predictor not initialized");
     }
 }
 
@@ -168,7 +155,7 @@ void NormalDataPredictor::save_biases(std::ofstream &file) {
     if (predictor) {
         predictor->save_biases(file);
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Save biases: Predictor not initialized");
     }
 }
 
@@ -176,7 +163,7 @@ void NormalDataPredictor::load_weights(std::ifstream &file) {
     if (predictor) {
         predictor->load_weights(file);
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Load weights: Predictor not initialized");
     }
 }
 
@@ -184,23 +171,15 @@ void NormalDataPredictor::load_biases(std::ifstream &file) {
     if (predictor) {
         predictor->load_biases(file);
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Load biases: Predictor not initialized");
     }
-}
-
-void NormalDataPredictor::save_layer_cache(std::ofstream &file) const {
-    predictor->save_layer_cache(file);
-}
-
-void NormalDataPredictor::load_layer_cache(std::ifstream &file) {
-    predictor->load_layer_cache(file);
 }
 
 void NormalDataPredictor::initialize_layer_cache() {
     if (predictor) {
         predictor->initialize_layer_cache();
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Initialize layer cache: Predictor not initialized");
     }
 }
 
@@ -208,7 +187,7 @@ void NormalDataPredictor::clear_update_state() {
     if (predictor) {
         predictor->clear_update_state();
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Clear update state: Predictor not initialized");
     }
 }
 
@@ -216,6 +195,24 @@ void NormalDataPredictor::reset_states() {
     if (predictor) {
         predictor->reset_states();
     } else {
-        throw std::runtime_error("Predictor not initialized");
+        throw std::runtime_error("Reset states: Predictor not initialized");
     }
 }
+
+void NormalDataPredictor::save_model_state(std::ofstream &file) {
+    if (predictor) {
+        predictor->save_model_state(file);
+    } else {
+        throw std::runtime_error("Save model state: Predictor not initialized");
+    }
+}
+
+void NormalDataPredictor::load_model_state(std::ifstream &file) {
+    if (predictor) {
+        predictor->load_model_state(file);
+    } else {
+        throw std::runtime_error("Load model state: Predictor not initialized");
+    }
+}
+
+

@@ -40,8 +40,8 @@ class AnomalousThresholdGenerator {
     void save_biases(std::ofstream &file);
     void load_weights(std::ifstream &file);
     void load_biases(std::ifstream &file);
-    void save_layer_cache(std::ofstream &file) const;
-    void load_layer_cache(std::ifstream &file);
+    void save_model_state(std::ofstream &file);
+    void load_model_state(std::ifstream &file);
     void initialize_layer_cache();
     bool is_layer_cache_initialized() const { return generator->is_layer_cache_initialized(); }
     void clear_update_state();

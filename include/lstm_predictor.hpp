@@ -119,8 +119,8 @@ class LSTMPredictor {
     void save_biases(std::ofstream &file);
     void load_weights(std::ifstream &file);
     void load_biases(std::ifstream &file);
-    void save_layer_cache(std::ofstream &file) const;
-    void load_layer_cache(std::ifstream &file);
+    void save_model_state(std::ofstream &file);
+    void load_model_state(std::ifstream &file);
     void initialize_layer_cache();
 
     std::pair<std::vector<float>, std::vector<float>> get_state() const {
@@ -135,6 +135,16 @@ class LSTMPredictor {
     }
 
     void clear_update_state();
+
+    void pre_allocate_vectors(
+        std::vector<std::vector<std::vector<float>>>& input,
+        std::vector<float>& target,
+        std::vector<float>& pred,
+        LSTMOutput& output,
+        int batch_size = 1,
+        int seq_len = 1,
+        int target_size = 1
+    );
 
   protected:
     unsigned random_seed;

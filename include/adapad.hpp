@@ -67,12 +67,16 @@ class AdapAD {
     bool is_default_normal();
     float simplify_error(const std::vector<float> &errors, float N_sigma = 0);
 
-    const Config &config; // Reference to config instance
+    const Config &config; 
     size_t update_count;  // Counter for tracking updates between saves
     std::string get_state_filename() const;
     void clean_old_saves(size_t keep_count);
 
     void save_if_needed(size_t data_point_count);
+
+    float calc_error(float predicted_val, float observed_val);
+    std::vector<float> calc_error(const std::vector<float> &observed_vals,
+                                  const std::vector<float> &predicted_vals);
 
     std::string parameter_name;
 };
