@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LSTM_PREDICTOR_HPP
+#define LSTM_PREDICTOR_HPP
+
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -252,3 +254,5 @@ class LSTMPredictor {
     std::vector<std::vector<float>> velocity_fc_weight; // [num_classes][hidden_size]
     std::vector<float> velocity_fc_bias;                // [num_classes]
 };
+
+#endif // LSTM_PREDICTOR_HPP

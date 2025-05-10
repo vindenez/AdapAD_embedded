@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LSTM_PREDICTOR_FACTORY_HPP
+#define LSTM_PREDICTOR_FACTORY_HPP
+
 #include "config.hpp"
 #include "lstm_predictor.hpp"
 #include "lstm_predictor_neon.hpp"
@@ -42,3 +44,5 @@ class LSTMPredictorFactory {
         }
     }
 };
+
+#endif // LSTM_PREDICTOR_FACTORY_HPP

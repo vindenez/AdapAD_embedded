@@ -9,14 +9,14 @@ training:
     update_generator: 0.0001
 
 model:
-  save_enabled: false
-  load_enabled: false
+  save_enabled: true
+  load_enabled: true
   save_interval: 48
   save_path: "model_states" 
   lstm:
     size: 100
     layers: 2
-    lookback: 3
+    lookback_len: 3
     prediction_len: 1
   
 anomaly_detection:

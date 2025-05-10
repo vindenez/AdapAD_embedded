@@ -1056,6 +1056,7 @@ void LSTMPredictor::pre_allocate_vectors(
         output.final_cell[i].resize(hidden_size, 0.0f);
     }
 }
+
 void LSTMPredictor::save_model_state(std::ofstream& file) {
     try {
         // Print configuration being saved for debugging
@@ -1125,9 +1126,11 @@ void LSTMPredictor::save_model_state(std::ofstream& file) {
 
 void LSTMPredictor::load_model_state(std::ifstream& file) {
     try {
-        // Load model configuration
-        int loaded_num_classes, loaded_input_size, loaded_hidden_size, 
-            loaded_num_layers, loaded_seq_length;
+        int loaded_num_classes;
+        int loaded_input_size;
+        int loaded_hidden_size;
+        int loaded_num_layers;
+        int loaded_seq_length;
         bool loaded_batch_first;
 
         file.read(reinterpret_cast<char*>(&loaded_num_classes), sizeof(int));
@@ -1138,69 +1141,14 @@ void LSTMPredictor::load_model_state(std::ifstream& file) {
         file.read(reinterpret_cast<char*>(&loaded_batch_first), sizeof(bool));
         
         // Print loaded and current config for debugging
-        std::cout << "Loaded model config: classes=" << loaded_num_classes 
+        std::cout << "LSTM model dimensions: classes=" << loaded_num_classes 
                   << ", input=" << loaded_input_size
                   << ", hidden=" << loaded_hidden_size
                   << ", layers=" << loaded_num_layers
                   << ", seq_len=" << loaded_seq_length << std::endl;
-                  
-        std::cout << "Current model config: classes=" << num_classes 
-                  << ", input=" << input_size
-                  << ", hidden=" << hidden_size
-                  << ", layers=" << num_layers
-                  << ", seq_len=" << seq_length << std::endl;
-
-        // Check for obviously invalid values that would indicate corruption
-        if (loaded_num_classes <= 0 || loaded_num_classes > 1000 ||
-            loaded_input_size <= 0 || loaded_input_size > 1000 ||
-            loaded_hidden_size <= 0 || loaded_hidden_size > 10000 ||
-            loaded_num_layers <= 0 || loaded_num_layers > 100 ||
-            loaded_seq_length <= 0 || loaded_seq_length > 1000) {
-            
-            throw std::runtime_error("Model contains invalid configuration values. File is likely corrupted.");
-        }
-
-        // Verify critical LSTM structure parameters
-        if (loaded_hidden_size != hidden_size || loaded_num_layers != num_layers) {
-            std::stringstream error_msg;
-            error_msg << "Critical LSTM configuration mismatch: ";
-            if (loaded_hidden_size != hidden_size)
-                error_msg << "hidden_size: expected " << hidden_size << ", got " << loaded_hidden_size << "; ";
-            if (loaded_num_layers != num_layers)
-                error_msg << "num_layers: expected " << num_layers << ", got " << loaded_num_layers << "; ";
-            
-            throw std::runtime_error(error_msg.str());
-        }
         
-        // Allow other parameters to be updated
-        if (loaded_num_classes != num_classes) {
-            std::cout << "Updating num_classes from " << num_classes 
-                      << " to " << loaded_num_classes << std::endl;
-            num_classes = loaded_num_classes;
-        }
-        
-        if (loaded_input_size != input_size) {
-            std::cout << "Updating input_size from " << input_size 
-                      << " to " << loaded_input_size << std::endl;
-            input_size = loaded_input_size;
-        }
-        
-        if (loaded_seq_length != seq_length) {
-            std::cout << "Updating seq_length from " << seq_length 
-                      << " to " << loaded_seq_length << std::endl;
-            seq_length = loaded_seq_length;
-        }
-        
-        if (loaded_batch_first != batch_first) {
-            std::cout << "Updating batch_first from " << batch_first 
-                      << " to " << loaded_batch_first << std::endl;
-            batch_first = loaded_batch_first;
-        }
-
-        // Load weights
+        // Load weights and biases
         load_weights(file);
-
-        // Load biases
         load_biases(file);
 
         // Load velocity terms for momentum

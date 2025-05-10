@@ -36,7 +36,7 @@ bool Config::load(const std::string &yaml_path) {
         // Load model architecture
         LSTM_size = get_int("model.lstm.size", 100);
         LSTM_size_layer = get_int("model.lstm.layers", 2);
-        lookback_len = get_int("model.lstm.lookback", 3);
+        lookback_len = get_int("model.lstm.lookback_len", 3);
         prediction_len = get_int("model.lstm.prediction_len", 1);
 
         // Load save settings

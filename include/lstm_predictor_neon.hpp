@@ -1,4 +1,6 @@
-#pragma once
+#ifndef LSTM_PREDICTOR_NEON_HPP
+#define LSTM_PREDICTOR_NEON_HPP
+
 #include "lstm_predictor.hpp"
 #include <arm_neon.h>
 #include <cmath>
@@ -61,3 +63,5 @@ class LSTMPredictorNEON : public LSTMPredictor {
     void apply_sgd_update(std::vector<float> &biases, std::vector<float> &grads,
                           float learning_rate, float momentum = 0.9f) override;
 };
+
+#endif // LSTM_PREDICTOR_NEON_HPP
