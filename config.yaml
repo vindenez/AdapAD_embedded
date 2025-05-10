@@ -25,7 +25,9 @@ anomaly_detection:
 system:
   use_neon: true
   random_seed: 42
-  
+
+data_source: "Tide_pressure"
+
 data:
   paths:
     training: "data/Tide_pressure.validation_stage.csv"

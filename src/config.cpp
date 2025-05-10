@@ -59,6 +59,8 @@ bool Config::load(const std::string &yaml_path) {
         // Load anomaly detection parameters
         threshold_multiplier = get_float("anomaly_detection.threshold_multiplier", 1.0f);
 
+        data_source = get_string("data_source");
+
         // Apply data source specific configuration
         apply_data_source_config();
 

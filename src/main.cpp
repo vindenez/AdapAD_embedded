@@ -304,7 +304,7 @@ int main() {
 
         // Construct config key once
         const std::string config_key =
-            "data.parameters.Tide_pressure." + param_name + ".minimal_threshold";
+            "data.parameters." + config.data_source + "." + param_name + ".minimal_threshold";
 
         // Use find instead of iteration
         if (config_map.find(config_key) == config_map.end()) {
@@ -315,7 +315,7 @@ int main() {
 
         float minimal_threshold;
         auto value_range_config = init_value_range_config(
-            "data.parameters.Tide_pressure." + param_name, minimal_threshold);
+            "data.parameters." + config.data_source + "." + param_name, minimal_threshold);
 
         if (minimal_threshold == 0.0f) {
             std::cerr << "Error: It is mandatory to set a minimal threshold in "
