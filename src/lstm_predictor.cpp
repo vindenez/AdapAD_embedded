@@ -241,10 +241,9 @@ std::vector<float> LSTMPredictor::forward_lstm_cell(const std::vector<float> &in
     return output;
 }
 
-LSTMPredictor::LSTMOutput
-LSTMPredictor::forward_lstm(const std::vector<std::vector<std::vector<float>>> &x,
-                       const std::vector<std::vector<float>> *initial_hidden,
-                       const std::vector<std::vector<float>> *initial_cell) {
+LSTMPredictor::LSTMOutput LSTMPredictor::forward_lstm(const std::vector<std::vector<std::vector<float>>> &x,
+                                                    const std::vector<std::vector<float>> *initial_hidden,
+                                                    const std::vector<std::vector<float>> *initial_cell) {
 
     for (size_t batch = 0; batch < x.size(); ++batch) {
         for (size_t seq = 0; seq < x[batch].size(); ++seq) {

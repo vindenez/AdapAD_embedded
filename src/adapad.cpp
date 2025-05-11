@@ -48,6 +48,7 @@ void AdapAD::set_training_data(const std::vector<float> &data) {
         observed_vals.push_back(normalized);
     }
 }
+
 bool AdapAD::is_anomalous(float observed_val) {
     bool is_anomalous_ret = false;
     float normalized = normalize_data(observed_val);
@@ -79,8 +80,8 @@ bool AdapAD::is_anomalous(float observed_val) {
         float predicted_val = reverse_normalized_data(prediction[0]);
         predicted_vals.push_back(predicted_val);
 
-        // Calculate prediction error
-        float prediction_error = calc_error(predicted_val, observed_val);
+        // Calculate prediction error using normalized values
+        float prediction_error = calc_error(prediction[0], normalized_val);
         predictive_errors.push_back(prediction_error);
 
         // Check range and handle out-of-range values
@@ -280,10 +281,12 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
     std::vector<float> x_temp(observed_vals.end() - predictor_config.lookback_len - 1,
                               observed_vals.end() - 1);
 
-    // Create tensor matching PyTorch's reshape(1, -1)
-    std::vector<std::vector<std::vector<float>>> input_tensor(1);
-    input_tensor[0].resize(1);
-    input_tensor[0][0] = x_temp;
+    std::vector<std::vector<std::vector<float>>> input_tensor(1); // batch_size=1
+    input_tensor[0].resize(predictor_config.lookback_len); // sequence_length
+    for (int i = 0; i < predictor_config.lookback_len; i++) {
+        input_tensor[0][i].resize(1); // feature_size=1
+        input_tensor[0][i][0] = x_temp[i];
+    }
 
     return input_tensor;
 }
