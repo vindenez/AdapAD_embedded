@@ -281,12 +281,10 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
     std::vector<float> x_temp(observed_vals.end() - predictor_config.lookback_len - 1,
                               observed_vals.end() - 1);
 
-    std::vector<std::vector<std::vector<float>>> input_tensor(1); // batch_size=1
-    input_tensor[0].resize(predictor_config.lookback_len); // sequence_length
-    for (int i = 0; i < predictor_config.lookback_len; i++) {
-        input_tensor[0][i].resize(1); // feature_size=1
-        input_tensor[0][i][0] = x_temp[i];
-    }
+    // Create tensor matching PyTorch's reshape(1, -1)
+    std::vector<std::vector<std::vector<float>>> input_tensor(1);
+    input_tensor[0].resize(1);
+    input_tensor[0][0] = x_temp;
 
     return input_tensor;
 }
