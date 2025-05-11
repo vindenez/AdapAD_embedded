@@ -187,7 +187,7 @@ class LSTMPredictor {
     std::vector<LSTMGradients> last_gradients;
 
     float sigmoid(float x);
-    float tanh_custom(float x);
+    float tanh(float x);
 
     virtual std::vector<float> forward_lstm_cell(const std::vector<float> &input,
                                                  std::vector<float> &h_state,

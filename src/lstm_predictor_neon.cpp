@@ -332,7 +332,7 @@ std::vector<float> LSTMPredictorNEON::forward_lstm_cell(const std::vector<float>
     for (int h = (hidden_size / 4) * 4; h < hidden_size; ++h) {
         float i_t = sigmoid(gates[h]);
         float f_t = sigmoid(gates[hidden_size + h]);
-        float cell_candidate = tanh_custom(gates[2 * hidden_size + h]);
+        float cell_candidate = tanh(gates[2 * hidden_size + h]);
         float o_t = sigmoid(gates[3 * hidden_size + h]);
 
         // Update cell state
@@ -340,7 +340,7 @@ std::vector<float> LSTMPredictorNEON::forward_lstm_cell(const std::vector<float>
         c_state[h] = new_cell;
 
         // Update hidden state
-        float new_hidden = o_t * tanh_custom(new_cell);
+        float new_hidden = o_t * tanh(new_cell);
         h_state[h] = new_hidden;
         output[h] = new_hidden;
 
@@ -728,7 +728,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
 
             // Handle remaining elements
             for (; h < hidden_size; ++h) {
-                float tanh_c = tanh_custom(cache_entry.cell_state[h]);
+                float tanh_c = tanh(cache_entry.cell_state[h]);
                 float dho = dh[h];
 
                 // Cell state gradient
@@ -760,7 +760,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer
             int input_size_layer = (layer == 0) ? input_size : hidden_size;
 
             for (int h = 0; h < hidden_size; ++h) {
-                float tanh_c = tanh_custom(cache_entry.cell_state[h]);
+                float tanh_c = tanh(cache_entry.cell_state[h]);
                 float dho = dh[h];
 
                 // Recompute gradients (more compact than storing all of them)
@@ -1059,7 +1059,7 @@ void LSTMPredictorNEON::apply_gate_operations_neon(std::vector<float> &gates,
         // Apply scalar operations for remaining elements
         float i_t = this->sigmoid(gates[h]);
         float f_t = this->sigmoid(gates[hidden_size + h]);
-        float g_t = this->tanh_custom(gates[2 * hidden_size + h]);
+        float g_t = this->tanh(gates[2 * hidden_size + h]);
         float o_t = this->sigmoid(gates[3 * hidden_size + h]);
 
         // Update cell state
@@ -1067,7 +1067,7 @@ void LSTMPredictorNEON::apply_gate_operations_neon(std::vector<float> &gates,
         c_state[h] = new_c;
 
         // Update hidden state
-        float new_h = o_t * this->tanh_custom(new_c);
+        float new_h = o_t * this->tanh(new_c);
         h_state[h] = new_h;
 
         // Store in cache if in training mode

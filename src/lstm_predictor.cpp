@@ -100,7 +100,7 @@ void LSTMPredictor::reset_states() {
 
 float LSTMPredictor::sigmoid(float x) { return 1.0f / (1.0f + std::exp(-x)); }
 
-float LSTMPredictor::tanh_custom(float x) { return std::tanh(x); }
+float LSTMPredictor::tanh(float x) { return std::tanh(x); }
 
 std::vector<float> LSTMPredictor::forward_lstm_cell(const std::vector<float> &input,
                                                     std::vector<float> &h_state,
@@ -203,7 +203,7 @@ std::vector<float> LSTMPredictor::forward_lstm_cell(const std::vector<float> &in
     for (int h = 0; h < hidden_size; ++h) {
         float i_t = sigmoid(gates[h]);                                                          // input gate
         float f_t = sigmoid(gates[hidden_size + h]);                                            // forget gate
-        float cell_candidate = tanh_custom(gates[2 * hidden_size + h]);                         // cell candidate
+        float cell_candidate = tanh(gates[2 * hidden_size + h]);                         // cell candidate
     float o_t = sigmoid(gates[3 * hidden_size + h]);                                            // output gate
 
         // Update cell state
@@ -211,7 +211,7 @@ std::vector<float> LSTMPredictor::forward_lstm_cell(const std::vector<float> &in
         c_state[h] = new_cell;
 
         // Update hidden state
-        float new_hidden = o_t * tanh_custom(new_cell);
+        float new_hidden = o_t * tanh(new_cell);
         h_state[h] = new_hidden;
 
         // Store values in cache if in training mode (includes online learning)
@@ -460,7 +460,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
 
             // Process each hidden unit
             for (int h = 0; h < hidden_size; ++h) {
-                float tanh_c = tanh_custom(cache_entry.cell_state[h]);
+                float tanh_c = tanh(cache_entry.cell_state[h]);
                 float dho = dh[h];
 
                 // 1. Cell state gradient
