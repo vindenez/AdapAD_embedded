@@ -51,7 +51,7 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, i
         layer_cache[layer][0].resize(lookback_len); // Sequence length
 
         // Pre-allocate each cache entry with properly sized vectors
-        for (auto &seq : layer_cache[layer][0]) {
+        for (LSTMCacheEntry &seq : layer_cache[layer][0]) {
             int expected_input_size = (layer == 0) ? input_size : hidden_size;
             seq.input.resize(expected_input_size, 0.0f);
             seq.prev_hidden.resize(hidden_size, 0.0f);
@@ -66,13 +66,19 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, i
     }
 
     // Pre-allocate gradients
-    for (auto &grad : last_gradients) {
+    for (LSTMGradients &grad : last_gradients) {
         int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
         grad.weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
         grad.weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
         grad.bias_ih_grad.resize(4 * hidden_size, 0.0f);
         grad.bias_hh_grad.resize(4 * hidden_size, 0.0f);
     }
+
+    // Pre-allocate gradient buffers
+    grad_output_buffer.resize(num_classes, 0.0f);
+    fc_weight_grad_buffer.resize(num_classes, std::vector<float>(hidden_size, 0.0f));
+    fc_bias_grad_buffer.resize(num_classes, 0.0f);
+    lstm_grad_buffer.resize(hidden_size, 0.0f);
 
     // Pre-allocate states
     h_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
@@ -96,7 +102,7 @@ float LSTMPredictor::sigmoid(float x) { return 1.0f / (1.0f + std::exp(-x)); }
 
 float LSTMPredictor::tanh_custom(float x) { return std::tanh(x); }
 
-std::vector<float> LSTMPredictor::lstm_cell_forward(const std::vector<float> &input,
+std::vector<float> LSTMPredictor::forward_lstm_cell(const std::vector<float> &input,
                                                     std::vector<float> &h_state,
                                                     std::vector<float> &c_state,
                                                     const LSTMLayer &layer) {
@@ -164,46 +170,41 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(const std::vector<float> &in
     // Initialize gates with biases (PyTorch layout: [i,f,g,o])
     std::vector<float> gates(4 * hidden_size);
     for (int h = 0; h < hidden_size; ++h) {
-        gates[h] = layer.bias_ih[h] + layer.bias_hh[h]; // input gate (i)
+        gates[h] = layer.bias_ih[h] + layer.bias_hh[h];                         // input gate (i)
         gates[hidden_size + h] =
-            layer.bias_ih[hidden_size + h] + layer.bias_hh[hidden_size + h]; // forget gate (f)
+            layer.bias_ih[hidden_size + h] + layer.bias_hh[hidden_size + h];    // forget gate (f)
         gates[2 * hidden_size + h] = layer.bias_ih[2 * hidden_size + h] +
-                                     layer.bias_hh[2 * hidden_size + h]; // cell candidate (Ĉ)
+                                     layer.bias_hh[2 * hidden_size + h];        // cell candidate (Ĉ)
         gates[3 * hidden_size + h] = layer.bias_ih[3 * hidden_size + h] +
-                                     layer.bias_hh[3 * hidden_size + h]; // output gate (o)
+                                     layer.bias_hh[3 * hidden_size + h];        // output gate (o)
     }
 
     // Input to hidden contributions
     for (size_t i = 0; i < input.size(); ++i) {
         for (int h = 0; h < hidden_size; ++h) {
-            gates[h] += layer.weight_ih[h][i] * input[i];                             // input gate
-            gates[hidden_size + h] += layer.weight_ih[hidden_size + h][i] * input[i]; // forget gate
-            gates[2 * hidden_size + h] +=
-                layer.weight_ih[2 * hidden_size + h][i] * input[i]; // cell candidate
-            gates[3 * hidden_size + h] +=
-                layer.weight_ih[3 * hidden_size + h][i] * input[i]; // output gate
+            gates[h] += layer.weight_ih[h][i] * input[i];                                       // input gate
+            gates[hidden_size + h] += layer.weight_ih[hidden_size + h][i] * input[i];           // forget gate
+            gates[2 * hidden_size + h] += layer.weight_ih[2 * hidden_size + h][i] * input[i];   // cell candidate
+            gates[3 * hidden_size + h] += layer.weight_ih[3 * hidden_size + h][i] * input[i];   // output gate
         }
     }
 
     // Hidden to hidden contributions
     for (int h = 0; h < hidden_size; ++h) {
         for (size_t i = 0; i < hidden_size; ++i) {
-            gates[h] += layer.weight_hh[h][i] * h_state[i]; // input gate
-            gates[hidden_size + h] +=
-                layer.weight_hh[hidden_size + h][i] * h_state[i]; // forget gate
-            gates[2 * hidden_size + h] +=
-                layer.weight_hh[2 * hidden_size + h][i] * h_state[i]; // cell candidate
-            gates[3 * hidden_size + h] +=
-                layer.weight_hh[3 * hidden_size + h][i] * h_state[i]; // output gate
+            gates[h] += layer.weight_hh[h][i] * h_state[i];                                     // input gate
+            gates[hidden_size + h] += layer.weight_hh[hidden_size + h][i] * h_state[i];         // forget gate
+            gates[2 * hidden_size + h] += layer.weight_hh[2 * hidden_size + h][i] * h_state[i]; // cell candidate
+            gates[3 * hidden_size + h] += layer.weight_hh[3 * hidden_size + h][i] * h_state[i]; // output gate
         }
     }
 
     // Apply activations and update states
     for (int h = 0; h < hidden_size; ++h) {
-        float i_t = sigmoid(gates[h]);                                  // input gate
-        float f_t = sigmoid(gates[hidden_size + h]);                    // forget gate
-        float cell_candidate = tanh_custom(gates[2 * hidden_size + h]); // cell candidate
-        float o_t = sigmoid(gates[3 * hidden_size + h]);                // output gate
+        float i_t = sigmoid(gates[h]);                                                          // input gate
+        float f_t = sigmoid(gates[hidden_size + h]);                                            // forget gate
+        float cell_candidate = tanh_custom(gates[2 * hidden_size + h]);                         // cell candidate
+    float o_t = sigmoid(gates[3 * hidden_size + h]);                                            // output gate
 
         // Update cell state
         float new_cell = f_t * c_state[h] + i_t * cell_candidate;
@@ -241,7 +242,7 @@ std::vector<float> LSTMPredictor::lstm_cell_forward(const std::vector<float> &in
 }
 
 LSTMPredictor::LSTMOutput
-LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
+LSTMPredictor::forward_lstm(const std::vector<std::vector<std::vector<float>>> &x,
                        const std::vector<std::vector<float>> *initial_hidden,
                        const std::vector<std::vector<float>> *initial_cell) {
 
@@ -271,9 +272,9 @@ LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
         // Initialize output structure with minimal size
         LSTMOutput output;
         output.sequence_output.resize(batch_size);
-        for (auto &batch : output.sequence_output) {
+        for (std::vector<std::vector<float>> &batch : output.sequence_output) {
             batch.resize(seq_len);
-            for (auto &seq : batch) {
+            for (std::vector<float> &seq : batch) {
                 seq.resize(hidden_size, 0.0f);
             }
         }
@@ -315,7 +316,7 @@ LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
                             throw std::runtime_error("Invalid cache access");
                         }
 
-                        auto &cache_entry =
+                        LSTMCacheEntry &cache_entry =
                             layer_cache[current_layer][current_batch][current_timestep];
                         cache_entry.input.resize(expected_input_size);
                         cache_entry.prev_hidden.resize(hidden_size);
@@ -328,7 +329,7 @@ LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
                         cache_entry.hidden_state.resize(hidden_size);
                     }
 
-                    layer_outputs[layer + 1] = lstm_cell_forward(
+                    layer_outputs[layer + 1] = forward_lstm_cell(
                         layer_outputs[layer], h_state[layer], c_state[layer], lstm_layers[layer]);
                 }
 
@@ -342,10 +343,19 @@ LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
         return output;
 
     } catch (const std::exception &e) {
-        // Clean up on error
         clear_update_state();
         throw;
     }
+}
+
+std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
+                          const std::vector<std::vector<float>> *initial_hidden,
+                          const std::vector<std::vector<float>> *initial_cell) {
+    // First process through LSTM layers
+    LSTMOutput lstm_output = forward_lstm(x, initial_hidden, initial_cell);
+    
+    // Then process through fully connected layer
+    return forward_linear(lstm_output);
 }
 
 void LSTMPredictor::backward_linear_layer(const std::vector<float> &grad_output,
@@ -431,7 +441,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
             throw std::runtime_error("Cache batch index out of bounds");
         }
 
-        const auto &layer_cache = cache[layer][current_batch];
+        const std::vector<LSTMCacheEntry> &layer_cache = cache[layer][current_batch];
 
         // If this is the last layer, add grad output (like dy @ Wy.T in PyTorch)
         if (layer == num_layers - 1) {
@@ -443,7 +453,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
         // Process each time step in reverse order
         for (int t = layer_cache.size() - 1; t >= 0; --t) {
 
-            const auto &cache_entry = layer_cache[t];
+            const LSTMCacheEntry &cache_entry = layer_cache[t];
 
             std::vector<float> dh_prev(hidden_size, 0.0f);
             std::vector<float> dc_prev(hidden_size, 0.0f);
@@ -515,7 +525,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
 }
 
 void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>> &x,
-                               const std::vector<float> &target, const LSTMOutput &lstm_output,
+                               const std::vector<float> &target,
                                float learning_rate) {
     try {
         // Add detailed dimension checking for each sequence step
@@ -542,27 +552,28 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
             throw std::invalid_argument("Target size mismatch");
         }
 
-        // Get final prediction (no forward pass needed)
-        auto output = get_final_prediction(lstm_output);
-
-        // Compute gradients
-        auto grad_output = mse_loss_gradient(output, target);
-
+                // Forward pass through LSTM layers
+        LSTMOutput lstm_output = forward_lstm(x);
+        
+        // Get final prediction
+        std::vector<float> output = forward_linear(lstm_output);
+        
+        // Compute gradients (reuse pre-allocated buffer)
+        mse_loss_gradient(output, target, grad_output_buffer);  
+        
         // Extract final hidden state
-        const auto &last_hidden = lstm_output.sequence_output.back().back();
-
-        // Backward pass through linear layer
-        std::vector<std::vector<float>> fc_weight_grad;
-        std::vector<float> fc_bias_grad;
-        std::vector<float> lstm_grad;
-        backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
-
+        const std::vector<float> &last_hidden = lstm_output.sequence_output.back().back();
+        
+        // Backward pass through linear layer (using pre-allocated buffers)
+        backward_linear_layer(grad_output_buffer, last_hidden, 
+                            fc_weight_grad_buffer, fc_bias_grad_buffer, lstm_grad_buffer);
+        
         // Update FC layer weights using SGD with momentum
-        apply_sgd_update(fc_weight, fc_weight_grad, learning_rate, 0.9f);
-        apply_sgd_update(fc_bias, fc_bias_grad, learning_rate, 0.9f);
-
+        apply_sgd_update(fc_weight, fc_weight_grad_buffer, learning_rate, 0.9f);
+        apply_sgd_update(fc_bias, fc_bias_grad_buffer, learning_rate, 0.9f);
+        
         // Get LSTM layer gradients
-        auto lstm_gradients = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
+        std::vector<LSTMGradients> lstm_gradients = backward_lstm_layer(lstm_grad_buffer, layer_cache, learning_rate);
 
         // Update LSTM layer parameters using SGD with momentum
         for (int layer = 0; layer < num_layers; ++layer) {
@@ -591,11 +602,11 @@ void LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>>
     }
 }
 
-std::vector<float> LSTMPredictor::get_final_prediction(const LSTMOutput &lstm_output) {
+std::vector<float> LSTMPredictor::forward_linear(const LSTMOutput &lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
 
     // Get the final hidden state directly
-    const auto &final_hidden = lstm_output.sequence_output.back().back();
+    const std::vector<float> &final_hidden = lstm_output.sequence_output.back().back();
 
     // Compute the output
     for (int i = 0; i < num_classes; ++i) {
@@ -682,7 +693,7 @@ void LSTMPredictor::save_weights(std::ofstream &file) {
             file.write(reinterpret_cast<const char *>(&ih_rows), sizeof(size_t));
             file.write(reinterpret_cast<const char *>(&ih_cols), sizeof(size_t));
 
-            for (const auto &row : lstm_layers[layer].weight_ih) {
+            for (const std::vector<float> &row : lstm_layers[layer].weight_ih) {
                 file.write(reinterpret_cast<const char *>(row.data()), row.size() * sizeof(float));
             }
 
@@ -692,7 +703,7 @@ void LSTMPredictor::save_weights(std::ofstream &file) {
             file.write(reinterpret_cast<const char *>(&hh_rows), sizeof(size_t));
             file.write(reinterpret_cast<const char *>(&hh_cols), sizeof(size_t));
 
-            for (const auto &row : lstm_layers[layer].weight_hh) {
+            for (const std::vector<float> &row : lstm_layers[layer].weight_hh) {
                 file.write(reinterpret_cast<const char *>(row.data()), row.size() * sizeof(float));
             }
         }
@@ -703,7 +714,7 @@ void LSTMPredictor::save_weights(std::ofstream &file) {
         file.write(reinterpret_cast<const char *>(&fc_rows), sizeof(size_t));
         file.write(reinterpret_cast<const char *>(&fc_cols), sizeof(size_t));
 
-        for (const auto &row : fc_weight) {
+        for (const std::vector<float> &row : fc_weight) {
             file.write(reinterpret_cast<const char *>(row.data()), row.size() * sizeof(float));
         }
     } catch (const std::exception &e) {
@@ -747,7 +758,7 @@ void LSTMPredictor::load_weights(std::ifstream &file) {
             file.read(reinterpret_cast<char *>(&ih_cols), sizeof(size_t));
 
             lstm_layers[layer].weight_ih.resize(ih_rows, std::vector<float>(ih_cols));
-            for (auto &row : lstm_layers[layer].weight_ih) {
+            for (std::vector<float> &row : lstm_layers[layer].weight_ih) {
                 file.read(reinterpret_cast<char *>(row.data()), ih_cols * sizeof(float));
             }
 
@@ -757,7 +768,7 @@ void LSTMPredictor::load_weights(std::ifstream &file) {
             file.read(reinterpret_cast<char *>(&hh_cols), sizeof(size_t));
 
             lstm_layers[layer].weight_hh.resize(hh_rows, std::vector<float>(hh_cols));
-            for (auto &row : lstm_layers[layer].weight_hh) {
+            for (std::vector<float> &row : lstm_layers[layer].weight_hh) {
                 file.read(reinterpret_cast<char *>(row.data()), hh_cols * sizeof(float));
             }
         }
@@ -768,7 +779,7 @@ void LSTMPredictor::load_weights(std::ifstream &file) {
         file.read(reinterpret_cast<char *>(&fc_cols), sizeof(size_t));
 
         fc_weight.resize(fc_rows, std::vector<float>(fc_cols));
-        for (auto &row : fc_weight) {
+        for (std::vector<float> &row : fc_weight) {
             file.read(reinterpret_cast<char *>(row.data()), fc_cols * sizeof(float));
         }
     } catch (const std::exception &e) {
@@ -823,7 +834,7 @@ void LSTMPredictor::initialize_layer_cache() {
             // Initialize cache for each sequence step
             layer_cache[layer][batch].resize(seq_length);
             for (int seq = 0; seq < seq_length; ++seq) {
-                auto &cache = layer_cache[layer][batch][seq];
+                LSTMCacheEntry &cache = layer_cache[layer][batch][seq];
 
                 // Initialize all vectors with correct sizes
                 int expected_input_size = (layer == 0) ? input_size : hidden_size;
@@ -845,11 +856,11 @@ void LSTMPredictor::initialize_layer_cache() {
 }
 
 void LSTMPredictor::clear_update_state() {
-    for (auto &gradient : last_gradients) {
-        for (auto &row : gradient.weight_ih_grad) {
+    for (LSTMGradients &gradient : last_gradients) {
+        for (std::vector<float> &row : gradient.weight_ih_grad) {
             std::fill(row.begin(), row.end(), 0.0f);
         }
-        for (auto &row : gradient.weight_hh_grad) {
+        for (std::vector<float> &row : gradient.weight_hh_grad) {
             std::fill(row.begin(), row.end(), 0.0f);
         }
         std::fill(gradient.bias_ih_grad.begin(), gradient.bias_ih_grad.end(), 0.0f);
@@ -857,9 +868,9 @@ void LSTMPredictor::clear_update_state() {
     }
 
     // Zero out cache values without reinitializing structure
-    for (auto &layer : layer_cache) {
-        for (auto &batch : layer) {
-            for (auto &seq : batch) {
+    for (std::vector<std::vector<LSTMCacheEntry>> &layer : layer_cache) {
+        for (std::vector<LSTMCacheEntry> &batch : layer) {
+            for (LSTMCacheEntry &seq : batch) {
                 std::fill(seq.input.begin(), seq.input.end(), 0.0f);
                 std::fill(seq.prev_hidden.begin(), seq.prev_hidden.end(), 0.0f);
                 std::fill(seq.prev_cell.begin(), seq.prev_cell.end(), 0.0f);
@@ -975,14 +986,17 @@ void LSTMPredictor::apply_sgd_update(std::vector<float> &biases, std::vector<flo
     }
 }
 
-std::vector<float> LSTMPredictor::mse_loss_gradient(const std::vector<float> &output,
-                                                    const std::vector<float> &target) {
-
-    std::vector<float> gradient(output.size());
+void LSTMPredictor::mse_loss_gradient(const std::vector<float> &output,
+                                   const std::vector<float> &target,
+                                   std::vector<float> &gradient) {
+    // Ensure gradient is properly sized
+    if (gradient.size() != output.size()) {
+        gradient.resize(output.size());
+    }
+    
     for (std::size_t i = 0; i < output.size(); ++i) {
         gradient[i] = 2.0f * (output[i] - target[i]) / output.size();
     }
-    return gradient;
 }
 
 float LSTMPredictor::mse_loss(const std::vector<float> &prediction,
@@ -1028,9 +1042,9 @@ void LSTMPredictor::pre_allocate_vectors(
 ) {
     // Pre-allocate input tensor
     input.resize(batch_size);
-    for (auto& batch : input) {
+    for (std::vector<std::vector<float>> &batch : input) {
         batch.resize(seq_len);
-        for (auto& seq : batch) {
+        for (std::vector<float> &seq : batch) {
             seq.resize(input_size, 0.0f);
         }
     }
@@ -1041,9 +1055,9 @@ void LSTMPredictor::pre_allocate_vectors(
 
     // Pre-allocate output structure
     output.sequence_output.resize(batch_size);
-    for (auto& batch : output.sequence_output) {
+    for (std::vector<std::vector<float>> &batch : output.sequence_output) {
         batch.resize(seq_len);
-        for (auto& seq : batch) {
+        for (std::vector<float> &seq : batch) {
             seq.resize(hidden_size, 0.0f);
         }
     }
@@ -1088,7 +1102,7 @@ void LSTMPredictor::save_model_state(std::ofstream& file) {
             size_t ih_cols = velocity_weight_ih[layer][0].size();
             file.write(reinterpret_cast<const char*>(&ih_rows), sizeof(size_t));
             file.write(reinterpret_cast<const char*>(&ih_cols), sizeof(size_t));
-            for (const auto& row : velocity_weight_ih[layer]) {
+            for (const std::vector<float> &row : velocity_weight_ih[layer]) {
                 file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
             }
 
@@ -1097,7 +1111,7 @@ void LSTMPredictor::save_model_state(std::ofstream& file) {
             size_t hh_cols = velocity_weight_hh[layer][0].size();
             file.write(reinterpret_cast<const char*>(&hh_rows), sizeof(size_t));
             file.write(reinterpret_cast<const char*>(&hh_cols), sizeof(size_t));
-            for (const auto& row : velocity_weight_hh[layer]) {
+            for (const std::vector<float> &row : velocity_weight_hh[layer]) {
                 file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
             }
 
@@ -1113,7 +1127,7 @@ void LSTMPredictor::save_model_state(std::ofstream& file) {
         size_t fc_cols = velocity_fc_weight[0].size();
         file.write(reinterpret_cast<const char*>(&fc_rows), sizeof(size_t));
         file.write(reinterpret_cast<const char*>(&fc_cols), sizeof(size_t));
-        for (const auto& row : velocity_fc_weight) {
+        for (const std::vector<float> &row : velocity_fc_weight) {
             file.write(reinterpret_cast<const char*>(row.data()), row.size() * sizeof(float));
         }
         file.write(reinterpret_cast<const char*>(velocity_fc_bias.data()), 
@@ -1159,7 +1173,7 @@ void LSTMPredictor::load_model_state(std::ifstream& file) {
             file.read(reinterpret_cast<char*>(&ih_rows), sizeof(size_t));
             file.read(reinterpret_cast<char*>(&ih_cols), sizeof(size_t));
             velocity_weight_ih[layer].resize(ih_rows, std::vector<float>(ih_cols));
-            for (auto& row : velocity_weight_ih[layer]) {
+            for (std::vector<float> &row : velocity_weight_ih[layer]) {
                 file.read(reinterpret_cast<char*>(row.data()), ih_cols * sizeof(float));
             }
 
@@ -1168,7 +1182,7 @@ void LSTMPredictor::load_model_state(std::ifstream& file) {
             file.read(reinterpret_cast<char*>(&hh_rows), sizeof(size_t));
             file.read(reinterpret_cast<char*>(&hh_cols), sizeof(size_t));
             velocity_weight_hh[layer].resize(hh_rows, std::vector<float>(hh_cols));
-            for (auto& row : velocity_weight_hh[layer]) {
+            for (std::vector<float> &row : velocity_weight_hh[layer]) {
                 file.read(reinterpret_cast<char*>(row.data()), hh_cols * sizeof(float));
             }
 
@@ -1186,7 +1200,7 @@ void LSTMPredictor::load_model_state(std::ifstream& file) {
         file.read(reinterpret_cast<char*>(&fc_rows), sizeof(size_t));
         file.read(reinterpret_cast<char*>(&fc_cols), sizeof(size_t));
         velocity_fc_weight.resize(fc_rows, std::vector<float>(fc_cols));
-        for (auto& row : velocity_fc_weight) {
+        for (std::vector<float> &row : velocity_fc_weight) {
             file.read(reinterpret_cast<char*>(row.data()), fc_cols * sizeof(float));
         }
         velocity_fc_bias.resize(num_classes);

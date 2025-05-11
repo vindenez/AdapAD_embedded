@@ -22,22 +22,15 @@ class NormalDataPredictor {
                 const std::vector<std::vector<std::vector<float>>> &past_observations,
                 const std::vector<float> &recent_observation);
 
-    void reset_states();
-    void train_step(const std::vector<std::vector<std::vector<float>>> &x,
-                    const std::vector<float> &target, const LSTMPredictor::LSTMOutput &lstm_output,
-                    float learning_rate) {
-        predictor->train_step(x, target, lstm_output, learning_rate);
+    std::vector<float> forward(const std::vector<std::vector<std::vector<float>>> &x) {
+        return predictor->forward(x);
     }
+
+    void reset_states();
 
     // Existing delegate methods
     void eval() { predictor->eval(); }
     void train() { predictor->train(); }
-    LSTMPredictor::LSTMOutput forward(const std::vector<std::vector<std::vector<float>>> &x) {
-        return predictor->forward(x);
-    }
-    std::vector<float> get_final_prediction(const LSTMPredictor::LSTMOutput &output) {
-        return predictor->get_final_prediction(output);
-    }
 
     // Model save/load methods
     void save_weights(std::ofstream &file);

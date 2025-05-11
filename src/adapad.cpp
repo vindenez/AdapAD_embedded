@@ -48,7 +48,6 @@ void AdapAD::set_training_data(const std::vector<float> &data) {
         observed_vals.push_back(normalized);
     }
 }
-
 bool AdapAD::is_anomalous(float observed_val) {
     bool is_anomalous_ret = false;
     float normalized = normalize_data(observed_val);
@@ -68,28 +67,20 @@ bool AdapAD::is_anomalous(float observed_val) {
             throw std::runtime_error("Not enough observed values");
         }
 
+        float normalized_val = normalize_data(observed_val);
+
         // Get the previous lookback_len values for prediction
-        auto past_observations = prepare_data_for_prediction(observed_vals.size() - 1);
+        auto input_data = prepare_data_for_prediction(observed_vals.size() - 1);
 
-        if (past_observations.empty() || past_observations[0].empty() ||
-            past_observations[0][0].size() != predictor_config.lookback_len) {
-            throw std::runtime_error("Invalid past_observations dimensions");
-        }
+        // Use the new forward method that returns the prediction directly
+        std::vector<float> prediction = data_predictor->forward(input_data);
+        
+        // Get the predicted value (first/only element in the prediction vector)
+        float predicted_val = reverse_normalized_data(prediction[0]);
+        predicted_vals.push_back(predicted_val);
 
-        // Get prediction
-        auto prediction = data_predictor->forward(past_observations);
-        auto predicted_val = data_predictor->get_final_prediction(prediction);
-
-        // Validate vector sizes before push_back
-        if (predicted_vals.size() >= predictor_config.lookback_len * 2) {
-            predicted_vals.erase(predicted_vals.begin());
-        }
-
-        predicted_vals.push_back(predicted_val[0]);
-
-        // Calculate error between prediction made at t-1 and actual value at t
-        float prediction_error = calc_error(predicted_val[0], normalized);
-
+        // Calculate prediction error
+        float prediction_error = calc_error(predicted_val, observed_val);
         predictive_errors.push_back(prediction_error);
 
         // Check range and handle out-of-range values
@@ -99,9 +90,9 @@ bool AdapAD::is_anomalous(float observed_val) {
 
             // Log out-of-range value as -999 (matching Python implementation)
             f_log.open(f_name, std::ios_base::app);
-            f_log << "-999," << reverse_normalized_data(predicted_val[0]) << ","
-                  << reverse_normalized_data(predicted_val[0] - minimal_threshold) << ","
-                  << reverse_normalized_data(predicted_val[0] + minimal_threshold) << ","
+            f_log << "-999," << predicted_val << ","
+                  << predicted_val - minimal_threshold << ","
+                  << predicted_val + minimal_threshold << ","
                   << "True" << "," << prediction_error << "," << minimal_threshold << "\n";
             f_log.close();
         } else {
@@ -109,15 +100,17 @@ bool AdapAD::is_anomalous(float observed_val) {
             float threshold = minimal_threshold;
 
             if (static_cast<int>(predictive_errors.size()) >= predictor_config.lookback_len) {
+                // Get the last lookback_len prediction errors
                 auto past_errors =
                     std::vector<float>(predictive_errors.end() - predictor_config.lookback_len,
                                        predictive_errors.end());
 
-                // Store generator forward pass results
+                // Create generator input for threshold generation
                 std::vector<std::vector<std::vector<float>>> generator_input(1);
                 generator_input[0].resize(1);
                 generator_input[0][0] = past_errors;
-                auto generator_output = generator->forward(generator_input);
+                
+                // Generate threshold using a single forward call
                 threshold = generator->generate(past_errors, minimal_threshold);
 
                 if (prediction_error > threshold && !is_default_normal()) {
@@ -127,14 +120,18 @@ bool AdapAD::is_anomalous(float observed_val) {
 
                 // Only update models if not in default normal state
                 if (!is_default_normal()) {
+                    // Update data predictor
                     data_predictor->update(predictor_config.epoch_update,
-                                           predictor_config.lr_update, past_observations,
-                                           {normalized});
+                                          predictor_config.lr_update, 
+                                          input_data,
+                                          {normalized_val});
 
+                    // Update generator if anomalous or threshold is significant
                     if (is_anomalous_ret || threshold > minimal_threshold) {
                         generator->update(predictor_config.epoch_update_generator,
-                                          predictor_config.lr_update_generator, past_errors,
-                                          prediction_error);
+                                         predictor_config.lr_update_generator, 
+                                         past_errors,
+                                         prediction_error);
                     }
                 }
             }
@@ -143,15 +140,10 @@ bool AdapAD::is_anomalous(float observed_val) {
 
             // Log in-range value
             f_log.open(f_name, std::ios_base::app);
-            f_log << observed_val << "," << reverse_normalized_data(predicted_val[0]) << ","
-                  << reverse_normalized_data(predicted_val[0] - (thresholds.empty()
-                                                                     ? minimal_threshold
-                                                                     : thresholds.back()))
-                  << ","
-                  << reverse_normalized_data(predicted_val[0] + (thresholds.empty()
-                                                                     ? minimal_threshold
-                                                                     : thresholds.back()))
-                  << "," << (is_anomalous_ret ? "True" : "False") << ","
+            f_log << observed_val << "," << predicted_val << ","
+                  << predicted_val - (thresholds.empty() ? minimal_threshold : thresholds.back()) << ","
+                  << predicted_val + (thresholds.empty() ? minimal_threshold : thresholds.back()) << ","
+                  << (is_anomalous_ret ? "True" : "False") << ","
                   << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << ","
                   << (thresholds.empty() ? minimal_threshold : thresholds.back()) << "\n";
             f_log.close();
@@ -160,8 +152,8 @@ bool AdapAD::is_anomalous(float observed_val) {
         // Check if we should save the model based on update count
         if (config.save_enabled && ++update_count >= config.save_interval) {
             try {
-                save_models();
-                update_count = 0; // Reset counter after saving
+                save_model(); // Changed from save_model() to match class declaration
+                update_count = 0; 
             } catch (const std::exception &e) {
                 std::cerr << "Failed to save model state: " << e.what() << std::endl;
             }
@@ -297,9 +289,6 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
 }
 
 void AdapAD::train() {
-    // Start timing
-    auto start_time = std::chrono::high_resolution_clock::now();
-
     // Reset states before training
     data_predictor->reset_states();
     generator->reset_states();
@@ -316,13 +305,14 @@ void AdapAD::train() {
         input_tensor[0].resize(1);
         input_tensor[0][0] = x[0];
 
-        auto pred = data_predictor->predict(input_tensor);
-        predicted_vals.push_back(pred);
+        std::vector<float> prediction = data_predictor->forward(input_tensor);
+        float pred_value = prediction[0];
+        predicted_vals.push_back(pred_value);
 
         // Log training predictions without thresholds
         f_log.open(f_name, std::ios_base::app);
         f_log << reverse_normalized_data(observed_vals[predicted_vals.size() - 1]) << ","
-              << reverse_normalized_data(pred) << ",,,,," << "\n";
+              << reverse_normalized_data(pred_value) << ",,,,," << "\n";
         f_log.close();
 
         // Release memory for this input tensor
@@ -341,16 +331,10 @@ void AdapAD::train() {
     generator->clear_update_state();
     generator->train(config.epoch_train, config.lr_train, predictive_errors);
 
-    // End timing
-    auto end_time = std::chrono::high_resolution_clock::now();
-    // We don't use elapsed time in this method, but we keep the timing code
-    // for potential future performance monitoring
-    std::chrono::duration<double> elapsed = end_time - start_time;
-
     // Save after initial training if enabled
     if (config.save_enabled) {
         try {
-            save_models();
+            save_model();
             update_count = 0; // Reset counter after saving
         } catch (const std::exception &e) {
             std::cerr << "Failed to save initial model state: " << e.what() << std::endl;
@@ -389,7 +373,7 @@ float AdapAD::simplify_error(const std::vector<float> &errors, float N_sigma) {
     return mean + N_sigma * std_dev;
 }
 
-void AdapAD::save_models() {
+void AdapAD::save_model() {
     try {
         // Create directory if it doesn't exist
         if (mkdir(config.save_path.c_str(), 0777) == -1) {
@@ -477,7 +461,7 @@ void AdapAD::save_models() {
     }
 }
 
-void AdapAD::load_models(const std::string &timestamp, const std::vector<float> &initial_data) {
+void AdapAD::load_model(const std::string &timestamp, const std::vector<float> &initial_data) {
     try {
         if (initial_data.size() < predictor_config.lookback_len) {
             throw std::runtime_error("Not enough initial data points provided. Need at least " +
@@ -723,7 +707,7 @@ void AdapAD::load_latest_model(const std::vector<float> &initial_data) {
 
     if (!latest_file.empty()) {
         std::string timestamp = latest_file.substr(parameter_name.length() + 7, 15);
-        load_models(timestamp, initial_data);
+        load_model(timestamp, initial_data);
     } else {
         throw std::runtime_error("No saved model found for " + parameter_name);
     }

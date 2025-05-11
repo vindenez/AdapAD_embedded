@@ -37,11 +37,13 @@ class LSTMPredictor {
     LSTMPredictor(int num_classes, int input_size, int hidden_size, int num_layers,
                   int lookback_len, bool batch_first = true);
 
-    virtual LSTMOutput forward(const std::vector<std::vector<std::vector<float>>> &x,
-                               const std::vector<std::vector<float>> *initial_hidden = nullptr,
-                               const std::vector<std::vector<float>> *initial_cell = nullptr);
+    std::vector<float> forward(const std::vector<std::vector<std::vector<float>>> &x,
+                          const std::vector<std::vector<float>> *initial_hidden = nullptr,
+                          const std::vector<std::vector<float>> *initial_cell = nullptr);
 
-    virtual std::vector<float> get_final_prediction(const LSTMOutput &lstm_output);
+    virtual void train_step(const std::vector<std::vector<std::vector<float>>> &x,
+                            const std::vector<float> &target,
+                            float learning_rate);
 
     void set_random_seed(unsigned seed) {
         random_seed = seed;
@@ -57,13 +59,9 @@ class LSTMPredictor {
 
     void reset_states();
 
-    // Training methods
-    virtual void train_step(const std::vector<std::vector<std::vector<float>>> &x,
-                            const std::vector<float> &target, const LSTMOutput &lstm_output,
-                            float learning_rate);
-
-    virtual std::vector<float> mse_loss_gradient(const std::vector<float> &output,
-                                                 const std::vector<float> &target);
+    virtual void mse_loss_gradient(const std::vector<float> &output,
+                                   const std::vector<float> &target,
+                                   std::vector<float> &gradient);
     virtual float mse_loss(const std::vector<float> &prediction, const std::vector<float> &target);
 
 #ifdef TESTING
@@ -188,13 +186,19 @@ class LSTMPredictor {
     // Store last gradients for testing
     std::vector<LSTMGradients> last_gradients;
 
-    // Helper functions
     float sigmoid(float x);
     float tanh_custom(float x);
-    virtual std::vector<float> lstm_cell_forward(const std::vector<float> &input,
+
+    virtual std::vector<float> forward_lstm_cell(const std::vector<float> &input,
                                                  std::vector<float> &h_state,
                                                  std::vector<float> &c_state,
                                                  const LSTMLayer &layer);
+    
+    virtual LSTMOutput forward_lstm(const std::vector<std::vector<std::vector<float>>> &x,
+                               const std::vector<std::vector<float>> *initial_hidden = nullptr,
+                               const std::vector<std::vector<float>> *initial_cell = nullptr);
+
+    virtual std::vector<float> forward_linear(const LSTMOutput &lstm_output);
 
     // Training helper functions
     virtual void backward_linear_layer(const std::vector<float> &grad_output,
@@ -229,6 +233,12 @@ class LSTMPredictor {
     std::vector<std::vector<float>> v_fc_weight;
     std::vector<float> m_fc_bias;
     std::vector<float> v_fc_bias;
+
+    // Pre-allocated gradient vectors for training
+    std::vector<float> grad_output_buffer;
+    std::vector<std::vector<float>> fc_weight_grad_buffer;
+    std::vector<float> fc_bias_grad_buffer;
+    std::vector<float> lstm_grad_buffer;
 
     virtual void apply_sgd_update(std::vector<std::vector<float>> &weights,
                                   std::vector<std::vector<float>> &grads, float learning_rate,

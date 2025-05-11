@@ -19,21 +19,14 @@ class AnomalousThresholdGenerator {
     void update(int epoch_update, float lr_update, const std::vector<float> &past_errors,
                 float recent_error);
 
-    void eval() { generator->eval(); }
-    void train() { generator->train(); }
-    LSTMPredictor::LSTMOutput forward(const std::vector<std::vector<std::vector<float>>> &x) {
+    std::vector<float> forward(const std::vector<std::vector<std::vector<float>>> &x) {
         return generator->forward(x);
     }
-    std::vector<float> get_final_prediction(const LSTMPredictor::LSTMOutput &output) {
-        return generator->get_final_prediction(output);
-    }
+
+    void eval() { generator->eval(); }
+    void train() { generator->train(); }
 
     void reset_states();
-    void train_step(const std::vector<std::vector<std::vector<float>>> &x,
-                    const std::vector<float> &target, const LSTMPredictor::LSTMOutput &lstm_output,
-                    float learning_rate) {
-        generator->train_step(x, target, lstm_output, learning_rate);
-    }
 
     // Model save/load methods
     void save_weights(std::ofstream &file);

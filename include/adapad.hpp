@@ -30,8 +30,8 @@ class AdapAD {
     std::string get_log_filename() const { return f_name; }
 
     // Add model state methods
-    void save_models();
-    void load_models(const std::string &timestamp, const std::vector<float> &initial_data);
+    void save_model();
+    void load_model(const std::string &timestamp, const std::vector<float> &initial_data);
 
     bool has_saved_model() const;
     void load_latest_model(const std::vector<float> &initial_data);

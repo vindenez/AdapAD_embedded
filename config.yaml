@@ -9,8 +9,8 @@ training:
     update_generator: 0.0001
 
 model:
-  save_enabled: true
-  load_enabled: true
+  save_enabled: false
+  load_enabled: false
   save_interval: 48
   save_path: "model_states" 
   lstm:

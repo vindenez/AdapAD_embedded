@@ -134,7 +134,7 @@ LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden
     std::cout << "LSTM Predictor initialization complete" << std::endl;
 }
 
-std::vector<float> LSTMPredictorNEON::lstm_cell_forward(const std::vector<float> &input,
+std::vector<float> LSTMPredictorNEON::forward_lstm_cell(const std::vector<float> &input,
                                                         std::vector<float> &h_state,
                                                         std::vector<float> &c_state,
                                                         const LSTMLayer &layer) {
@@ -357,8 +357,8 @@ std::vector<float> LSTMPredictorNEON::lstm_cell_forward(const std::vector<float>
 
     return output;
 }
-LSTMPredictor::LSTMOutput
-LSTMPredictorNEON::forward(const std::vector<std::vector<std::vector<float>>> &x,
+
+LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward_lstm(const std::vector<std::vector<std::vector<float>>> &x,
                            const std::vector<std::vector<float>> *initial_hidden,
                            const std::vector<std::vector<float>> *initial_cell) {
 
@@ -475,7 +475,7 @@ LSTMPredictorNEON::forward(const std::vector<std::vector<std::vector<float>>> &x
                         cache_entry.hidden_state.resize(hidden_size);
                     }
 
-                    layer_outputs[layer + 1] = lstm_cell_forward(
+                    layer_outputs[layer + 1] = forward_lstm_cell(
                         layer_outputs[layer], h_state[layer], c_state[layer], lstm_layers[layer]);
                 }
 
@@ -966,7 +966,7 @@ void LSTMPredictorNEON::apply_sgd_update(std::vector<float> &biases, std::vector
     }
 }
 
-std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput &lstm_output) {
+std::vector<float> LSTMPredictorNEON::forward_linear(const LSTMOutput &lstm_output) {
     std::vector<float> final_output(num_classes, 0.0f);
 
     // Get final hidden state
@@ -1003,83 +1003,6 @@ std::vector<float> LSTMPredictorNEON::get_final_prediction(const LSTMOutput &lst
     }
 
     return final_output;
-}
-
-void LSTMPredictorNEON::train_step(const std::vector<std::vector<std::vector<float>>> &x,
-                                   const std::vector<float> &target, const LSTMOutput &lstm_output,
-                                   float learning_rate) {
-
-    try {
-        // Validate input dimensions
-        for (size_t batch = 0; batch < x.size(); ++batch) {
-            for (size_t seq = 0; seq < x[batch].size(); ++seq) {
-                if (x[batch][seq].size() != input_size) {
-                    throw std::runtime_error(
-                        "Input sequence dimension mismatch in train_step: batch " +
-                        std::to_string(batch) + ", seq " + std::to_string(seq));
-                }
-            }
-        }
-
-        if (x.empty() || x[0].empty() || x[0][0].empty()) {
-            throw std::runtime_error("Empty input tensor");
-        }
-        if (x[0][0].size() != input_size) {
-            throw std::runtime_error("Input feature size mismatch");
-        }
-        if (target.size() != num_classes) {
-            throw std::invalid_argument("Target size mismatch");
-        }
-
-        // 1. Get the final prediction
-        auto output = get_final_prediction(lstm_output);
-
-        // 2. Compute gradient of loss w.r.t. output
-        auto grad_output = mse_loss_gradient(output, target);
-
-        // 3. Get final hidden state
-        const auto &last_hidden = lstm_output.sequence_output.back().back();
-
-        // 4. Backward pass through FC layer
-        std::vector<std::vector<float>> fc_weight_grad;
-        std::vector<float> fc_bias_grad;
-        std::vector<float> lstm_grad;
-        backward_linear_layer(grad_output, last_hidden, fc_weight_grad, fc_bias_grad, lstm_grad);
-
-        // 5. Update FC layer weights
-        apply_sgd_update(fc_weight, fc_weight_grad, learning_rate, 0.9f);
-        apply_sgd_update(fc_bias, fc_bias_grad, learning_rate, 0.9f);
-
-        // 6. Backward pass through LSTM layers
-        auto lstm_gradients = backward_lstm_layer(lstm_grad, layer_cache, learning_rate);
-
-        // 7. Update LSTM layer parameters
-        for (int layer = 0; layer < num_layers; ++layer) {
-            if (layer >= lstm_layers.size()) {
-                throw std::runtime_error("Layer index out of bounds: " + std::to_string(layer));
-            }
-            if (layer >= lstm_gradients.size()) {
-                throw std::runtime_error("Gradient index out of bounds: " + std::to_string(layer));
-            }
-
-            // Update weights and biases
-            apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad,
-                             learning_rate, 0.9f);
-            apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad,
-                             learning_rate, 0.9f);
-            apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad,
-                             learning_rate, 0.9f);
-            apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad,
-                             learning_rate, 0.9f);
-        }
-
-        // 8. Clear temporary state
-        clear_update_state();
-
-    } catch (const std::exception &e) {
-        clear_update_state();
-        throw;
-    }
 }
 
 void LSTMPredictorNEON::apply_gate_operations_neon(std::vector<float> &gates,
@@ -1159,34 +1082,43 @@ void LSTMPredictorNEON::apply_gate_operations_neon(std::vector<float> &gates,
     }
 }
 
-std::vector<float> LSTMPredictorNEON::mse_loss_gradient(const std::vector<float> &output,
-                                                        const std::vector<float> &target) {
-    if (output.size() != target.size()) {
-        throw std::runtime_error("Output and target size mismatch in mse_loss_gradient");
+void LSTMPredictorNEON::mse_loss_gradient(const std::vector<float> &output,
+                                    const std::vector<float> &target,
+                                    std::vector<float> &gradient) {
+    // Ensure gradient is properly sized
+    if (gradient.size() != output.size()) {
+        gradient.resize(output.size());
     }
-
-    std::vector<float> gradient(output.size());
-
+    
+    const size_t size = output.size();
+    const float scale = 2.0f / size;
+    
+    // Process 4 elements at a time using NEON
     size_t i = 0;
-    // Process 4 elements at a time
-    for (; i + 3 < output.size(); i += 4) {
-        // Load output and target vectors
+    const size_t vec_size = size - (size % 4);
+    
+    // Preload scale factor into a NEON register
+    float32x4_t v_scale = vdupq_n_f32(scale);
+    
+    for (; i < vec_size; i += 4) {
+        // Load 4 elements from output and target
         float32x4_t v_output = vld1q_f32(&output[i]);
         float32x4_t v_target = vld1q_f32(&target[i]);
-
-        // Calculate gradient: output - target
-        float32x4_t v_gradient = vsubq_f32(v_output, v_target);
-
-        // Store result
+        
+        // Calculate difference: (output - target)
+        float32x4_t v_diff = vsubq_f32(v_output, v_target);
+        
+        // Calculate gradient: 2.0f * (output - target) / size
+        float32x4_t v_gradient = vmulq_f32(v_diff, v_scale);
+        
+        // Store the result
         vst1q_f32(&gradient[i], v_gradient);
     }
-
-    // Handle remaining elements
-    for (; i < output.size(); ++i) {
-        gradient[i] = output[i] - target[i];
+    
+    // Handle remaining elements (if any)
+    for (; i < size; ++i) {
+        gradient[i] = scale * (output[i] - target[i]);
     }
-
-    return gradient;
 }
 
 float LSTMPredictorNEON::mse_loss(const std::vector<float> &prediction,
