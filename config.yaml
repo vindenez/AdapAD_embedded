@@ -5,7 +5,7 @@ training:
     update_generator: 5
   learning_rates:
     train: 0.002
-    update: 0.002
+    update: 0.001
     update_generator: 0.0001
 
 model:
@@ -38,7 +38,7 @@ data:
         bounds:
           lower: 713.0
           upper: 763.0
-        minimal_threshold: 0.0023
+        minimal_threshold: 0.0025
     Austevoll_nord:
       conductivity_conductivity:
         bounds:
