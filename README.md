@@ -6,7 +6,7 @@ The algorithm was developed for marine sensor measurements as it utilizes online
 
 Training time: 25s
 
-Decision-making time: 1.8-2.1 Seconds per time step. (Online learning stage - this includes prediction/forward pass and complete backpropagation)
+Decision-making time: 1.8-2.1 Seconds per time step. (Online learning - this includes backpropagation with intermediate forward pass per update epoch)
 
 ## Memory usage
 
