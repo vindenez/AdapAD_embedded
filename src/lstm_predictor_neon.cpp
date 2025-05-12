@@ -16,16 +16,17 @@
 float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     // Constants
     float32x4_t v_one = vdupq_n_f32(1.0f);
-    float32x4_t v_min = vdupq_n_f32(-10.0f); 
+    float32x4_t v_min = vdupq_n_f32(-10.0f);  // Clamp to avoid numerical issues
     float32x4_t v_max = vdupq_n_f32(10.0f);
 
     // Clamp input to avoid overflow/underflow
     x = vmaxq_f32(x, v_min);
     x = vminq_f32(x, v_max);
 
+    // Compute negative x
     float32x4_t v_neg_x = vnegq_f32(x);
 
-    // Calculate each element individually
+    // For now, calculate each element individually
     float exp_values[4];
     exp_values[0] = std::exp(vgetq_lane_f32(v_neg_x, 0));
     exp_values[1] = std::exp(vgetq_lane_f32(v_neg_x, 1));
@@ -33,12 +34,21 @@ float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     exp_values[3] = std::exp(vgetq_lane_f32(v_neg_x, 3));
     float32x4_t v_exp_neg_x = vld1q_f32(exp_values);
 
-    // Sigmoid: 1 / (1 + exp(-x))
+    // Calculate sigmoid: 1 / (1 + exp(-x))
     float32x4_t v_denom = vaddq_f32(v_one, v_exp_neg_x);
-    float32x4_t v_result = vdivq_f32(v_one, v_denom);
+
+    // Use vector reciprocal estimate (less accurate but faster)
+    float32x4_t v_recip = vrecpeq_f32(v_denom);
+
+    // One iteration of Newton-Raphson refinement for better accuracy
+    float32x4_t v_error = vsubq_f32(v_one, vmulq_f32(v_denom, v_recip));
+    v_recip = vmlaq_f32(v_recip, v_recip, v_error);
+
+    float32x4_t v_result = vmulq_f32(v_one, v_recip);
 
     return v_result;
 }
+
 
 float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
     float32x4_t v_min = vdupq_n_f32(-10.0f); 

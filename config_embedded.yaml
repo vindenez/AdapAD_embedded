@@ -2,11 +2,12 @@ training:
   epochs:
     train: 100
     update: 50
-    update_generator: 5
+    update_generator: 50
   learning_rates:
-    train: 0.002
-    update: 0.002
-    update_generator: 0.0001
+    train: 0.001
+    update: 0.003
+    update_generator: 0.00001
+  train_size: 10
 
 model:
   save_enabled: false
@@ -16,7 +17,7 @@ model:
   lstm:
     size: 100
     layers: 2
-    lookback: 3
+    lookback_len: 3
     prediction_len: 1
   
 anomaly_detection:
@@ -25,6 +26,8 @@ anomaly_detection:
 system:
   use_neon: true
   random_seed: 42
+
+data_source: "Tide_pressure"
 
 data:
   paths:
@@ -36,7 +39,7 @@ data:
         bounds:
           lower: 713.0
           upper: 763.0
-        minimal_threshold: 0.0038
+        minimal_threshold: 0.0045
     Wave_height:
       bounds:
         lower: 0
