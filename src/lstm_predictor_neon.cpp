@@ -61,8 +61,8 @@ float32x4_t LSTMPredictorNEON::tanh_neon(float32x4_t x) {
 }
 
 LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden_size,
-                                     int num_layers, int lookback_len, bool batch_first)
-    : LSTMPredictor(num_classes, input_size, hidden_size, num_layers, lookback_len, batch_first) {
+                                     int num_layers, int lookback_len, bool batch_first, int random_seed_param)
+    : LSTMPredictor(num_classes, input_size, hidden_size, num_layers, lookback_len, batch_first, random_seed_param) {
 
     std::cout << "Initializing LSTM Predictor with:" << std::endl;
     std::cout << "- num_classes: " << num_classes << std::endl;
@@ -70,68 +70,7 @@ LSTMPredictorNEON::LSTMPredictorNEON(int num_classes, int input_size, int hidden
     std::cout << "- hidden_size: " << hidden_size << std::endl;
     std::cout << "- num_layers: " << num_layers << std::endl;
     std::cout << "- lookback_len: " << lookback_len << std::endl;
-
-    // Pre-allocate LSTM layers
-    lstm_layers.resize(num_layers);
-    last_gradients.resize(num_layers);
-
-    // Initialize velocity terms
-    velocity_weight_ih.resize(num_layers);
-    velocity_weight_hh.resize(num_layers);
-    velocity_bias_ih.resize(num_layers);
-    velocity_bias_hh.resize(num_layers);
-
-    for (int layer = 0; layer < num_layers; ++layer) {
-        int input_size_layer = (layer == 0) ? input_size : hidden_size;
-        velocity_weight_ih[layer].resize(4 * hidden_size,
-                                         std::vector<float>(input_size_layer, 0.0f));
-        velocity_weight_hh[layer].resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
-        velocity_bias_ih[layer].resize(4 * hidden_size, 0.0f);
-        velocity_bias_hh[layer].resize(4 * hidden_size, 0.0f);
-    }
-
-    velocity_fc_weight.resize(num_classes, std::vector<float>(hidden_size, 0.0f));
-    velocity_fc_bias.resize(num_classes, 0.0f);
-
-    // Pre-allocate layer cache with minimal structure
-    layer_cache.resize(num_layers);
-    for (int layer = 0; layer < num_layers; ++layer) {
-        layer_cache[layer].resize(1);               
-        layer_cache[layer][0].resize(lookback_len); 
-
-        // Pre-allocate each cache entry with properly sized vectors
-        for (auto &seq : layer_cache[layer][0]) {
-            int expected_input_size = (layer == 0) ? input_size : hidden_size;
-            seq.input.resize(expected_input_size, 0.0f);
-            seq.prev_hidden.resize(hidden_size, 0.0f);
-            seq.prev_cell.resize(hidden_size, 0.0f);
-            seq.cell_state.resize(hidden_size, 0.0f);
-            seq.input_gate.resize(hidden_size, 0.0f);
-            seq.forget_gate.resize(hidden_size, 0.0f);
-            seq.cell_candidate.resize(hidden_size, 0.0f);
-            seq.output_gate.resize(hidden_size, 0.0f);
-            seq.hidden_state.resize(hidden_size, 0.0f);
-        }
-    }
-
-    // Pre-allocate gradients
-    for (auto &grad : last_gradients) {
-        int input_size_layer = (current_layer == 0) ? input_size : hidden_size;
-        grad.weight_ih_grad.resize(4 * hidden_size, std::vector<float>(input_size_layer, 0.0f));
-        grad.weight_hh_grad.resize(4 * hidden_size, std::vector<float>(hidden_size, 0.0f));
-        grad.bias_ih_grad.resize(4 * hidden_size, 0.0f);
-        grad.bias_hh_grad.resize(4 * hidden_size, 0.0f);
-    }
-
-    // Pre-allocate states
-    h_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
-    c_state.resize(num_layers, std::vector<float>(hidden_size, 0.0f));
-
-    // Initialize weights
-    initialize_weights();
-    reset_states();
-
-    std::cout << "LSTM Predictor initialization complete" << std::endl;
+    std::cout << "- random_seed: " << random_seed_param << std::endl;
 }
 
 std::vector<float> LSTMPredictorNEON::forward_lstm_cell(const std::vector<float> &input,

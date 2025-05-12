@@ -35,7 +35,7 @@ class LSTMPredictor {
 
     // Constructor and methods
     LSTMPredictor(int num_classes, int input_size, int hidden_size, int num_layers,
-                  int lookback_len, bool batch_first = true);
+                  int lookback_len, bool batch_first = true, int random_seed_param = 45);
 
     std::vector<float> forward(const std::vector<std::vector<std::vector<float>>> &x,
                           const std::vector<std::vector<float>> *initial_hidden = nullptr,

@@ -10,8 +10,8 @@
 #include <random>
 
 LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, int num_layers,
-                             int lookback_len, bool batch_first)
-    : num_classes(num_classes), num_layers(num_layers), input_size(input_size),
+                             int lookback_len, bool batch_first, int random_seed_param)
+    : random_seed(random_seed_param), num_classes(num_classes), num_layers(num_layers), input_size(input_size),
       hidden_size(hidden_size), seq_length(lookback_len), batch_first(batch_first),
       training_mode(false), online_learning_mode(false), is_cache_initialized(false) {
 
@@ -21,12 +21,9 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, i
     std::cout << "- hidden_size: " << hidden_size << std::endl;
     std::cout << "- num_layers: " << num_layers << std::endl;
     std::cout << "- lookback_len: " << lookback_len << std::endl;
-    std::cout << "- random_seed: " << random_seed << std::endl;
+    std::cout << "- random_seed: " << random_seed_param << std::endl;
 
-    const Config &config = Config::getInstance();
-
-    // Set random seed before any initialization
-    set_random_seed(random_seed);
+    set_random_seed(random_seed_param);
 
     // Pre-allocate LSTM layers
     lstm_layers.resize(num_layers);
@@ -53,8 +50,8 @@ LSTMPredictor::LSTMPredictor(int num_classes, int input_size, int hidden_size, i
     // Pre-allocate layer cache with minimal structure
     layer_cache.resize(num_layers);
     for (int layer = 0; layer < num_layers; ++layer) {
-        layer_cache[layer].resize(1);               // One batch
-        layer_cache[layer][0].resize(lookback_len); // Sequence length
+        layer_cache[layer].resize(1);               
+        layer_cache[layer][0].resize(lookback_len);
 
         // Pre-allocate each cache entry with properly sized vectors
         for (LSTMCacheEntry &seq : layer_cache[layer][0]) {
@@ -573,8 +570,8 @@ float LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>
                             fc_weight_grad_buffer, fc_bias_grad_buffer, lstm_grad_buffer);
         
         // Update FC layer weights using SGD 
-        apply_sgd_update(fc_weight, fc_weight_grad_buffer, learning_rate, 0.9f);
-        apply_sgd_update(fc_bias, fc_bias_grad_buffer, learning_rate, 0.9f);
+        apply_sgd_update(fc_weight, fc_weight_grad_buffer, learning_rate, 0.5);
+        apply_sgd_update(fc_bias, fc_bias_grad_buffer, learning_rate, 0.5f);
         
         // Get LSTM layer gradients
         std::vector<LSTMGradients> lstm_gradients = backward_lstm_layer(lstm_grad_buffer, layer_cache, learning_rate);
@@ -589,13 +586,13 @@ float LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>
             }
 
             apply_sgd_update(lstm_layers[layer].weight_ih, lstm_gradients[layer].weight_ih_grad,
-                             learning_rate, 0.9f);
+                             learning_rate, 0.5f);
             apply_sgd_update(lstm_layers[layer].weight_hh, lstm_gradients[layer].weight_hh_grad,
-                             learning_rate, 0.9f);
+                             learning_rate, 0.5f);
             apply_sgd_update(lstm_layers[layer].bias_ih, lstm_gradients[layer].bias_ih_grad,
-                             learning_rate, 0.9f);
+                             learning_rate, 0.5f);
             apply_sgd_update(lstm_layers[layer].bias_hh, lstm_gradients[layer].bias_hh_grad,
-                             learning_rate, 0.9f);
+                             learning_rate, 0.5f);
         }
 
         clear_update_state();
