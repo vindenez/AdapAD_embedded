@@ -288,10 +288,6 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward_lstm(const std::vector<std::vec
         for (size_t batch = 0; batch < batch_size; ++batch) {
             current_batch = batch;
 
-            if (!initial_hidden || !initial_cell) {
-                reset_states();
-            }
-
             for (size_t t = 0; t < seq_len; ++t) {
                 current_timestep = t;
 

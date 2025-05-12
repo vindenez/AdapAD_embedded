@@ -1,12 +1,12 @@
 training:
   epochs:
     train: 100
-    update: 30
-    update_generator: 5
+    update: 50
+    update_generator: 1
   learning_rates:
-    train: 0.002
-    update: 0.004
-    update_generator: 0.002
+    train: 0.001
+    update: 0.002
+    update_generator: 0.000001
   train_size: 10
 
 model:
@@ -24,7 +24,7 @@ anomaly_detection:
   threshold_multiplier: 1.0
 
 system:
-  use_neon: true
+  use_neon: false
   random_seed: 45
 
 data_source: "Tide_pressure"
@@ -39,7 +39,7 @@ data:
         bounds:
           lower: 713.0
           upper: 763.0
-        minimal_threshold: 0.0026
+        minimal_threshold: 0.0028
     Austevoll_nord:
       conductivity_conductivity:
         bounds:

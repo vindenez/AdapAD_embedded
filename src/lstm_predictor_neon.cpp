@@ -412,11 +412,6 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward_lstm(const std::vector<std:
         for (size_t batch = 0; batch < batch_size; ++batch) {
             current_batch = batch;
 
-            // Reset states if no initial states provided
-            if (!initial_hidden || !initial_cell) {
-                reset_states();
-            }
-
             // Process each time step
             for (size_t t = 0; t < seq_len; ++t) {
                 current_timestep = t;

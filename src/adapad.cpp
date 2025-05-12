@@ -53,31 +53,26 @@ bool AdapAD::is_anomalous(float observed_val) {
     bool is_anomalous_ret = false;
     float normalized = normalize_data(observed_val);
 
-    // First add the new value
     observed_vals.push_back(normalized);
 
-    // Then remove the oldest entry if we have more than lookback_len values
     if (observed_vals.size() >
-        predictor_config.lookback_len + 1) { // +1 to ensure we have enough for prediction
+        predictor_config.lookback_len + 1) { 
         observed_vals.erase(observed_vals.begin());
     }
 
     try {
-        // Validate vector sizes before operations
         if (observed_vals.size() < predictor_config.lookback_len + 1) {
             throw std::runtime_error("Not enough observed values");
         }
 
         auto input_data = prepare_data_for_prediction(observed_vals.size() - 1);
 
-        // Make prediction
-        std::vector<float> prediction = data_predictor->forward(input_data);
+        float prediction = data_predictor->predict(input_data);
         
-        // Store the predicted value in the original scale (denormalized)
-        float predicted_val_denormalized = reverse_normalized_data(prediction[0]);
+        float predicted_val_denormalized = reverse_normalized_data(prediction);
         predicted_vals.push_back(predicted_val_denormalized);
 
-        float prediction_error = calc_error(prediction[0], normalized);
+        float prediction_error = calc_error(prediction, normalized);
         predictive_errors.push_back(prediction_error);
 
         // Check range and handle out-of-range values
@@ -277,29 +272,31 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
     std::vector<float> x_temp(observed_vals.end() - predictor_config.lookback_len - 1,
                              observed_vals.end() - 1);
     
-    // Replace out-of-range values with predicted values (similar to Python version)
+    // Replace out-of-range values with predicted values
     if (!predicted_vals.empty() && predicted_vals.size() >= predictor_config.lookback_len) {
+        // Get the last lookback_len predicted values
         std::vector<float> recent_predictions(
             predicted_vals.end() - predictor_config.lookback_len,
             predicted_vals.end());
             
         for (size_t i = 0; i < x_temp.size(); i++) {
-            // Check if value is inside range (equivalent to Python is_inside_range)
+            std::cout << "Before replacement [" << i << "]: " << x_temp[i] 
+                    << " (in_range=" << is_inside_range(x_temp[i]) << ")" << std::endl;
+            
             if (!is_inside_range(x_temp[i])) {
                 // Replace with corresponding predicted value
-                size_t pred_idx = predicted_vals.size() - x_temp.size() + i;
-                if (pred_idx < predicted_vals.size()) {
-                    x_temp[i] = normalize_data(predicted_vals[pred_idx]);
-                }
+                float replacement = normalize_data(recent_predictions[i]);
+                std::cout << "  Replacing with prediction: " << recent_predictions[i] 
+                        << " -> normalized: " << replacement << std::endl;
+                x_temp[i] = replacement;
             }
         }
     }
-
+    
     // Create tensor matching PyTorch's reshape(1, -1)
     std::vector<std::vector<std::vector<float>>> input_tensor(1);
     input_tensor[0].resize(1);
     input_tensor[0][0] = x_temp;
-
     return input_tensor;
 }
 
