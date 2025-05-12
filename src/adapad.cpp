@@ -280,14 +280,9 @@ AdapAD::prepare_data_for_prediction(size_t supposed_anomalous_pos) {
             predicted_vals.end());
             
         for (size_t i = 0; i < x_temp.size(); i++) {
-            std::cout << "Before replacement [" << i << "]: " << x_temp[i] 
-                    << " (in_range=" << is_inside_range(x_temp[i]) << ")" << std::endl;
-            
             if (!is_inside_range(x_temp[i])) {
                 // Replace with corresponding predicted value
                 float replacement = normalize_data(recent_predictions[i]);
-                std::cout << "  Replacing with prediction: " << recent_predictions[i] 
-                        << " -> normalized: " << replacement << std::endl;
                 x_temp[i] = replacement;
             }
         }
