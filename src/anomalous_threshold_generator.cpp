@@ -24,92 +24,141 @@ AnomalousThresholdGenerator::AnomalousThresholdGenerator(int lstm_layer, int lst
                                   1, 1, prediction_len);
 }
 
-std::pair<std::vector<std::vector<float>>, std::vector<float>>
-AnomalousThresholdGenerator::create_sliding_windows(const std::vector<float> &data) {
-    return ::create_sliding_windows(data, lookback_len, prediction_len);
+// This should match the behavior of sliding_windows() in the PyTorch version
+std::pair<std::vector<std::vector<float>>, std::vector<float>> AnomalousThresholdGenerator::create_sliding_windows(const std::vector<float> &data, int lookback_len, int prediction_len) {
+    std::vector<std::vector<float>> x;
+    std::vector<float> y;
+    
+    // Make sure there's enough data
+    if (data.size() < lookback_len + prediction_len) {
+        return {x, y};
+    }
+    
+    // Create sliding windows
+    for (size_t i = 0; i <= data.size() - lookback_len - prediction_len; i++) {
+        std::vector<float> window;
+        for (int j = 0; j < lookback_len; j++) {
+            window.push_back(data[i + j]);
+        }
+        x.push_back(window);
+        
+        // For the target, we take the next value after the window
+        y.push_back(data[i + lookback_len]);
+    }
+    
+    return {x, y};
+}
+
+std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
+AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float>& data2learn, int window_size) {
+    // Input validation
+    if (data2learn.size() < window_size + prediction_len) {
+        throw std::runtime_error("Not enough data for generator training");
+    }
+    
+    // Create sliding windows with the explicit window_size
+    auto windows = create_sliding_windows(data2learn, window_size, prediction_len);
+    
+    // Check if windows were successfully created
+    if (windows.first.empty()) {
+        throw std::runtime_error("Failed to create training windows");
+    }
+    
+    // Set model to training mode
+    generator->train();
+    
+    // Track training progress
+    std::vector<float> loss_history;
+    
+    // Training loop
+    for (int e = 0; e < epoch; ++e) {
+        float epoch_loss = 0.0f;
+        
+        for (size_t i = 0; i < windows.first.size(); ++i) {
+            // Reshape input to match the expected format
+            std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+            reshaped_input[0].resize(1);
+            reshaped_input[0][0] = windows.first[i];
+            
+            // Target value
+            std::vector<float> target{windows.second[i]};
+            
+            // Training step
+            float sample_loss = generator->train_step(reshaped_input, target, lr);
+            epoch_loss += sample_loss;
+        }
+        
+        // Calculate average loss for this epoch
+        float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
+        loss_history.push_back(avg_loss);
+        
+        // Report progress
+        if ((e + 1) % 100 == 0 || e == 0) {
+            std::cout << "Generator Epoch " << (e + 1) << "/" << epoch
+                     << ", Average Loss: " << avg_loss << std::endl;
+        }
+        
+        // Optional: Early stopping check
+        if (loss_history.size() > 2 && 
+            std::abs(loss_history[loss_history.size()-1] - loss_history[loss_history.size()-2]) < 1e-5) {
+            std::cout << "Early stopping at epoch " << (e + 1) << ", loss stabilized" << std::endl;
+            break;
+        }
+    }
+    
+    // Apply learning (finalize training)
+    generator->learn();
+    
+    // Convert windows to the expected 3D format for return
+    std::vector<std::vector<std::vector<float>>> x3d;
+    for (const auto& window : windows.first) {
+        std::vector<std::vector<float>> batch;
+        batch.push_back(window);
+        x3d.push_back(batch);
+    }
+    
+    return {x3d, windows.second};
+}
+
+void AnomalousThresholdGenerator::update(int epoch_update, float lr_update,
+                                       const std::vector<float>& past_errors, 
+                                       float recent_error) {
+    
+    // Prepare input for forward pass
+    std::vector<std::vector<std::vector<float>>> input_tensor(1);
+    input_tensor[0].resize(1);
+    input_tensor[0][0] = past_errors;
+    
+    // Target is a single value
+    std::vector<float> target = {recent_error};
+    
+    // Fast update loop with early stopping
+    std::vector<float> loss_history;
+    
+    for (int e = 0; e < epoch_update; ++e) {
+        // Get loss directly from train_step
+        float current_loss = generator->train_step(input_tensor, target, lr_update);
+        
+        // Early stopping logic - if loss increases, stop training
+        if (!loss_history.empty() && current_loss > loss_history.back()) {
+            break;
+        }
+        
+        loss_history.push_back(current_loss);
+    }
 }
 
 float AnomalousThresholdGenerator::generate(const std::vector<float> &prediction_errors,
-                                            float minimal_threshold) {
-
+                                           float minimal_threshold) {
     std::vector<std::vector<std::vector<float>>> reshaped_input(1);
     reshaped_input[0].resize(1);
     reshaped_input[0][0] = prediction_errors;
 
-    std::vector<float> pred = generator->forward(reshaped_input);
+    std::vector<float> prediction = generator->forward(reshaped_input);
 
-    // Clamp to minimal_threshold
-    const auto &config = Config::getInstance();
-    float result = std::max(minimal_threshold, pred[0] * config.threshold_multiplier);
+    float threshold = std::max(minimal_threshold, prediction[0]);
 
-    return result;
-}
-
-void AnomalousThresholdGenerator::update(int epoch_update, float lr_update,
-                                         const std::vector<float> &past_errors,
-                                         float recent_error) {
-
-    // Copy data to pre-allocated input
-    std::copy(past_errors.begin(), past_errors.end(), update_input[0][0].begin());
-
-    // Set target
-    update_target[0] = recent_error;
-
-    for (int e = 0; e < epoch_update; ++e) {
-        generator->train_step(update_input, update_target, lr_update);
-    }
-}
-
-std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
-AnomalousThresholdGenerator::train(int epoch, float lr, const std::vector<float> &data2learn) {
-    auto windows = create_sliding_windows(data2learn);
-    
-    generator->train();
-    float best_loss = std::numeric_limits<float>::max();
-    
-    for (int e = 0; e < epoch; ++e) {
-        float epoch_loss = 0.0f;
-        for (size_t i = 0; i < windows.first.size(); ++i) {
-            std::vector<std::vector<std::vector<float>>> input_tensor(1);
-            input_tensor[0].resize(1);
-            input_tensor[0][0] = windows.first[i];
-            
-            // Use single forward pass to get prediction
-            std::vector<float> pred = generator->forward(input_tensor);
-            
-            // Calculate loss
-            float sample_loss = 0.0f;
-            std::vector<float> target{windows.second[i]};
-            for (size_t k = 0; k < pred.size(); ++k) {
-                float diff = pred[k] - target[k];
-                sample_loss += diff * diff;
-            }
-            epoch_loss += sample_loss;
-            
-            // Train step for each sample - no need to pass output anymore
-            generator->train_step(input_tensor, target, lr);
-        }
-        
-        // Report progress periodically if needed
-        if ((e + 1) % 100 == 0) {
-            float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
-            std::cout << "Generator Epoch " << (e + 1) << "/" << epoch 
-                      << ", Average Loss: " << avg_loss << std::endl;
-        }
-    }
-    
-    generator->learn();
-    
-    // Convert windows to 3D
-    std::vector<std::vector<std::vector<float>>> x3d;
-    for (const auto &window : windows.first) {
-        std::vector<std::vector<std::vector<float>>> input_tensor(1);
-        input_tensor[0].resize(1);
-        input_tensor[0][0] = window;
-        x3d.push_back(input_tensor[0]);
-    }
-    
-    return {x3d, windows.second};
+    return threshold;
 }
 
 void AnomalousThresholdGenerator::save_weights(std::ofstream &file) {

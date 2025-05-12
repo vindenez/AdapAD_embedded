@@ -12,7 +12,7 @@ class AnomalousThresholdGenerator {
                                 int prediction_len);
 
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
-    train(int epoch, float lr, const std::vector<float> &data2learn);
+    train(int epoch, float lr, const std::vector<float> &data2learn, int train_size);
 
     float generate(const std::vector<float> &prediction_errors, float minimal_threshold);
 
@@ -58,8 +58,7 @@ class AnomalousThresholdGenerator {
     std::vector<float> update_pred;
     LSTMPredictor::LSTMOutput update_output;
 
-    std::pair<std::vector<std::vector<float>>, std::vector<float>>
-    create_sliding_windows(const std::vector<float> &data);
+    std::pair<std::vector<std::vector<float>>, std::vector<float>> create_sliding_windows(const std::vector<float> &data, int lookback_len, int prediction_len);
 
     int lookback_len;
     int prediction_len;

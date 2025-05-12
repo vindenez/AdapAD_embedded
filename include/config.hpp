@@ -97,13 +97,12 @@ class Config {
     float lr_update_generator; 
     int update_G_epoch;
     float update_G_lr;
-
+    int train_size;
     // Model architecture
     int LSTM_size;
     int LSTM_size_layer;
     int lookback_len;
     int prediction_len;
-    int train_size;
     int num_classes;
     int input_size;
 

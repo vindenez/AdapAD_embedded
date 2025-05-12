@@ -10,7 +10,7 @@ class LSTMPredictorNEON : public LSTMPredictor {
   public:
     // Constructor
     LSTMPredictorNEON(int num_classes, int input_size, int hidden_size, int num_layers,
-                      int lookback_len, bool batch_first = true);
+                      int lookback_len, bool batch_first = true, int random_seed_param = 45);
 
     // Override LSTM cell forward method to use NEON optimizations
     std::vector<float> forward_lstm_cell(const std::vector<float> &input,

@@ -52,6 +52,7 @@ bool Config::load(const std::string &yaml_path) {
         lr_train = get_float("training.learning_rates.train", 0.015f);
         lr_update = get_float("training.learning_rates.update", 0.015f);
         lr_update_generator = get_float("training.learning_rates.update_generator", 0.015f);
+        train_size = get_int("training.train_size", 3 * lookback_len + prediction_len);
 
         // Load system settings
         random_seed = get_int("system.random_seed", 42);
@@ -65,8 +66,7 @@ bool Config::load(const std::string &yaml_path) {
         apply_data_source_config();
 
         // Derived values
-        train_size = 2 * lookback_len + prediction_len;
-        num_classes = 1;
+        num_classes = prediction_len;
         input_size = lookback_len;
 
         return true;
@@ -114,7 +114,6 @@ PredictorConfig init_predictor_config() {
     predictor_config.epoch_update_generator = config.epoch_update_generator;
     predictor_config.lr_update = config.lr_update;
     predictor_config.lr_update_generator = config.lr_update_generator;
-
     return predictor_config;
 }
 

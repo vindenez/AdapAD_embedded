@@ -35,20 +35,20 @@ class LSTMPredictor {
 
     // Constructor and methods
     LSTMPredictor(int num_classes, int input_size, int hidden_size, int num_layers,
-                  int lookback_len, bool batch_first = true);
+                  int lookback_len, bool batch_first = true, int random_seed_param = 45);
 
     std::vector<float> forward(const std::vector<std::vector<std::vector<float>>> &x,
                           const std::vector<std::vector<float>> *initial_hidden = nullptr,
                           const std::vector<std::vector<float>> *initial_cell = nullptr);
 
-    virtual void train_step(const std::vector<std::vector<std::vector<float>>> &x,
+    virtual float train_step(const std::vector<std::vector<std::vector<float>>> &x,
                             const std::vector<float> &target,
                             float learning_rate);
 
     void set_random_seed(unsigned seed) {
         random_seed = seed;
-        initialize_weights();
     }
+    unsigned get_random_seed() const { return random_seed; }
 
     // Weight setters for loading pretrained models
     void set_lstm_weights(int layer, const std::vector<std::vector<float>> &w_ih,
