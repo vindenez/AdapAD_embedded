@@ -10,11 +10,10 @@ class NormalDataPredictor {
   public:
     NormalDataPredictor(int lstm_layer, int lstm_unit, int lookback_len, int prediction_len);
 
-    std::pair<std::vector<std::vector<float>>, std::vector<float>>
-    create_sliding_windows(const std::vector<float> &data);
+    std::pair<std::vector<std::vector<float>>, std::vector<float>> create_sliding_windows(const std::vector<float> &data, int lookback_len, int prediction_len);
 
     std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
-    train(int epoch, float lr, const std::vector<float> &data2learn);
+    train(int epoch, float lr, const std::vector<float> &data2learn, int train_size);
 
     float predict(const std::vector<std::vector<std::vector<float>>> &observed);
 

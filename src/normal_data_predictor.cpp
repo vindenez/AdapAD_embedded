@@ -27,60 +27,113 @@ NormalDataPredictor::NormalDataPredictor(int lstm_layer, int lstm_unit, int look
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<float>>
-NormalDataPredictor::create_sliding_windows(const std::vector<float> &data) {
-    return ::create_sliding_windows(data, lookback_len, prediction_len);
+NormalDataPredictor::create_sliding_windows(const std::vector<float> &data, int lookback_len, int prediction_len) {
+    std::vector<std::vector<float>> x;
+    std::vector<float> y;
+    
+    // Make sure there's enough data
+    if (data.size() < lookback_len + prediction_len) {
+        return {x, y};
+    }
+    
+    // Create sliding windows
+    for (size_t i = 0; i <= data.size() - lookback_len - prediction_len; i++) {
+        std::vector<float> window;
+        for (int j = 0; j < lookback_len; j++) {
+            window.push_back(data[i + j]);
+        }
+        x.push_back(window);
+        
+        // For the target, we take the next value after the window
+        y.push_back(data[i + lookback_len]);
+    }
+    
+    return {x, y};
 }
 
 std::pair<std::vector<std::vector<std::vector<float>>>, std::vector<float>>
-NormalDataPredictor::train(int epoch, float lr, const std::vector<float> &data2learn) {
-    std::cout << "Starting training with " << data2learn.size() << " samples..." << std::endl;
-    auto windows = create_sliding_windows(data2learn);
-    std::cout << "Created " << windows.first.size() << " training windows" << std::endl;
+NormalDataPredictor::train(int epoch, float lr, const std::vector<float>& data2learn, int window_size) {
+    // Input validation
+    if (data2learn.size() < window_size + prediction_len) {
+        throw std::runtime_error("Not enough data for predictor training");
+    }
     
+    // Create sliding windows with the explicit window_size
+    auto windows = create_sliding_windows(data2learn, window_size, prediction_len);
+    
+    // Check if windows were successfully created
+    if (windows.first.empty()) {
+        throw std::runtime_error("Failed to create training windows");
+    }
+    
+    // Set model to training mode
     predictor->train();
-    float best_loss = std::numeric_limits<float>::max();
-    int no_improve_count = 0;
     
+    // Early stopping parameters
+    const int patience = 10;  // Number of epochs to wait for improvement
+    const float min_delta = 1e-4;  // Minimum change to qualify as improvement
+    float best_loss = std::numeric_limits<float>::max();
+    int no_improvement_count = 0;
+    
+    // Training loop
     for (int e = 0; e < epoch; ++e) {
         float epoch_loss = 0.0f;
+        
         for (size_t i = 0; i < windows.first.size(); ++i) {
-            std::vector<std::vector<std::vector<float>>> input_tensor(1);
-            input_tensor[0].resize(1);
-            input_tensor[0][0] = windows.first[i];
+            // Reshape input
+            std::vector<std::vector<std::vector<float>>> reshaped_input(1);
+            reshaped_input[0].resize(1);
+            reshaped_input[0][0] = windows.first[i];
             
-            // Forward pass to get prediction for loss logging
-            std::vector<float> pred = predictor->forward(input_tensor);
-            
-            // Calculate loss
-            float sample_loss = 0.0f;
+            // Target value
             std::vector<float> target{windows.second[i]};
-            for (size_t k = 0; k < pred.size(); ++k) {
-                float diff = pred[k] - target[k];
-                sample_loss += diff * diff;
-            }
-            epoch_loss += sample_loss;
             
-            // Train step for each sample - no need to pass output anymore
-            predictor->train_step(input_tensor, target, lr);
+            // Training step
+            float sample_loss = predictor->train_step(reshaped_input, target, lr);
+            epoch_loss += sample_loss;
         }
         
+        // Calculate average loss for this epoch
+        float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
+        
         // Report progress
-        if ((e + 1) % 100 == 0) {
-            float avg_loss = epoch_loss / static_cast<float>(windows.first.size());
-            std::cout << "Epoch " << (e + 1) << "/" << epoch << ", Average Loss: " << avg_loss
-                      << std::endl;
+        if ((e + 1) % 50 == 0 || e == 0) {
+            std::cout << "Predictor Epoch " << (e + 1) << "/" << epoch 
+                     << ", Average Loss: " << avg_loss << std::endl;
+        }
+        
+        // Early stopping check
+        if (avg_loss < best_loss - min_delta) {
+            // Loss improved
+            best_loss = avg_loss;
+            no_improvement_count = 0;
+        } else {
+            // Loss didn't improve
+            no_improvement_count++;
+            if (no_improvement_count >= patience) {
+                std::cout << "Early stopping at epoch " << (e + 1) 
+                         << " as loss didn't improve for " << patience << " epochs" << std::endl;
+                break;
+            }
+        }
+        
+        // Optional: Exit if loss is very small
+        if (avg_loss < 1e-6) {
+            std::cout << "Early stopping at epoch " << (e + 1) 
+                     << " as loss is very small (" << avg_loss << ")" << std::endl;
+            break;
         }
     }
     
+    // Apply learning (finalize training)
     predictor->learn();
     
-    // Convert windows to 3D
+    // Convert windows to the expected 3D format for return
     std::vector<std::vector<std::vector<float>>> x3d;
-    for (const auto &window : windows.first) {
-        std::vector<std::vector<std::vector<float>>> input_tensor(1);
-        input_tensor[0].resize(1);
-        input_tensor[0][0] = window;
-        x3d.push_back(input_tensor[0]);
+    for (const auto& window : windows.first) {
+        std::vector<std::vector<float>> batch;
+        batch.push_back(window);
+        x3d.push_back(batch);
     }
     
     return {x3d, windows.second};
@@ -92,11 +145,22 @@ float NormalDataPredictor::predict(const std::vector<std::vector<std::vector<flo
 }
 
 void NormalDataPredictor::update(int epoch_update, float lr_update,
-           const std::vector<std::vector<std::vector<float>>> &past_observations,
-           const std::vector<float> &recent_observation) {
+                               const std::vector<std::vector<std::vector<float>>> &past_observations,
+                               const std::vector<float> &recent_observation) {
+    
+    // Fast update loop with early stopping
+    std::vector<float> loss_history;
     
     for (int e = 0; e < epoch_update; ++e) {
-        predictor->train_step(past_observations, recent_observation, lr_update);
+        // Get loss directly from train_step
+        float current_loss = predictor->train_step(past_observations, recent_observation, lr_update);
+        
+        // Early stopping logic - if loss increases, stop training
+        if (!loss_history.empty() && current_loss > loss_history.back()) {
+            break;
+        }
+        
+        loss_history.push_back(current_loss);
     }
 }
 

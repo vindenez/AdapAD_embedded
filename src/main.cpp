@@ -330,8 +330,7 @@ int main() {
 
     // Create data stream
     DataStream data_stream(config.data_source_path);
-
-    // Training phase
+// Training phase
     std::cout << "\nStarting training phase..." << std::endl;
     auto train_start = std::chrono::high_resolution_clock::now();
 
@@ -381,6 +380,9 @@ int main() {
     size_t total_predictions = 0;
     double total_processing_time = 0.0;
 
+    // The data_stream has already read the training data, so we start from the next point
+    // No need to reset or skip anything since the DataStream object maintains its position
+
     while (data_stream.read_next_line(line_values)) {
         int freq_before = get_cpu_freq();
         float temp_before = get_cpu_temp();
@@ -414,7 +416,9 @@ int main() {
                     (stats_after.system_time.tv_sec - stats_before.system_time.tv_sec) +
                     (stats_after.system_time.tv_usec - stats_before.system_time.tv_usec) / 1e6;
 
-                std::cout << " (Sys=" << system_time << "s"
+                std::cout << csv_parameters[i] << ": " << (is_anomaly ? "ANOMALY" : "normal") 
+                          << " (" << measured_value << ") - " << model_time << "s"
+                          << " (Sys=" << system_time << "s"
                           << ", CSw="
                           << (stats_after.voluntary_switches - stats_before.voluntary_switches)
                           << "v/"
