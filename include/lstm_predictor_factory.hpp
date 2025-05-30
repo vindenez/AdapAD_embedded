@@ -3,13 +3,13 @@
 
 #include "config.hpp"
 #include "lstm_predictor.hpp"
-#include "lstm_predictor_neon.hpp"
 #include <iostream>
 #include <memory>
 
 // Check for ARM architecture with NEON support
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #define HAS_NEON_SUPPORT 1
+#include "lstm_predictor_neon.hpp"
 #else
 #define HAS_NEON_SUPPORT 0
 #endif

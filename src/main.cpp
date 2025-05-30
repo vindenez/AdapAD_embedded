@@ -106,7 +106,7 @@ class DataStream {
         file.clear();
         file.seekg(0);
         std::string header;
-        std::getline(file, header); // Skip header
+        std::getline(file, header); 
         current_line = 0;
     }
 
@@ -130,7 +130,6 @@ std::vector<DataPoint> read_csv_column(const std::string &filename, int column_i
         std::stringstream ss(line);
         std::string field;
 
-        // Skip to desired column
         for (int i = 0; i <= column_index; i++) {
             if (!getline(ss, field, ',')) {
                 std::cerr << "Warning: Missing column at line " << line_number << std::endl;
@@ -278,12 +277,12 @@ int main() {
     }
 
     // Reserve space for parameters to avoid reallocations
-    csv_parameters.reserve(15); // Adjust based on expected parameter count
+    csv_parameters.reserve(20); 
 
     // Initialize models
     std::vector<std::unique_ptr<AdapAD>> models;
 
-    auto predictor_config = init_predictor_config(); // Get predictor config once
+    auto predictor_config = init_predictor_config(); 
 
     // Debug print save settings
     std::cout << "\nModel save settings:" << std::endl;

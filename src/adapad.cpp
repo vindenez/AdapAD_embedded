@@ -72,9 +72,6 @@ bool AdapAD::is_anomalous(float observed_val) {
         float predicted_val_denormalized = reverse_normalized_data(prediction);
         predicted_vals.push_back(predicted_val_denormalized);
 
-        float prediction_error = calc_error(prediction, normalized);
-        predictive_errors.push_back(prediction_error);
-
         // Check range and handle out-of-range values
         if (!is_inside_range(normalized)) {
             is_anomalous_ret = true;
@@ -85,9 +82,12 @@ bool AdapAD::is_anomalous(float observed_val) {
             f_log << "-999," << predicted_val_denormalized << ","
                   << predicted_val_denormalized - minimal_threshold << ","
                   << predicted_val_denormalized + minimal_threshold << ","
-                  << "True" << "," << prediction_error << "," << minimal_threshold << "\n";
+                  << "True" << "," << (predictive_errors.empty() ? 0.0f : predictive_errors.back()) << "," << minimal_threshold << "\n";
             f_log.close();
         } else {
+            float prediction_error = calc_error(prediction, normalized);
+            predictive_errors.push_back(prediction_error);
+
             // Only process thresholds and errors for in-range values
             float threshold = minimal_threshold;
 

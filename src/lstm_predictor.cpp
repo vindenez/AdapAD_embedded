@@ -346,17 +346,35 @@ LSTMPredictor::LSTMOutput LSTMPredictor::forward_lstm(const std::vector<std::vec
     }
 }
 
+std::vector<float> LSTMPredictor::forward_linear(const LSTMOutput &lstm_output) {
+    std::vector<float> final_output(num_classes, 0.0f);
+
+    // Get the final hidden state directly
+    const std::vector<float> &final_hidden = lstm_output.sequence_output.back().back();
+
+    // Compute the output
+    for (int i = 0; i < num_classes; ++i) {
+        float sum = fc_bias[i];
+        for (int j = 0; j < hidden_size; ++j) {
+            sum += fc_weight[i][j] * final_hidden[j];
+        }
+        final_output[i] = sum;
+    }
+
+    return final_output;
+}
+
 std::vector<float> LSTMPredictor::forward(const std::vector<std::vector<std::vector<float>>> &x,
                           const std::vector<std::vector<float>> *initial_hidden,
                           const std::vector<std::vector<float>> *initial_cell) {
-    // First process through LSTM layers
+    // Process through LSTM layers
     LSTMOutput lstm_output = forward_lstm(x, initial_hidden, initial_cell);
     
-    // Then process through fully connected layer
+    // Then process through FC layer
     return forward_linear(lstm_output);
 }
 
-void LSTMPredictor::backward_linear_layer(const std::vector<float> &grad_output,
+void LSTMPredictor::backward_linear(const std::vector<float> &grad_output,
                                           const std::vector<float> &last_hidden,
                                           std::vector<std::vector<float>> &weight_grad,
                                           std::vector<float> &bias_grad,
@@ -397,18 +415,18 @@ void LSTMPredictor::backward_linear_layer(const std::vector<float> &grad_output,
     }
 }
 
-std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
+std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm(
     const std::vector<float> &grad_output,
     const std::vector<std::vector<std::vector<LSTMCacheEntry>>> &cache, float learning_rate) {
 
     // Add dimension validation
     if (grad_output.size() != hidden_size) {
-        throw std::runtime_error("grad_output size mismatch in backward_lstm_layer");
+        throw std::runtime_error("grad_output size mismatch in backward_lstm");
     }
 
     // Add cache validation
     if (cache.size() != num_layers) {
-        throw std::runtime_error("cache layer count mismatch in backward_lstm_layer");
+        throw std::runtime_error("cache layer count mismatch in backward_lstm");
     }
 
     std::vector<LSTMGradients> layer_grads(num_layers);
@@ -463,7 +481,7 @@ std::vector<LSTMPredictor::LSTMGradients> LSTMPredictor::backward_lstm_layer(
 
                 // 1. Cell state gradient
                 float dc_t = dho * cache_entry.output_gate[h] * (1.0f - tanh_c * tanh_c);
-                dc_t += dc[h]; // Add gradient from future timestep
+                dc_t += dc[h]; 
 
                 // 2. Gate gradients
                 float do_t = dho * tanh_c * cache_entry.output_gate[h] * (1.0f - cache_entry.output_gate[h]);
@@ -566,7 +584,7 @@ float LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>
         const std::vector<float> &last_hidden = lstm_output.sequence_output.back().back();
         
         // Backward pass through linear layer (using pre-allocated buffers)
-        backward_linear_layer(grad_output_buffer, last_hidden, 
+        backward_linear(grad_output_buffer, last_hidden, 
                             fc_weight_grad_buffer, fc_bias_grad_buffer, lstm_grad_buffer);
         
         // Update FC layer weights using SGD 
@@ -574,7 +592,7 @@ float LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>
         apply_sgd_update(fc_bias, fc_bias_grad_buffer, learning_rate, 0.5f);
         
         // Get LSTM layer gradients
-        std::vector<LSTMGradients> lstm_gradients = backward_lstm_layer(lstm_grad_buffer, layer_cache, learning_rate);
+        std::vector<LSTMGradients> lstm_gradients = backward_lstm(lstm_grad_buffer, layer_cache, learning_rate);
 
         // Update LSTM layer parameters using SGD 
         for (int layer = 0; layer < num_layers; ++layer) {
@@ -603,24 +621,6 @@ float LSTMPredictor::train_step(const std::vector<std::vector<std::vector<float>
         clear_update_state();
         throw;
     }
-}
-
-std::vector<float> LSTMPredictor::forward_linear(const LSTMOutput &lstm_output) {
-    std::vector<float> final_output(num_classes, 0.0f);
-
-    // Get the final hidden state directly
-    const std::vector<float> &final_hidden = lstm_output.sequence_output.back().back();
-
-    // Compute the output
-    for (int i = 0; i < num_classes; ++i) {
-        float sum = fc_bias[i];
-        for (int j = 0; j < hidden_size; ++j) {
-            sum += fc_weight[i][j] * final_hidden[j];
-        }
-        final_output[i] = sum;
-    }
-
-    return final_output;
 }
 
 void LSTMPredictor::initialize_weights() {

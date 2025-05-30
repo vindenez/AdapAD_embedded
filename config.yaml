@@ -32,7 +32,7 @@ data_source: "Tide_pressure"
 data:
   paths:
     training: "data/Tide_pressure.validation_stage.csv"
-    log: "adapad_logs"
+    log: "results"
   parameters:
     Tide_pressure:
       value:

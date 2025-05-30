@@ -6,6 +6,8 @@
 #include <cmath>
 #include <vector>
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+
 class LSTMPredictorNEON : public LSTMPredictor {
   public:
     // Constructor
@@ -25,11 +27,11 @@ class LSTMPredictorNEON : public LSTMPredictor {
     std::vector<float> forward_linear(const LSTMOutput &lstm_output) override;
 
     std::vector<LSTMGradients>
-    backward_lstm_layer(const std::vector<float> &grad_output,
+    backward_lstm(const std::vector<float> &grad_output,
                         const std::vector<std::vector<std::vector<LSTMCacheEntry>>> &cache,
                         float learning_rate) override;
 
-    void backward_linear_layer(const std::vector<float> &grad_output,
+    void backward_linear(const std::vector<float> &grad_output,
                                const std::vector<float> &last_hidden,
                                std::vector<std::vector<float>> &weight_grad,
                                std::vector<float> &bias_grad,
@@ -62,5 +64,7 @@ class LSTMPredictorNEON : public LSTMPredictor {
     void apply_sgd_update(std::vector<float> &biases, std::vector<float> &grads,
                           float learning_rate, float momentum = 0.9f) override;
 };
+
+#endif
 
 #endif // LSTM_PREDICTOR_NEON_HPP

@@ -2,16 +2,15 @@
 #include "config.hpp"
 #include "matrix_utils.hpp"
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+
 #include <algorithm>
 #include <cxxabi.h>
 #include <execinfo.h>
 #include <fstream>
 #include <iostream>
 #include <random>
-
-#if USE_NEON
 #include <arm_neon.h>
-#endif
 
 float32x4_t LSTMPredictorNEON::sigmoid_neon(float32x4_t x) {
     // Constants
@@ -449,7 +448,7 @@ LSTMPredictor::LSTMOutput LSTMPredictorNEON::forward_lstm(const std::vector<std:
     }
 }
 
-void LSTMPredictorNEON::backward_linear_layer(const std::vector<float> &grad_output,
+void LSTMPredictorNEON::backward_linear(const std::vector<float> &grad_output,
                                               const std::vector<float> &last_hidden,
                                               std::vector<std::vector<float>> &weight_grad,
                                               std::vector<float> &bias_grad,
@@ -527,7 +526,7 @@ void LSTMPredictorNEON::backward_linear_layer(const std::vector<float> &grad_out
     }
 }
 
-std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm_layer(
+std::vector<LSTMPredictor::LSTMGradients> LSTMPredictorNEON::backward_lstm(
     const std::vector<float> &grad_output,
     const std::vector<std::vector<std::vector<LSTMCacheEntry>>> &cache, float learning_rate) {
 
@@ -1102,3 +1101,5 @@ float LSTMPredictorNEON::mse_loss(const std::vector<float> &prediction,
 
     return loss;
 }
+
+#endif

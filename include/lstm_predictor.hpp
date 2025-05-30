@@ -201,14 +201,14 @@ class LSTMPredictor {
     virtual std::vector<float> forward_linear(const LSTMOutput &lstm_output);
 
     // Training helper functions
-    virtual void backward_linear_layer(const std::vector<float> &grad_output,
+    virtual void backward_linear(const std::vector<float> &grad_output,
                                        const std::vector<float> &last_hidden,
                                        std::vector<std::vector<float>> &weight_grad,
                                        std::vector<float> &bias_grad,
                                        std::vector<float> &input_grad);
 
     virtual std::vector<LSTMGradients>
-    backward_lstm_layer(const std::vector<float> &grad_output,
+    backward_lstm(const std::vector<float> &grad_output,
                         const std::vector<std::vector<std::vector<LSTMCacheEntry>>> &cache,
                         float learning_rate);
 
