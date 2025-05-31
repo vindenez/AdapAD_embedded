@@ -27,11 +27,11 @@ system:
   use_neon: true
   random_seed: 460
 
-data_source: "Tide_pressure"
+data_source: "Austevoll_Nord"
 
 data:
   paths:
-    training: "data/Tide_pressure.validation_stage.csv"
+    training: "data/Austevoll_Nord.csv"
     log: "results"
   parameters:
     Tide_pressure:
@@ -40,7 +40,7 @@ data:
           lower: 713.0
           upper: 763.0
         minimal_threshold: 0.0045
-    Austevoll_nord:
+    Austevoll_Nord:
       conductivity_conductivity:
         bounds:
           lower: 0

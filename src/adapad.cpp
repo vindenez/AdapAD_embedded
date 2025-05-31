@@ -27,10 +27,13 @@ AdapAD::AdapAD(const PredictorConfig &predictor_config, const ValueRangeConfig &
                                                     predictor_config.prediction_len));
 
     // Create parameter-specific log file name
-    f_name = config.log_file_path + "/" + parameter_name + "_log.csv";
+    f_dir = config.log_file_path + "/" + config.data_source;
+
+    f_name = f_dir + "/" + parameter_name + "_log.csv";
+
 
     // Ensure log directory exists
-    mkdir(config.log_file_path.c_str(), 0777);
+    mkdir(f_dir.c_str(), 0777);
 
     // Initialize logging with the parameter-specific filename
     f_log.open(f_name);

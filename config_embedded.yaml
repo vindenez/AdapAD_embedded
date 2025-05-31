@@ -27,12 +27,12 @@ system:
   use_neon: true
   random_seed: 42
 
-data_source: "Tide_pressure"
+data_source: "Austevoll_Nord"
 
 data:
   paths:
-    training: "/mnt/sdcard/data/Tide_pressure.validation_stage.csv"
-    log: "/mnt/sdcard/adapad/adapad_logs"
+    training: "/mnt/sdcard/data/Austevoll_Nord.small.csv"
+    log: "/mnt/sdcard/adapad/results"
   parameters:
     Tide_pressure:
       value:
@@ -50,7 +50,7 @@ data:
         lower: 9
         upper: 33
       minimal_threshold: 0.02
-    Austevoll_nord:
+    Austevoll_Nord:
       conductivity_conductivity:
         bounds:
           lower: 0

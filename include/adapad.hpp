@@ -56,6 +56,7 @@ class AdapAD {
     // Logging
     std::ofstream f_log;
     std::string f_name;
+    std::string f_dir;
 
     // Helper methods
     void learn_error_pattern(const std::vector<std::vector<std::vector<float>>> &trainX,
