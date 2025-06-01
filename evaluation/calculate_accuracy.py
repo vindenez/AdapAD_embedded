@@ -198,7 +198,7 @@ def calculate_roc(path_to_result, label_file, feasibility=None):
         except:
             traceback.print_exc()
 
-path_to_result = "../results/"
+path_to_result = "../results/Tide_pressure/"
 label_file = "../data/Tide_Pressure.validation_stage.csv"
 calculate_f1(path_to_result, label_file)
 calculate_roc(path_to_result, label_file)

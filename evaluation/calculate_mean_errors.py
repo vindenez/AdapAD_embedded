@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-def calculate_mean_error(results_folder="../results"):
+def calculate_mean_error(results_folder="../results/Tide_pressure"):
     
     if not os.path.exists(results_folder):
         print(f"Error: Folder '{results_folder}' does not exist.")

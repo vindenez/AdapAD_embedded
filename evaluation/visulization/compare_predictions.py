@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 def plot_timeseries_comparison():
-    progress_df = pd.read_csv('results/cut/progress_0.0038.csv')
-    value_log_df = pd.read_csv('results/cut/value_log_0.0045.csv')
+    progress_df = pd.read_csv('results/Original_Python_AdapAD_Tide_pressure_results.csv')
+    value_log_df = pd.read_csv('results/Tide_pressure/value_log.csv')
     
     print(f"Progress dataset shape: {progress_df.shape}")
     print(f"Value log dataset shape: {value_log_df.shape}")
