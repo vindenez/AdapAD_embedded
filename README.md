@@ -4,21 +4,13 @@ The algorithm was developed for marine sensor measurements as it utilizes online
 
 ## Performance on ARM Cortex-A7 528 MHz
 
-Training time: 25s
+Training time: 25.1s
 
-Decision-making time: 1.8-2.1 Seconds per time step. (Online learning - this includes backpropagation with intermediate forward pass per update epoch)
-
-## Memory usage
-
-2 MB - Measured with heaptrack on host system (ubuntu)
+Decision-making time: 1.8-2.1 Seconds per time step. (Online learning - this includes backpropagation with an intermediate forward pass per update epoch)
 
 ## Underlying neural network
 
 <img width="800" alt="NNArchitecture" src="https://github.com/user-attachments/assets/841eb76d-7a81-49b4-8b95-8ce8090c84ec" />
-
-## Model comparsion - Tide pressure validation dataset
-
-<img width="800" alt="ModelComparison" src="https://github.com/user-attachments/assets/ff04a6e6-28ca-4393-af57-b29c016c7a55" />
 
 ## References
 > Nguyen, N.T., Heldal, R. and Pelliccione, P., 2024. Concept-drift-adaptive anomaly detector for marine sensor data streams. Internet of Things, p.101414.
