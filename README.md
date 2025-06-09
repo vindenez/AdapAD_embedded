@@ -2,11 +2,11 @@ An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems wit
 
 The algorithm was developed for marine sensor measurements as it utilizes online learning to adapt to concept-drift.
 
-## Performance on ARM Cortex-A7 528 MHz
+## Performance on ARM Cortex-A7 with use_neon enabled
 
 Training time: 25.1s
 
-Decision-making time: 1.8-2.1 Seconds per time step. (Online learning - this includes backpropagation with an intermediate forward pass per update epoch)
+Decision-making time: 1.9s per time step (Online learning - this includes backpropagation with an intermediate forward pass per update epoch)
 
 ## Underlying neural network
 
