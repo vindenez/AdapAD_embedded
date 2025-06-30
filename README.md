@@ -2,7 +2,7 @@ An implementation of Adaptive Anomaly Detector (AdapAD) for embedded systems wit
 
 The algorithm was developed for marine sensor measurements as it utilizes online learning to adapt to concept-drift.
 
-![EmbeddedAdapAD_class](https://github.com/user-attachments/assets/698cb3f3-fa21-4a63-a073-6d2b282f8268)
+<img width="700" alt="classdiagram" src="https://github.com/user-attachments/assets/698cb3f3-fa21-4a63-a073-6d2b282f8268" />
 
 ## Performance on ARM Cortex-A7 with use_neon enabled
 
